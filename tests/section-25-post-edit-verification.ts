@@ -55,21 +55,53 @@ async function main(): Promise<void> {
 		});
 		assertPass(
 			"Warnings are distinguished without verbose output",
-			warning === "WARN!\nsyntax:clean\ndiagnostic:1 warn\ntests:not run\n -line 7: Deprecated API",
+			warning ===
+				"WARN!\nsyntax:clean\ndiagnostic:1 warn\ntests:not run\n -line 7: Deprecated API",
 			{ warning },
 		);
 
 		const ws = createTestWorkspace();
 		try {
 			const valid = await verifyEditedFile(ws.calculatorPath);
-			assertPass("Valid edited file passes syntax verification", valid.syntax.state === "clean", { valid });
-			assertPass("Diagnostics are explicit when no ready LSP is supplied", valid.diagnostic.state === "not run", { valid });
+			assertPass(
+				"Valid edited file passes syntax verification",
+				valid.syntax.state === "clean",
+				{ valid },
+			);
+			assertPass(
+				"Diagnostics are explicit when no ready LSP is supplied",
+				valid.diagnostic.state === "not run",
+				{ valid },
+			);
 
 			const brokenPath = path.join(ws.tempDir, "broken.py");
 			fs.writeFileSync(brokenPath, "def broken_func(:\n", "utf8");
 			const broken = await verifyEditedFile(brokenPath);
-			assertPass("Broken edited file fails syntax verification", broken.syntax.state === "failed", { broken });
-			assertPass("Syntax failure is not reported as a clean edit", renderPostEditVerification(broken).startsWith("FAIL!"), { broken });
+			assertPass(
+				"Broken edited file fails syntax verification",
+				broken.syntax.state === "failed",
+				{ broken },
+			);
+			assertPass(
+				"Syntax failure is not reported as a clean edit",
+				renderPostEditVerification(broken).startsWith("FAIL!"),
+				{ broken },
+			);
+
+			const invalidTypeScriptPath = path.join(ws.tempDir, "broken.ts");
+			fs.writeFileSync(invalidTypeScriptPath, "const value = ;\n", "utf8");
+			const invalidTypeScript = await verifyEditedFile(invalidTypeScriptPath);
+			assertPass(
+				"TypeScript parser catches invalid expressions",
+				invalidTypeScript.syntax.state === "failed" &&
+				invalidTypeScript.syntax.message?.includes("Expression expected"),
+				{ invalidTypeScript },
+			);
+			assertPass(
+				"Syntax compiler errors are rendered with details",
+				renderPostEditVerification(invalidTypeScript).includes("Expression expected"),
+				{ invalidTypeScript },
+			);
 		} finally {
 			ws.cleanup();
 		}
