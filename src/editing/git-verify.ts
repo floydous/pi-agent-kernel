@@ -339,12 +339,26 @@ export function isGitRepo(cwd: string): boolean {
 	}
 }
 
+export type CommitState =
+	| "committed"
+	| "not_git_repo"
+	| "failed"
+	| "nothing_to_commit";
+
 export function autoCommitFile(
 	cwd: string,
 	filePath: string,
 	message?: string,
 ): boolean {
-	if (!isGitRepo(cwd)) return false;
+	return autoCommitFileDetailed(cwd, filePath, message).state === "committed";
+}
+
+export function autoCommitFileDetailed(
+	cwd: string,
+	filePath: string,
+	message?: string,
+): { state: CommitState; error?: string } {
+	if (!isGitRepo(cwd)) return { state: "not_git_repo" };
 
 	try {
 		const resolvedPath = path.isAbsolute(filePath)
@@ -366,9 +380,15 @@ export function autoCommitFile(
 			],
 			{ cwd, stdio: "pipe" },
 		);
-		return true;
-	} catch {
-		return false;
+		return { state: "committed" };
+	} catch (error: any) {
+		const messageText = `${error?.stderr || error?.stdout || error?.message || ""}`;
+		return {
+			state: /nothing to commit|no changes added/i.test(messageText)
+				? "nothing_to_commit"
+				: "failed",
+			error: messageText || undefined,
+		};
 	}
 }
 
