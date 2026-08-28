@@ -27,6 +27,8 @@ const CONTENT_READING_COMMANDS = new Set([
 	"more",
 ]);
 
+const NON_CONTENT_SEARCH_FLAGS = new Set(["c", "l", "L", "q"]);
+
 function commandName(token: string): string {
 	return path
 		.basename(token)
@@ -70,6 +72,31 @@ export function extractInspectedFilesFromCommand(
 
 		const command = commandName(tokens[0]);
 		if (!CONTENT_READING_COMMANDS.has(command)) continue;
+
+		// Count, quiet, and filename-only search modes do not expose file
+		// contents. Treat long and combined short options as non-inspection
+		// evidence while retaining ordinary grep/rg output.
+		if (
+			(command === "grep" || command === "rg") &&
+			tokens.slice(1).some((token) => {
+				if (
+					token === "--count" ||
+					token === "--files-with-matches" ||
+					token === "--files-without-match" ||
+					token === "--quiet" ||
+					token === "--silent"
+				) {
+					return true;
+				}
+				return (
+					token.startsWith("-") &&
+					!token.startsWith("--") &&
+					[...token.slice(1)].some((flag) => NON_CONTENT_SEARCH_FLAGS.has(flag))
+				);
+			})
+		) {
+			continue;
+		}
 
 		const candidates: string[] = [];
 		const positional = tokens.slice(1).filter((token) => {
