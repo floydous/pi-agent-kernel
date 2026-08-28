@@ -173,7 +173,7 @@ export class HybridSearchIndex {
 
 			this.isInitialized = true;
 			return true;
-		} catch (e) {
+		} catch {
 			return false;
 		}
 	}
