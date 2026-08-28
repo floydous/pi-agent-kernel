@@ -180,10 +180,7 @@ function checkTsStructure(content: string): string | null {
 	return null;
 }
 
-export function checkSyntax(filePath: string): VerificationResult {
-	const resolvedPath = path.isAbsolute(filePath)
-		? filePath
-		: path.resolve(process.cwd(), filePath);
+function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 	if (!fs.existsSync(resolvedPath)) {
 		return { valid: true, status: "clean" };
 	}
@@ -281,6 +278,52 @@ export function checkSyntax(filePath: string): VerificationResult {
 			status: "failed",
 			error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${output}`,
 		};
+	}
+}
+
+export function checkSyntax(filePath: string): VerificationResult {
+	const resolvedPath = path.isAbsolute(filePath)
+		? filePath
+		: path.resolve(process.cwd(), filePath);
+	return validateSyntaxAtPath(resolvedPath);
+}
+
+/**
+ * Validate candidate content without changing the target file.
+ * File-oriented validators run against a temporary sibling with the same
+ * extension, which keeps their existing behavior while protecting the target.
+ */
+export function checkSyntaxContent(
+	filePath: string,
+	content: string,
+): VerificationResult {
+	const resolvedPath = path.isAbsolute(filePath)
+		? filePath
+		: path.resolve(process.cwd(), filePath);
+	const extension = path.extname(resolvedPath) || ".tmp";
+	let tempDir: string | undefined;
+
+	try {
+		tempDir = fs.mkdtempSync(
+			path.join(path.dirname(resolvedPath), ".pi-agent-kernel-validate-"),
+		);
+		const candidatePath = path.join(tempDir, `candidate${extension}`);
+		fs.writeFileSync(candidatePath, content, "utf8");
+		return validateSyntaxAtPath(candidatePath);
+	} catch (err: any) {
+		return {
+			valid: false,
+			status: "inconclusive",
+			error: `Syntax validation could not inspect candidate content: ${err.message || String(err)}`,
+		};
+	} finally {
+		if (tempDir) {
+			try {
+				fs.rmSync(tempDir, { recursive: true, force: true });
+			} catch {
+				// Best-effort cleanup; the validation result remains explicit.
+			}
+		}
 	}
 }
 
