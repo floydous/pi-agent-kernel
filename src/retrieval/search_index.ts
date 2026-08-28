@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import * as crypto from "node:crypto";import { type CodeChunk, chunkWorkspace, computeHash } from "./search_chunker";
+import * as crypto from "node:crypto";
+import { type CodeChunk, chunkWorkspace, computeHash } from "./search_chunker";
 import { BM25Engine } from "./search_bm25";
 import { LocalEmbedder } from "./search_embedder";
 import {
@@ -33,7 +34,6 @@ export class HybridSearchIndex {
 	private fileHashes: Map<string, string> = new Map(); // relPath -> SHA256 hash
 	private isInitialized = false;
 	private isIndexing = false;
-	private vectorCacheValid = false;
 
 	constructor(cwd: string, profile?: SearchProfile) {
 		this.cwd = cwd;
@@ -168,7 +168,6 @@ export class HybridSearchIndex {
 						vec.set(floatArray.subarray(index * dim, (index + 1) * dim));
 						this.vectors.set(vectorChunkIds[index], vec);
 					}
-					this.vectorCacheValid = this.vectors.size === vectorChunkIds.length;
 				}
 			}
 
@@ -452,12 +451,9 @@ export class HybridSearchIndex {
 				}
 
 				vecScores.sort((a, b) => b.score - a.score);
-				vecScores
-					.filter((item) => item.score >= 0.7)
-					.slice(0, 100)
-					.forEach((item, idx) => {
-						vectorRankMap.set(item.chunkId, { rank: idx + 1, score: item.score });
-					});
+				vecScores.slice(0, 100).forEach((item, idx) => {
+					vectorRankMap.set(item.chunkId, { rank: idx + 1, score: item.score });
+				});
 			}
 		}
 
