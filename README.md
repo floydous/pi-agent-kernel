@@ -3,46 +3,34 @@
 A high-leverage agentic coding extension suite for `@earendil-works/pi-coding-agent`.
 
 ## Architecture & Directory Layout
+## Architecture & Directory Layout
+
+Authored runtime code lives under `src/`; tests, documentation, and example
+configuration stay at the repository boundary.
 
 ```
 agent-kernel/
-├── index.ts                # Main extension entry point & behavioral kernel prompt
-├── package.json            # Extension metadata & dependencies
-├── README.md               # Architecture documentation
-├── test.ts                 # Full verification test runner (15 phases)
-│
-├── retrieval/              # Hybrid AST indexing & semantic code search
-│   ├── search_index.ts     # Inverted BM25 + Vector index coordinator (RRF)
-│   ├── search_bm25.ts      # Fast AST-aware BM25 engine with code tokenizer
-│   ├── search_chunker.ts   # Tree-Sitter syntax chunker with breadcrumbs
-│   ├── search_embedder.ts  # Local ONNX transformer embedder (Nomic 1.5)
-│   ├── search_config.ts    # Hardware detection & profile configuration
-│   ├── search_modal.ts     # Interactive full-viewport TUI settings panel
-│   ├── repomap.ts          # PageRank-ranked repository AST symbol graph
-│   ├── ast_search.ts       # Structural symbol declaration search
-│   └── symbol_reader.ts    # Surgical symbol boundary extractor
-│
-├── editing/                # Surgical diff editing & atomic git
-│   ├── patch.ts            # 3-tier fuzzy search/replace matching engine
-│   └── git-verify.ts       # Syntax validation gate & atomic auto-commit/undo
-│
-├── safety/                 # Epistemic safety guards & verification oracles
-│   ├── epistemic_guard.ts  # Read-before-write grounding invariant guard
-│   ├── test_oracle.ts      # Deterministic binary test/type-check evaluator
-│   ├── output_clamper.ts   # Horizontal width clamper & match flood capper
-│   ├── atomic_write.ts     # Crash-safe tmp+rename file writes (JSON stores)
-│   └── kernel_debug.ts     # PI_KERNEL_DEBUG-gated sink for best-effort catches
-│
-├── context/                # Context engineering & session repair
-│   ├── compaction_enhanced.ts  # Chronological monotonic summary hook
-│   └── session_repair.ts       # Self-healing JSONL session metadata sanitizer
-│
-├── ui/                     # Terminal user interface components
-│   └── footer.ts           # Aesthetic 24-bit TrueColor pastel statusline
-├── config/                 # Hierarchical TOML configuration loader
-│   ├── kernel_config.ts    # Defaults -> global -> project -> env merge
-│   └── toml.ts             # Zero-dependency TOML parser/serializer
+├── src/
+│   ├── index.ts            # Main extension entry point
+│   ├── config/             # Hierarchical TOML configuration loader
+│   ├── context/            # Context engineering and session repair
+│   ├── editing/            # Surgical patching and verification
+│   ├── lsp/                # Language Server Protocol integration
+│   ├── retrieval/          # AST, BM25, and semantic code search
+│   ├── safety/             # Epistemic guards and bounded execution
+│   ├── tools/              # Pi tool registrations
+│   └── ui/                 # Terminal UI components
+├── tests/                  # Focused verification sections
+├── examples/
+│   └── config.example.toml # Example user configuration
+├── docs/                   # Project documentation
+├── test.ts                 # Compatibility shim for the full test suite
+├── README.md
+└── package.json
 ```
+
+Each `src/` subsystem owns its implementation and public exports. `src/index.ts`
+is the integration boundary that registers the extension with Pi.
 
 ## Verified Features
 
