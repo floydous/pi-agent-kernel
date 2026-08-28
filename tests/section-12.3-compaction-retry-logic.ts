@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 		// exercise buildChronologicalCompactionPrompt and assert that a
 		// truncated conversation produces a smaller prompt (which would
 		// have less chance of exceeding the model's context window).
-		const { buildChronologicalCompactionPrompt } = require("../context/compaction_enhanced");
+		const { buildChronologicalCompactionPrompt } = require("../src/context/compaction_enhanced");
 
 		// Build a "conversation" that's >32K characters of filler. This
 		// simulates the kind of large input that triggers the
