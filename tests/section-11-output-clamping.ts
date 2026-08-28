@@ -3,7 +3,7 @@
 // floods, and correctly identify search commands.
 
 import * as fs from "node:fs";
-import { clampCommandOutput, isDiscoveryCommand } from "../safety/output_clamper";
+import { clampCommandOutput, isDiscoveryCommand } from "../src/safety/output_clamper";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
