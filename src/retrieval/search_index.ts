@@ -19,6 +19,7 @@ export interface SearchHit {
 	rrfScore: number;
 	bm25Score: number;
 	vectorScore: number;
+	signal: "lexical" | "semantic" | "hybrid";
 	bm25Rank?: number;
 	vectorRank?: number;
 	matches: string[];
@@ -502,6 +503,7 @@ export class HybridSearchIndex {
 				rrfScore,
 				bm25Score: bmData ? bmData.score : 0,
 				vectorScore: vecData ? vecData.score : 0,
+				signal: bmData && vecData ? "hybrid" : vecData ? "semantic" : "lexical",
 				bm25Rank: bmData?.rank,
 				vectorRank: vecData?.rank,
 				matches: bmData?.matches || [],
