@@ -27,7 +27,7 @@ export function registerCodeSearchTool(
 			file_pattern: Type.Optional(
 				Type.String({
 					description:
-					"Optional normalized relative path substring (e.g. 'src/auth', '.py', 'test')",
+						"Optional normalized relative path substring (e.g. 'src/auth', '.py', 'test')",
 				}),
 			),
 			limit: Type.Optional(
