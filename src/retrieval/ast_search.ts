@@ -732,7 +732,11 @@ export function searchAstSymbols(
 			if (entry.isDirectory()) {
 				walk(fullPath);
 			} else if (entry.isFile()) {
-				if (query.filePattern && !entry.name.includes(query.filePattern)) {
+				const relPath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
+				if (
+					query.filePattern &&
+					!relPath.toLowerCase().includes(query.filePattern.replace(/\\/g, "/").toLowerCase())
+				) {
 					continue;
 				}
 				const ext = path.extname(entry.name).toLowerCase();
@@ -743,7 +747,6 @@ export function searchAstSymbols(
 					const content = fs.readFileSync(fullPath, "utf-8");
 					const tags = extractFileTags(fullPath, content);
 					const lines = content.split("\n");
-					const relPath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
 					const fileDefs: AstQueryResult[] = [];
 
 					for (const def of tags.definitions) {
