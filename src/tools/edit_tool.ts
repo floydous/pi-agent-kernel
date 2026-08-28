@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import { applySurgicalPatch, applyMultiBlockPatch } from "../editing/patch";
-import { autoCommitFile } from "../editing/git-verify";
+import { autoCommitFileDetailed } from "../editing/git-verify";
 import {
 	renderEditFailure,
 	renderPostEditVerification,
@@ -117,7 +117,12 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			if (!patchRes.success) {
 				return {
-					content: [{ type: "text", text: renderEditFailure(patchRes.error || "patch failed") }],
+					content: [
+						{
+							type: "text",
+							text: renderEditFailure(patchRes.error || "patch failed"),
+						},
+					],
 					details: { error: patchRes.error, success: false },
 					isError: true,
 				};
@@ -133,43 +138,45 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				resolvedPath,
 				readyLsp
 					? async () => {
-						const result = await readyLsp.getDiagnosticsResult(resolvedPath);
-						return {
-							state: result.status,
-							findings: result.diagnostics.map((finding) => ({
-								line: finding.range.start.line + 1,
-								message: finding.message,
-								severity:
-									finding.severity === 1
-										? "error" as const
-										: finding.severity === 2
-											? "warning" as const
-											: "info" as const,
-							})),
-						};
-					}
+							const result = await readyLsp.getDiagnosticsResult(resolvedPath);
+							return {
+								state: result.status,
+								findings: result.diagnostics.map((finding) => ({
+									line: finding.range.start.line + 1,
+									message: finding.message,
+									severity:
+										finding.severity === 1
+											? ("error" as const)
+											: finding.severity === 2
+												? ("warning" as const)
+												: ("info" as const),
+								})),
+							};
+						}
 					: undefined,
 			);
 
 			// Auto-commit after the local syntax gate, preserving the existing
 			// commit behavior. Diagnostic findings remain visible to the agent.
-			const committed = verification.syntax.state === "clean"
-				? autoCommitFile(ctx.cwd, resolvedPath, params.commit_message)
-				: false;
+			const commit =
+				verification.syntax.state === "clean"
+					? autoCommitFileDetailed(ctx.cwd, resolvedPath, params.commit_message)
+					: { state: "failed" as const, error: "Syntax verification did not pass" };
 			const statusText = renderPostEditVerification(verification);
 			return {
 				content: [{ type: "text", text: statusText }],
 				details: {
 					strategy: patchRes.strategy,
-					committed,
+					committed: commit.state === "committed",
+					commit,
 					verification,
 					success: verification.syntax.state === "clean",
 				},
 				isError:
 					verification.syntax.state === "failed" ||
-					verification.diagnostic.findings.some(
-						(finding) => finding.severity === "error" || !finding.severity,
-					),
+						verification.diagnostic.findings.some(
+							(finding) => finding.severity === "error" || !finding.severity,
+						),
 			};
 		},
 		renderCall(args: any, theme: any, context: any) {
