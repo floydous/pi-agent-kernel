@@ -4,6 +4,7 @@ import { execSync, execFileSync } from "child_process";
 
 export interface VerificationResult {
 	valid: boolean;
+	status?: "clean" | "failed" | "unavailable" | "inconclusive";
 	error?: string;
 }
 
@@ -184,7 +185,7 @@ export function checkSyntax(filePath: string): VerificationResult {
 		? filePath
 		: path.resolve(process.cwd(), filePath);
 	if (!fs.existsSync(resolvedPath)) {
-		return { valid: true };
+		return { valid: true, status: "clean" };
 	}
 
 	const ext = path.extname(resolvedPath).toLowerCase();
@@ -196,11 +197,24 @@ export function checkSyntax(filePath: string): VerificationResult {
 					stdio: "pipe",
 					timeout: 5000,
 				});
-			} catch {
-				execFileSync("python3", ["-m", "py_compile", resolvedPath], {
-					stdio: "pipe",
-					timeout: 5000,
-				});
+			} catch (error: any) {
+				const unavailable = error?.code === "ENOENT" || error?.status === 9009;
+				if (!unavailable) throw error;
+				try {
+					execFileSync("python3", ["-m", "py_compile", resolvedPath], {
+						stdio: "pipe",
+						timeout: 5000,
+					});
+				} catch (fallbackError: any) {
+					if (fallbackError?.code === "ENOENT" || fallbackError?.status === 9009) {
+						return {
+							valid: false,
+							status: "unavailable",
+							error: "Python runtime unavailable",
+						};
+					}
+					throw fallbackError;
+				}
 			}
 		} else if (ext === ".json") {
 			const content = fs.readFileSync(resolvedPath, "utf8");
@@ -219,15 +233,14 @@ export function checkSyntax(filePath: string): VerificationResult {
 		) {
 			const tsContent = fs.readFileSync(resolvedPath, "utf8");
 			const structuralError = checkTsStructure(tsContent);
-			if (structuralError) {
-				throw new Error(structuralError);
-			}
+			if (structuralError) throw new Error(structuralError);
 		}
-		return { valid: true };
+		return { valid: true, status: "clean" };
 	} catch (err: any) {
 		const stderr = err.stderr ? err.stderr.toString() : err.message;
 		return {
 			valid: false,
+			status: "failed",
 			error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${stderr}`,
 		};
 	}
