@@ -1,17 +1,18 @@
-import { EpistemicGuard } from './src/safety/epistemic_guard';
+import { runOracle } from './src/safety/test_oracle';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as fs from 'node:fs';
 
-const SID = '__default__';
-const g = new EpistemicGuard();
-const inspected = g.getInspectedFiles(SID);
-console.log('All files currently marked inspected in __default__ session:');
-for (const f of inspected) {
-	console.log(' -', f);
-}
-console.log('\nTotal:', inspected.length);
-console.log('\nNow: try target.ts in temp_epistemic_test:');
-const targetFile = 'C:/Users/brat/temp_epistemic_test/target.ts';
-const norm = g['normalize'] ? g['normalize'](targetFile) : targetFile;
-console.log('  normalized:', norm);
-console.log('  isInspected:', g.isFileInspected(targetFile, SID));
-console.log('  exists:', fs.existsSync(targetFile));
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oracle-test-'));
+
+const passing = await runOracle('node -e "process.exit(0)"', { cwd: tmp });
+console.log('Passing case:', passing.summary, '| exitCode:', passing.exitCode);
+
+const failing = await runOracle('node -e "process.exit(42)"', { cwd: tmp });
+console.log('Failing case:', failing.summary, '| exitCode:', failing.exitCode);
+
+const noisy = await runOracle('node -e "console.log(\'a\'.repeat(2000))"', { cwd: tmp });
+console.log('Noisy case (single 2000-char line):', noisy.summary);
+console.log('  rawLength:', noisy.rawLength, '| output preview:', noisy.output.slice(0, 100));
+
+fs.rmSync(tmp, { recursive: true, force: true });
