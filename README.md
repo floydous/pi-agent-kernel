@@ -34,11 +34,11 @@ is the integration boundary that registers the extension with Pi.
 
 ## Verified Features
 
-1. **Direct Behavioral Kernel (`index.ts`)**: Direct unblocked execution with strict epistemic grounding and 6-tier instruction precedence.
-2. **Hybrid Retrieval (`retrieval/`)**: `retrieval:bm25` (Lean), `retrieval:hybrid-256d` (Hybrid Matryoshka), and `retrieval:dense-768d` (Full).
-3. **Surgical Patching (`editing/`)**: Multi-strategy fuzzy search/replace with immediate syntax validation.
-4. **Epistemic Read-Before-Write (`safety/`)**: Blocks hallucinated file mutations on uninspected files.
-5. **Deterministic Test Oracle (`safety/`)**: Evaluates real binary exit codes (`/oracle [cmd]`).
+1. **Direct Behavioral Kernel (`src/index.ts`)**: Direct unblocked execution with strict epistemic grounding and 6-tier instruction precedence.
+2. **Hybrid Retrieval (`src/retrieval/`)**: `retrieval:bm25` (Lean), `retrieval:hybrid-256d` (Hybrid Matryoshka), and `retrieval:dense-768d` (Full).
+3. **Surgical Patching (`src/editing/`)**: Multi-strategy fuzzy search/replace with immediate syntax validation.
+4. **Epistemic Read-Before-Write (`src/safety/`)**: Blocks hallucinated file mutations on uninspected files.
+5. **Deterministic Test Oracle (`src/safety/`)**: Evaluates real binary exit codes (`/oracle [cmd]`).
    > ⚠️ `/oracle <command>` executes the given command through the system shell with your user privileges — by design, as an explicitly user-invoked verification escape hatch. Only pass commands you trust.
-6. **Chronological Compaction (`context/`)**: Reconciles task progress against deterministic Git state.
-7. **Semantic Pastel Footer (`ui/`)**: 24-bit TrueColor ANSI statusline with live token usage and context percentage gauge.
+6. **Chronological Compaction (`src/context/`)**: Reconciles task progress against deterministic Git state.
+7. **Semantic Pastel Footer (`src/ui/`)**: 24-bit TrueColor ANSI statusline with live token usage and context percentage gauge.
