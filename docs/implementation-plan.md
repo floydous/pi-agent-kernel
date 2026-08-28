@@ -1,684 +1,605 @@
-# Agent-Kernel Correctness and Reliability Implementation Plan
+# Pi Agent Kernel Feedback Implementation Plan
 
-**Status:** Implementation complete (selected scope)
-**Scope:** Feedback-driven correctness, reliability, retrieval, and documentation work
+**Status:** Selected safety/reliability scope complete; remaining feedback work is
+planned and requires measured decisions before implementation.
 **Repository:** `pi-agent-kernel`
+**Authoritative plan:** This file is the implementation and verification record for
+the feedback reviewed in `_feedback/`.
 
 ## 1. Objective
 
-Improve the extension's safety and reliability while preserving its central design
-priority:
+Address the verified feedback findings in a way that preserves the project's core
+priorities:
 
-> Bare-minimum token usage, maximum performance, and maximum reliability across
-> agent work.
+1. Minimum token usage.
+2. Maximum practical performance.
+3. Maximum reliability and explicit failure handling.
+4. Read-before-write safety.
+5. Existing public API compatibility unless a deliberate, tested change is
+   approved.
 
-The implementation must be driven by measured behavior rather than instinct,
-assumption, or unverified hypotheses. Candidate designs will be exercised through
-identical controlled workflows before a final option is selected.
+No behavior will be selected from instinct, an unmeasured hypothesis, or a
+feedback recommendation alone. Each behavior-changing candidate must first be
+exercised against a controlled fixture and compared with the current behavior.
 
-This plan addresses the verified feedback findings while avoiding unrelated
-refactors and preserving existing public APIs unless a deliberate behavior change
-is documented and tested.
+## 2. Scope
 
-## 2. Verified baseline
+This plan covers:
 
-The following observations were reproduced against the current implementation:
+- shell evidence semantics for the read-before-write guard;
+- semantic-search abstention and RRF behavior;
+- AST search body and kind contracts;
+- session fallback isolation;
+- patch and commit-result contracts;
+- embedding-load workflow behavior;
+- focused documentation and regression coverage;
+- optional maintainability work only if measurements or an explicit request
+  justify it.
 
-### 2.1 Epistemic guard
+The following changes already belong to the completed selected scope and must not
+be reimplemented or regressed:
 
-`extractInspectedFilesFromCommand()` currently records an existing file for all of
-these command forms:
+- metadata-only shell commands no longer count as content inspection;
+- candidate single- and multi-block patches are syntax-validated before target
+  writes;
+- invalid candidates preserve the original target bytes;
+- AST path filtering uses normalized relative paths;
+- custom edit verification is not duplicated by the result interceptor;
+- detailed commit states are available without removing the boolean helper;
+- vector-cache metadata, mapping, dimension, byte-length, and hash checks exist;
+- BM25 remains usable when vector data is invalid;
+- unsupported six-tier precedence documentation was removed;
+- verification output remains compact and grouped;
+- the protected `src/ui/tui_utils.ts` change remains untouched.
 
-```text
-ls sample.ts
-stat sample.ts
-wc -l sample.ts
-grep -c value sample.ts
-cat sample.ts
-head -n 1 sample.ts
-```
+## 3. Constraints and invariants
 
-After `grep -c absent sample.ts`, the current guard allows an edit. The current
-implementation therefore records file-path references, not verified content
-exposure.
-
-The existing tests cover the positive `cat file` case but do not distinguish
-content-reading commands from metadata-only commands or zero-output searches.
-
-### 2.2 Syntax verification ordering
-
-The current patch functions write the composed replacement before the edit tool
-runs syntax verification. A deliberately invalid replacement was reproduced:
-
-```text
-Original:    export const value = 1;
-Replacement: export const value = {;
-```
-
-Observed behavior:
-
-```text
-patch result: success
-file on disk: invalid content
-syntax result: failed
-```
-
-The current order is therefore:
-
-```text
-read -> compose -> write -> verify
-```
-
-rather than an atomic:
-
-```text
-read -> compose -> verify -> write
-```
-
-### 2.3 Retrieval implementation
-
-The current vector search includes up to 100 vector candidates in RRF without a
-minimum cosine-similarity threshold. This must be tested against a labeled query
-set before choosing a threshold or abstention policy.
-
-`ast_search.filePattern` currently checks only the directory entry basename,
-while `code_search.file_pattern` checks the relative chunk path.
-
-`ast_search.includeBody` currently returns a maximum 25-line window, although its
-name may suggest a complete body.
-
-### 2.4 Current source state
-
-The current worktree contains earlier intentional changes and unrelated changes,
-including the protected `src/ui/tui_utils.ts` modification. Existing changes must
-not be reverted wholesale or reformatted incidentally.
-
-The feedback's literal `[EMAIL]` placeholder is not present in the current
-`src/editing/git-verify.ts`; that specific report is stale or already fixed. The
-remaining commit-observability question still requires testing.
-
-## 3. Constraints
-
-Implementation notes from the baseline experiments are recorded in Section 17.
-
-- Do not use guesses, assumptions, or hypotheses as implementation justification.
-- Reproduce every applicable feedback claim against the current source first.
-- Use controlled experiments for alternatives that change workflow behavior.
-- Preserve bare-minimum token usage and avoid unnecessary output.
-- Do not automatically run the full test suite, broad scanners, embeddings, or
+- Do not guess thresholds, identifiers, APIs, or platform behavior.
+- Read an existing file immediately before editing it, then use the actual edit
+  tool for repository changes.
+- Do not use standalone scripts to rewrite repository source or imports.
+- Do not automatically run the full suite, broad scanners, embeddings, or
   repository-wide analysis after each edit.
-- Run focused checks during development and the full suite only at the final
-  verification checkpoint.
-- Do not spawn a language server solely for post-edit verification; reuse only an
+- Use focused experiments during development and run the complete suite only at
+  the final verification checkpoint.
+- Do not spawn a language server solely for post-edit verification. Reuse only an
   already-ready client.
-- Never report unavailable, timed-out, unsupported, or inconclusive checks as
-  `clean`.
-- Preserve compact grouped verification output.
+- Never report unavailable, timed-out, unsupported, failed, or inconclusive
+  verification as clean.
+- Preserve compact edit output and merge labels with identical values.
 - Preserve the terminal-width invariant for custom rendered lines.
-- Leave the unrelated `src/ui/tui_utils.ts` modification untouched.
-- Preserve read-before-write behavior unless the selected guard policy deliberately
-  changes its evidence contract.
-- Do not treat `/oracle` as safe for untrusted input; it remains an explicitly
+- Do not treat `/oracle` as safe for untrusted input. It remains an explicitly
   user-invoked shell escape hatch.
-- Do not clone all of Pi-lens or add broad background scanners.
-- Do not use standalone scripts to rewrite repository code or imports.
-- Before editing an existing file, read it immediately beforehand and use the
-  actual edit tool.
-- Preserve compatibility entry points and existing public APIs where possible.
-- Do not commit or push until the final diff and verification state are reviewed.
+- Do not restore, delete, or otherwise reconcile unresolved tracked deletions,
+  `_feedback/`, generated artifacts, or unrelated existing modifications without
+  separately determining their intended status.
+- Do not commit or push until the final diff, verification state, and retained-file
+  intent are reviewed.
 
-## 4. Experimental method
+## 4. Verified current behavior
 
-Every candidate that affects agent workflow will be evaluated with the same
-controlled fixture and workflow matrix.
+The following facts were reproduced against the current source:
 
-For each case, record:
+### 4.1 Guard evidence
 
-- Exact input and candidate policy.
-- Allowed/rejected result.
-- Reason and visible output.
-- Filesystem state before and after.
-- Byte equality where relevant.
-- Git state before and after.
-- Tool-call count.
-- Output bytes and lines.
-- Elapsed time.
-- Recovery steps required.
-- Whether the result is definitive or uncertain.
+`ls`, `stat`, and `wc` do not record an existing file. Known content-reader
+command shapes such as `cat`, `head`, `tail`, `sed`, `awk`, `grep`, `rg`, `less`,
+and `more` do record an existing file during `tool_call` preflight.
 
-The baseline is a control group, not a desired outcome. A candidate is selected
-only after its measured trade-offs are compared with the other candidates.
+A command such as `grep -c absent file.ts` also records the file even though its
+result may only be `0`. The current guard therefore records classified
+command-shape evidence; it cannot prove shell output or model comprehension at
+preflight time.
 
-Candidate implementations will be kept isolated during comparison. Production
-changes will be applied only after the decision gates in Section 12 pass.
+The same-batch shell-read plus edit workflow currently depends on preflight
+recording because shell result output is not available when the sibling edit
+checks its guard.
 
-## 5. Phase 0: Baseline and fixture preparation
+### 4.2 Atomic patching
 
-### Actions
+The current patch functions compose the complete candidate in memory, validate it
+through a temporary sibling file using `checkSyntaxContent()`, and write the
+original target only after candidate syntax validation succeeds. Focused tests
+confirmed byte preservation for invalid single- and multi-block candidates.
 
-1. Preserve the current dirty worktree and classify each existing modification as:
-   - intentional and in scope;
-   - intentional but unrelated;
-   - formatting-only or migration-related;
-   - deleted/untracked artifact requiring no action;
-   - unresolved.
-2. Do not restore or delete the feedback files, deleted artifacts, or unrelated
-   TUI change as part of this plan.
-3. Add focused experiment fixtures and tests only after reading the relevant test
-   and implementation files.
-4. Reproduce the current guard, patch ordering, retrieval, AST filtering, and
-   commit-state behavior with explicit outputs.
-5. Mark each feedback item as `confirmed`, `already fixed`, `not reproducible`,
-   `not applicable`, or `not yet tested`.
+This protects the target from the validated syntax failures in scope. It does not
+claim full type correctness, semantic correctness, or guaranteed safety against a
+concurrent external rewrite between validation and write.
 
-### Verification checkpoint
+### 4.3 Commit behavior
 
-A baseline record exists for each applicable issue, and no production behavior has
-changed.
+The current detailed commit helper reports `committed`, `not_git_repo`, `failed`,
+and `nothing_to_commit`. A new repository can receive its first commit using the
+current deterministic identity `Pi Agent <pi@agent.local>`. The literal `[EMAIL]`
+placeholder reported in the feedback is absent.
 
-## 6. Phase 1: Compare epistemic guard policies
+The remaining question is policy: whether to retain the deterministic identity or
+use configured Git identity with an explicit fallback.
 
-The guard cannot prove that a model understood file contents. It can only track
-observable evidence. The selected contract must use accurate terminology.
+### 4.4 AST search
 
-### Candidate A0: Current path-reference policy
+`ast_search.filePattern` now matches normalized relative path fragments, including
+`src/safety`, `safety`, filenames, extensions, and normalized separators.
 
-Control group. Any qualifying command token or internal search/read result records
-the file in one inspection set.
+`includeBody` remains intentionally bounded to an approximately 25-line preview.
+It does not return a complete large symbol body.
 
-### Candidate A1: Known content-reader classification
+The implementation recognizes more kinds than the short public description lists,
+including `struct`, `trait`, `enum`, `alias`, `variable`, and `constant` where
+available from the parser.
 
-Record shell evidence only for commands classified as content readers, such as:
+### 4.5 Hybrid search
 
-```text
-cat, head, tail, sed, awk, grep, rg, less, more
-```
+Vector candidates are currently ranked and included in RRF without a minimum
+cosine threshold. A controlled no-BM25 test produced vector-only results for
+scores of `0.60` and `0.50`. Consequently, nonsense or absent queries can still
+produce ordinary-looking vector results, and low-confidence vectors can affect
+RRF ordering.
 
-Do not record metadata-only operations such as:
+The fixed threshold remains unselected because no labeled retrieval corpus has
+established a reliable boundary for the configured embedding dimensions and
+profiles.
 
-```text
-ls, stat, file, wc, chmod, test -f, find
-```
+### 4.6 Session and performance behavior
 
-This measures whether command classification alone improves false-permission
-behavior while preserving the current preflight timing.
+The session fallback remains the shared string `__default__` when the host does
+not provide a session ID. Hybrid/full embedding initialization is awaited in the
+foreground indexing path. `src/index.ts` remains a large integration module.
 
-### Candidate A2: Completed shell-result evidence
+## 5. Decision gates
 
-Record shell content evidence only after a successful shell result is returned.
-This prevents a same-batch shell-read plus edit from using a result the agent has
-not yet received.
-
-### Candidate A3: Native-tool evidence only
-
-Only the extension's own `read`, `read_symbol`, `ast_search`, and `code_search`
-results satisfy the guard. Shell commands never satisfy it.
-
-### Candidate A4: Evidence categories
-
-Track evidence types separately rather than collapsing them into one boolean:
-
-```ts
-type InspectionEvidence =
-  | "content-read"
-  | "symbol-read"
-  | "ast-search"
-  | "code-search"
-  | "shell-content-read";
-```
-
-The test must determine whether this additional state improves correctness enough
-to justify its complexity and token/workflow cost.
-
-### Guard experiment matrix
-
-Run every candidate against:
-
-| Workflow | Measurement |
-| --- | --- |
-| Native `read` then edit | allow/reject, calls, output |
-| `read_symbol` then edit | allow/reject, calls, output |
-| AST search then edit | allow/reject, calls, output |
-| Code search then edit | allow/reject, calls, output |
-| `cat file` then edit | allow/reject, calls, output |
-| `grep` with zero output then edit | allow/reject, calls, output |
-| `wc file` then edit | allow/reject, calls, output |
-| `ls file` then edit | allow/reject, calls, output |
-| `stat file` then edit | allow/reject, calls, output |
-| Same-batch `cat` plus edit | allow/reject, calls, output |
-| Search result for unrelated symbol then edit | allow/reject, calls, output |
-| New-file write | allow/reject |
-| File inspected in another session | allow/reject |
-| Case variants on Windows and POSIX behavior | allow/reject |
-
-### Decision criteria
-
-Select the smallest policy that:
-
-- rejects clearly metadata-only and zero-content evidence;
-- does not create unexplained false rejections in common workflows;
-- gives same-batch behavior an explicit, measured contract;
-- does not claim to prove model comprehension;
-- preserves per-session isolation;
-- keeps output and latency within the measured baseline budget.
-
-Then update names, comments, tests, and documentation to match the observed
-contract.
-
-## 7. Phase 2: Compare atomic edit designs
-
-### Candidate B0: Current behavior
-
-Control group:
-
-```text
-read -> compose -> write -> verify
-```
-
-### Candidate B1: In-memory candidate verification
-
-Compose the replacement without writing, validate the candidate content, then
-write only if the validation is clean.
-
-Add a content-oriented syntax-validation entry point while retaining
-`checkSyntax(filePath)` compatibility. The implementation must test the actual
-verifiers used for TypeScript/JavaScript, JSON, and Python rather than assume that
-all validators accept strings directly.
-
-### Candidate B2: Temporary-file verification
-
-Compose in memory, write a temporary candidate, run the existing file-oriented
-verifier, remove the temporary file, and replace the target only after successful
-validation.
-
-Measure temporary-file side effects, including Python cache artifacts, permissions,
-line endings, symlinks, path-sensitive behavior, and cleanup after failure.
-
-### Candidate B3: Backup and rollback
-
-Write the target, retain a backup, verify, and restore on failure. This is included
-for measurement only; it must not be considered atomic without testing interruption
-and concurrent-modification behavior.
-
-### Atomic edit test matrix
-
-Each candidate must be exercised with:
-
-- Valid TypeScript and invalid TypeScript delimiters.
-- Unterminated strings and comments.
-- Valid and invalid JSON.
-- Valid and invalid Python.
-- JavaScript syntax.
-- Multi-block patch where an intermediate block applies but a later block fails.
-- CRLF input and UTF-8 content.
-- Empty replacement.
-- Existing file and new file.
-- Existing uncommitted working-tree changes.
-- File changed by another process after the initial read.
-- Failure followed by a second edit attempt.
-- Permission and symlink behavior where supported by the platform.
-
-### Decision criteria
-
-A selected design must satisfy the hard safety invariant:
-
-> If syntax validation fails, the target remains byte-for-byte unchanged.
-
-It must also preserve valid edits, CRLF behavior, useful diffs, and clear error
-states without requiring unnecessary agent recovery calls. Concurrent file changes
-must not be silently overwritten; if the selected design cannot safely handle a
-race, it must reject the write explicitly.
-
-LSP diagnostics remain post-write diagnostics unless experiments establish a
-separate strict mode that is both reliable and compatible with the token and
-latency goals. Unavailable or inconclusive diagnostics must not block a valid edit
-or be reported as clean.
-
-## 8. Phase 3: Consolidate edit verification and commit reporting
-
-The current code has edit verification and commit behavior in both
-`src/tools/edit_tool.ts` and the `tool_result` interceptor in `src/index.ts`.
-This phase compares the behavior before consolidating it.
-
-### Actions
-
-1. Instrument or test whether both paths can run for the same edit.
-2. Identify duplicate syntax checks, LSP calls, commits, or result mutations.
-3. Select one owner for edit verification and commit reporting.
-4. Preserve output clamping separately from edit lifecycle logic.
-5. Keep already-ready-client-only LSP reuse for post-edit checks.
-
-The likely target boundary is for `edit_tool.ts` to own patch composition,
-epistemic validation, syntax validation, writing, diagnostics, and commit result
-construction, while the interceptor handles only behavior that genuinely belongs
-at the result boundary. This is a candidate to verify, not an assumption to
-apply without measurement.
-
-### Commit result comparison
-
-Test:
-
-- Non-Git directory.
-- Git repository with no commits.
-- Git repository with an existing commit.
-- Nothing to commit.
-- Configured Git identity.
-- Missing Git identity.
-- Existing unrelated staged changes.
-- Commit command failure.
-- File changed before commit.
-
-Compare the current boolean result with a detailed result such as:
-
-```ts
-type CommitState =
-  | "committed"
-  | "not_git_repo"
-  | "failed"
-  | "nothing_to_commit";
-```
-
-The selected result must never present a working-tree-only edit as fully
-committed. Its visible and structured output must distinguish commit success from
-an edit that was applied but not committed.
-
-The current deterministic local Git identity is not changed merely because the
-stale `[EMAIL]` report mentioned a different placeholder. Any identity change
-requires measured compatibility results and an explicit documentation update.
-
-## 9. Phase 4: Compare retrieval abstention and threshold policies
-
-Build a labeled query corpus before choosing a threshold.
-
-### Positive query categories
-
-- Exact symbol names.
-- Exact error messages.
-- Known conceptual descriptions.
-- Cross-language queries.
-- Documentation-only targets.
-- Source-only targets.
-
-### Negative query categories
-
-- Random gibberish.
-- Plausible absent identifiers.
-- Correct concepts with no implementation in the repository.
-- Terms present only in unrelated files.
-
-For each query, capture:
-
-- BM25 result count.
-- Highest and top-five vector cosine scores.
-- RRF ordering.
-- Relevant-result count.
-- False-positive count.
-- Latency.
-- Output bytes and lines.
-
-### Candidate D0: Current unrestricted vector contribution
-
-Control group.
-
-### Candidate D1: Fixed cosine threshold
-
-Test a measured range of thresholds for each embedding dimension. Values such as
-`0.70` or `0.75` are test inputs, not preselected answers.
-
-### Candidate D2: Query-level vector abstention
-
-If the highest vector score does not meet the measured confidence boundary, drop
-the vector signal entirely and use BM25 only.
-
-### Candidate D3: Evidence-tier output
-
-Expose compact signal information such as:
-
-```text
-Signal: lexical
-Signal: semantic
-Signal: hybrid
-No sufficiently supported result
-```
-
-Measure whether the interpretation benefit justifies the added output bytes.
-
-### Decision criteria
-
-Known-negative queries must not produce normal-looking relevant results without an
-explicit low-confidence/uncertain classification. Positive-query recall must not
-regress beyond the measured acceptable boundary. The selected implementation must
-prevent sub-threshold vector candidates from influencing RRF, not merely hide the
-score after ranking.
-
-If no lexical or above-threshold semantic evidence exists, return the existing
-honest no-result response.
-
-## 10. Phase 5: Normalize AST search behavior
-
-### Path filter experiment
-
-Run both tools against:
-
-```text
-ast_search(filePattern: "safety")
-code_search(file_pattern: "safety")
-```
-
-Also test full relative paths, basenames, extensions, case variants, Windows
-separators, and repeated substrings. Select one consistent path-substring contract
-unless measurements show a documented reason not to.
-
-### Body-output experiment
-
-Compare:
-
-- E0: current 25-line bounded preview.
-- E1: complete symbol body.
-- E2: bounded preview with explicit truncation metadata and a `read_symbol`
-  follow-up path.
-
-For short functions, large classes, signature-only requests, and implementation
-details near the end, record total calls, total output bytes, latency, and whether
-the required information was obtained.
-
-The name and documentation must accurately describe the selected behavior. A full
-body is not automatically preferable because it may increase context usage when a
-signature or short preview is sufficient.
-
-### Kind documentation
-
-Document normalized kinds actually produced across supported languages, including
-language-specific forms such as `struct`, `trait`, `enum`, and `impl` where the
-implementation emits them. Do not advertise unsupported values.
-
-## 11. Phase 6: Validate vector-cache integrity
-
-Test the cache with:
-
-1. Valid unchanged metadata and vectors.
-2. Reordered chunks with unchanged vector bytes.
-3. Removed chunk.
-4. Added chunk.
-5. Changed vector dimension.
-6. Truncated vector file.
-7. Different vector ordering.
-8. Changed file hashes.
-9. Corrupt metadata.
-
-Store deterministic metadata covering chunk IDs, ordering, vector count, and
-vector dimension. A hash may be used if its exact inputs are documented and tested.
-
-On mismatch:
-
-- reject the vector cache;
-- retain safe BM25/chunk data when possible;
-- never silently associate a vector with another chunk.
-
-## 12. Documentation corrections
-
-Update documentation only after behavior is selected and tested.
-
-### Required changes
-
-- Remove the unsupported “6-tier instruction precedence” claim unless a concrete
-  implementation and tests establish six tiers.
-- State the exact guard evidence contract; do not claim to prove comprehension.
-- Document atomic syntax rejection and the behavior of diagnostic uncertainty.
-- Document commit result states.
-- Document vector abstention/threshold behavior and lexical fallback.
-- Document file-filter semantics.
-- Document whether AST body output is bounded or complete.
-- Preserve the explicit priorities of minimum token usage, performance, and
-  reliability.
-
-Likely files:
-
-```text
-README.md
-docs/README.md
-docs/architecture.md
-docs/editing-and-verification.md
-docs/retrieval.md
-docs/testing.md
-tests/README.md
-```
-
-## 13. Verification strategy
-
-### During implementation
-
-Run only the focused experiment or regression test relevant to the current
-candidate. Use bounded diagnostics for changed implementation files where an
-already-ready client is available. Do not run broad scanners after each edit.
-
-### Final verification
-
-After all candidate decisions are recorded and the selected behavior is applied:
-
-1. Run all new focused regression tests.
-2. Run affected existing sections.
-3. Run bounded diagnostics for changed files.
-4. Run the complete test suite once.
-5. Run `git diff --check`.
-6. Review the complete diff and status.
-7. Confirm no protected unrelated change was modified.
-8. Confirm unavailable or inconclusive checks were not reported as clean.
-9. Confirm documentation matches the selected behavior.
-
-A passing test suite alone is insufficient; the experimental workflow results and
-filesystem/Git observations must also be reviewed.
-
-## 14. Decision gates
-
-A behavior change may be retained only if it passes all applicable gates:
+A candidate may be retained only when all applicable gates pass.
 
 ### Safety
 
-No clearly uninspected file is permitted, and a failed syntax validation leaves the
-target byte-for-byte unchanged.
+- Invalid syntax candidates leave the target byte-for-byte unchanged.
+- Clearly metadata-only evidence cannot satisfy the selected guard contract.
+- Sub-threshold vectors cannot silently create ordinary-looking search evidence.
+- Cache corruption cannot silently associate a vector with another chunk.
 
 ### Workflow
 
-Common agent workflows remain understandable and do not incur unnecessary calls
-or output.
+- Common native read, search, shell-read, and edit workflows remain predictable.
+- Same-batch behavior is documented and tested.
+- Recovery does not require unnecessary tool calls or broad reinspection.
 
 ### Reliability
 
-Failure, timeout, unavailable, and inconclusive states remain explicit and
-recoverable.
+- Failure, timeout, unavailable, unsupported, and inconclusive outcomes remain
+  explicit.
+- A valid edit is not presented as committed when Git commit failed.
+- LSP availability is not inferred from a client that was never ready.
 
 ### Performance
 
-Measured latency, memory, and output remain consistent with minimum-token and
-maximum-performance priorities.
+- Added output stays bounded.
+- Added latency and memory cost are measured.
+- Vector filtering does not require expensive extra model calls.
+- Lean mode remains zero-embedding and fast.
 
 ### Compatibility
 
-Existing public APIs and compatibility commands continue to work unless the
-behavior change is deliberate, tested, and documented.
+- Existing exported helpers and compatibility paths remain available where
+  possible.
+- Parameter changes are additive or deliberately versioned.
+- Existing CRLF, UTF-8, and multi-block behavior remains covered.
 
 ### Documentation
 
-Every externally visible behavior is described accurately.
+- Names, descriptions, and status labels match actual behavior.
+- Deferred work is identified as deferred, not reported as implemented.
+- No section heading is followed by redundant epistemic labels.
 
-## 15. Deferred work
+## 6. Phase 0 — Preserve and classify the worktree
 
-These items remain out of scope unless measurements show they are required for a
-selected fix:
+### Actions
 
-- Splitting `src/index.ts` into command, indexing, and interceptor modules.
-- Exposing RRF `k` as a tuning parameter.
-- Renaming the package or directory.
-- Moving embedding loading to a worker.
-- Adding a process-unique fallback session identifier.
-- Cloning broad Pi-lens scanner or diagnostic infrastructure.
+1. Capture `git status --short --untracked-files=all` and the complete diff name
+   status.
+2. Classify every change as selected implementation, focused test/documentation
+   support, protected unrelated change, deleted artifact, generated artifact, or
+   unresolved.
+3. Leave unresolved deletions, `_feedback/`, `tests/__pycache__/`, and the
+   protected TUI modification untouched until their intent is determined.
+4. Do not commit or push during classification.
 
-## 16. Execution order
+### Exit criteria
+
+- A retained-file list exists.
+- No file has been restored or deleted solely from assumption.
+- The implementation and verification diffs can be reviewed independently from
+  unrelated worktree state.
+
+## 7. Phase 1 — Decide the guard contract
+
+The guard cannot prove that a model understood a file. The decision must choose
+between a stronger observable-content policy and an honest weaker name/contract.
+
+### Candidates
+
+#### A0 — Current classified command-shape evidence
+
+Control group. Keep native reads, search results, and known shell content-reader
+shapes as evidence. Continue rejecting metadata-only commands. Preserve same-batch
+preflight compatibility.
+
+#### A1 — Stricter shell command policy
+
+Permit only commands whose normal operation emits file content, with explicit
+handling for options and redirections. Search commands that can return only counts
+or status would not automatically satisfy the guard.
+
+#### A2 — Result-aware shell evidence
+
+Record shell evidence only after a successful result containing content. Measure
+this separately because it changes same-batch `cat` plus edit behavior.
+
+#### A3 — Native-tool-only evidence
+
+Only `read`, targeted symbol reads, AST search, and code search satisfy the guard.
+Shell commands never satisfy it.
+
+#### A4 — Rename and document the current contract
+
+Retain A0 behavior but rename the concept to a reference/content-reader evidence
+guard, if that is the measured compatibility winner. Documentation must state that
+it does not prove output exposure or comprehension.
+
+### Experiment matrix
+
+Run each candidate with the same temporary existing file and session fixture:
+
+- native `read` then edit;
+- targeted symbol read then edit;
+- AST search then edit;
+- code search then edit;
+- `cat`, `head`, `tail`, `sed`, `awk`, `grep`, and `rg` then edit;
+- `grep -c` with zero output then edit;
+- `wc`, `ls`, `stat`, `file`, and `find` then edit;
+- same-batch `cat` plus edit;
+- search result for an unrelated symbol then edit;
+- new-file write;
+- another-session inspection then edit;
+- Windows case variants and POSIX case-sensitive behavior.
+
+Record allowed/rejected state, reason, output bytes, tool-call count, elapsed time,
+and whether the observation is definitive or preflight-only.
+
+### Exit criteria
+
+Select the smallest policy that rejects clearly non-content evidence, preserves
+needed workflows, and accurately states what is and is not proven. Add focused
+regressions for every retained boundary.
+
+## 8. Phase 2 — Make the patch contract explicit
+
+The runtime atomic candidate behavior is already implemented. This phase makes its
+contract explicit and checks race/validator boundaries without broadening scope.
+
+### Actions
+
+1. Add a doc comment to `PatchResult` stating that `success: true` means the
+   candidate was located, composed, syntax-validated, and written; it does not
+   mean type or semantic validation passed.
+2. Verify that single- and multi-block paths continue to validate the complete
+   candidate before writing.
+3. Test supported candidate validators for TypeScript/JavaScript, JSON, and
+   Python using focused fixtures.
+4. Record the limitation that an external change after the initial read may still
+   race the final write. Do not add locking or compare-and-swap behavior without
+   a separate measured requirement.
+
+### Exit criteria
+
+- Contract documentation matches the call order.
+- Invalid candidates preserve bytes and temporary validation artifacts are cleaned.
+- No unrelated patch strategy or line-ending behavior changes.
+
+## 9. Phase 3 — Choose vector abstention and RRF behavior
+
+This phase is required before adopting any numeric threshold.
+
+### Corpus
+
+Create a bounded, labeled fixture containing:
+
+- exact symbol queries;
+- exact error/message queries;
+- known conceptual queries;
+- cross-language queries;
+- documentation-only and source-only queries;
+- random gibberish;
+- plausible absent identifiers;
+- valid concepts with no implementation;
+- terms that occur only in unrelated files.
+
+### Measurements
+
+For each configured vector profile, record:
+
+- BM25 result count;
+- top and top-five cosine scores;
+- RRF ordering;
+- relevant and false-positive counts;
+- query latency;
+- output bytes and lines;
+- whether the model was loaded or fallback was used.
+
+### Candidates
+
+#### D0 — Current unrestricted vector contribution
+
+Control group.
+
+#### D1 — Candidate score threshold
+
+Measure a range of thresholds; values such as `0.70` and `0.75` are experimental
+inputs only, not predetermined answers. Use separate measurements for 256 and
+768 dimensions if their distributions differ.
+
+#### D2 — Query-level abstention
+
+If the best vector score is below the measured boundary, remove the vector signal
+for the query rather than merely hiding individual scores.
+
+#### D3 — Thresholded candidate filtering
+
+Keep only above-boundary vector candidates before RRF. Confirm that a low-scoring
+candidate cannot influence the combined ordering.
+
+#### D4 — Compact evidence tier
+
+If useful after D1–D3, expose one bounded signal label: `lexical`, `semantic`, or
+`hybrid`. Do not add verbose confidence prose unless measurements show it improves
+agent decisions enough to justify its token cost.
+
+### Exit criteria
+
+- Negative queries do not produce ordinary-looking relevant results without an
+  explicit abstention/uncertainty result.
+- Positive-query recall stays within the measured acceptable boundary.
+- Below-threshold vectors cannot contribute to RRF.
+- Empty lexical and abstained semantic searches return the honest no-result path.
+- Lean mode remains unchanged.
+
+## 10. Phase 4 — Normalize AST search contracts
+
+### Path filters
+
+Confirm that `ast_search.filePattern` and `code_search.file_pattern` both use
+normalized relative path substring semantics for directory fragments, filenames,
+extensions, case behavior, Windows separators, and repeated substrings. Document
+the same contract in both tool descriptions.
+
+### Body output
+
+Measure three options:
+
+- B0: bounded approximately 25-line preview;
+- B1: complete body;
+- B2: bounded preview plus explicit truncation metadata and a targeted read path.
+
+Use short functions, large classes, and targets whose useful implementation is
+near the end. Record total calls, output bytes, latency, and whether the needed
+content was obtained.
+
+Retain B0 or B2 by default unless measurements demonstrate that full bodies
+provide sufficient benefit without violating bounded-context goals. Do not silently
+change the default output contract.
+
+### Kind descriptions
+
+Document the normalized kinds the implementation actually emits, including
+language-specific forms where supported. Test TypeScript, Python, Rust, and other
+supported extensions with focused fixtures. Do not advertise kinds that the
+implementation does not return.
+
+### Exit criteria
+
+- Path-filter behavior is aligned and documented.
+- Body output is accurately named and bounded by default unless a measured decision
+  says otherwise.
+- Kind filters are tested and documented across supported languages.
+
+## 11. Phase 5 — Resolve session fallback isolation
+
+### Candidates
+
+- S0: retain `__default__` for explicitly single-session CLI use;
+- S1: generate a process-unique fallback ID;
+- S2: derive a stable fallback from the session/context object where the host
+  supports it;
+- S3: make the execution mode explicit and reject ambiguous multi-session use.
+
+### Measurements
+
+Run two sessions in one process, inspect a file in session A, attempt an edit in
+session B, shut down A, and verify B's state. Measure cleanup, memory growth, and
+single-session compatibility.
+
+### Exit criteria
+
+No session can inherit inspection evidence from another session unless the host
+explicitly identifies them as the same session. Shutdown removes only the intended
+state. Any fallback identity must remain deterministic for the lifetime of its
+session and must not be guessed from unrelated process data.
+
+## 12. Phase 6 — Review Git identity and commit observability
+
+The placeholder issue is already fixed. This phase is optional policy work.
+
+### Candidates
+
+- G0: retain deterministic `Pi Agent <pi@agent.local>`;
+- G1: read repository `user.name` and `user.email`, falling back to the deterministic
+  local identity when either is unavailable;
+- G2: expose the selected identity in structured commit details without changing
+  the commit command.
+
+### Matrix
+
+Test no repository, repository with no commits, existing commit, configured
+identity, missing identity, staged unrelated changes, nothing-to-commit, commit
+failure, and file-change-before-commit. Confirm that the visible and structured
+result distinguishes an applied working-tree edit from a committed edit.
+
+### Exit criteria
+
+No placeholder identity can enter history. The chosen policy is documented and
+existing boolean compatibility remains intact.
+
+## 13. Phase 7 — Evaluate embedding-load workflow
+
+### Candidates
+
+- E0: current foreground loading with bounded progress feedback;
+- E1: background preload after explicit hybrid/full selection;
+- E2: worker-based loading;
+- E3: retain E0 and document the latency trade-off without adding a flag.
+
+### Measurements
+
+Measure lean startup, profile switching, first semantic search, cached model load,
+uncached model load where available, UI responsiveness, RSS, CPU usage, cancellation,
+and failure recovery. Do not download or initialize embeddings merely for routine
+verification if the required cache/model is unavailable.
+
+### Exit criteria
+
+Do not add worker or preload complexity unless it materially improves measured
+workflow behavior without violating lifecycle, cleanup, or output invariants. Lean
+mode must not initialize embeddings.
+
+## 14. Phase 8 — Optional maintainability work
+
+These are not correctness requirements and remain deferred unless explicitly
+approved after the preceding phases:
+
+- split `src/index.ts` into wiring, indexing, command, and interceptor modules;
+- expose RRF `k` as a bounded optional tuning parameter;
+- standardize `agent-kernel` versus `pi-agent-kernel` naming;
+- clone or enable broad Pi-lens scanner infrastructure;
+- add a process-unique ID solely without first measuring the fallback problem.
+
+If any optional item is selected, it must have its own focused test and must not
+be bundled with unrelated formatting or cleanup.
+
+## 15. Documentation updates
+
+After behavior decisions are selected, update only the relevant documentation:
+
+- `README.md` — verified feature claims and product naming;
+- `docs/editing-and-verification.md` — atomic candidate validation, diagnostic
+  uncertainty, and commit states;
+- `docs/retrieval.md` — vector abstention, lexical fallback, path filters, body
+  bounds, and confidence/evidence labels;
+- `docs/architecture.md` — only if module boundaries or lifecycle behavior change;
+- `docs/testing.md` and focused test documentation — experiment and acceptance
+  coverage;
+- this file — decisions, measurements, and final verification record.
+
+Do not claim six-tier precedence, model comprehension, full-body output, semantic
+confidence, or clean diagnostics unless the implementation and tests establish the
+claim.
+
+## 16. Focused test plan
+
+Add or update only tests relevant to selected behavior:
+
+- guard command-shape and zero-output boundaries;
+- same-batch shell-read/edit behavior;
+- per-session fallback isolation;
+- patch-result contract and invalid candidate byte preservation;
+- JSON, Python, JavaScript, and TypeScript candidate validation;
+- vector threshold and RRF abstention with labeled fixtures;
+- honest no-result output for gibberish;
+- compact evidence-tier output if selected;
+- AST path filters, body truncation metadata, and language-kind descriptions;
+- configured Git identity and first-commit reporting;
+- embedding profile switching only if the load policy changes;
+- terminal-width safety for any changed renderer.
+
+## 17. Verification protocol
+
+### During implementation
+
+1. Read the relevant source and focused test immediately before every edit.
+2. Run the smallest relevant experiment or test.
+3. Inspect the result and stop on failure or unexpected output.
+4. Run bounded primary diagnostics only for changed implementation files when an
+   already-ready client is available.
+5. Do not run the complete suite after each change.
+
+### Final verification
+
+1. Run all newly added focused tests.
+2. Run affected existing sections.
+3. Run bounded primary diagnostics for changed implementation and test files.
+4. Run the complete suite exactly once.
+5. Run `git diff --check`.
+6. Review complete diff, name status, and retained-file intent.
+7. Confirm `src/ui/tui_utils.ts` was not changed by this work.
+8. Confirm terminal-width tests remain valid.
+9. Confirm unavailable, timeout, unsupported, and inconclusive states were not
+   reported as clean.
+10. Record exact test counts and exit codes in this file.
+11. Only then decide whether an intentional commit is appropriate.
+12. Check remote synchronization separately; do not push without explicit
+    instruction.
+
+## 18. Execution order
 
 ```text
-1. Preserve and classify the current worktree.
-2. Reproduce and record the baseline.
-3. Compare epistemic guard policies.
-4. Compare atomic edit policies.
-5. Compare edit/commit ownership and commit reporting.
-6. Build the labeled retrieval corpus and compare abstention policies.
-7. Compare AST filter/body contracts.
-8. Test vector-cache integrity.
-9. Select implementations from measured results.
-10. Apply the selected production changes.
-11. Update focused tests and documentation.
-12. Run final focused and full verification.
-13. Review diff/status and commit intentionally.
+1. Preserve and classify the dirty worktree.
+2. Confirm current baseline facts with bounded focused experiments.
+3. Decide the guard evidence contract.
+4. Document the atomic patch-result contract.
+5. Build the labeled retrieval fixture and choose vector abstention/RRF behavior.
+6. Normalize and document AST contracts.
+7. Decide session fallback isolation.
+8. Decide optional Git identity policy.
+9. Measure embedding-load alternatives.
+10. Apply only selected production changes.
+11. Add focused regressions.
+12. Update documentation.
+13. Run final verification once.
+14. Review the complete diff and commit intentionally, if requested.
+15. Check remote state and await push instructions.
 ```
 
-The baseline experiments selected the smallest verified changes currently
-implemented: classify shell command shapes as content-read evidence, validate
-patch candidates before writing, normalize AST path filtering, expose explicit
-commit outcomes, and reject incomplete vector-cache mappings. The fixed vector
-The fixed vector threshold remains deferred until a labeled retrieval corpus establishes a
-measured boundary; no unsupported threshold claim is part of the selected scope.
+## 19. Decision record
 
-## 17. Implementation record
+### Completed and retained
 
-### Completed
+- Metadata-only shell commands are excluded from guard evidence.
+- Candidate syntax is validated before target writes.
+- Invalid single- and multi-block edits preserve target bytes.
+- AST filters use normalized relative paths.
+- Custom edit verification owns its lifecycle; compatibility write handling remains.
+- Detailed commit states are exposed without breaking the boolean helper.
+- Vector-cache integrity checks preserve BM25 fallback.
+- Unsupported six-tier precedence claims were removed.
+- Compact output and terminal-width constraints remain protected.
 
-- Baseline guard and syntax-order issues reproduced.
-- Shell metadata commands no longer count as inspection evidence.
-- Candidate single- and multi-block patches are syntax-validated before writing.
-- Invalid patch regression tests verify byte preservation.
-- AST path filtering now uses normalized relative paths.
-- AST tool descriptions identify the path-filter and 25-line body-preview
-  contracts.
-- Edit verification is no longer duplicated for the custom `edit` tool by the
-  result interceptor; the compatibility `write` path remains unchanged.
-- Detailed commit outcomes are available through `autoCommitFileDetailed()` while
-  the existing boolean helper remains compatible.
-- Vector cache loading validates profile, IDs, dimensions, exact byte length, and
-  a content hash; invalid vector data falls back to BM25.
-- The fixed vector threshold remains deferred because a labeled retrieval corpus
-  has not yet established a measured confidence boundary.
-- README and focused documentation no longer claim six-tier instruction
-  precedence and document the selected edit/retrieval behavior.
+### Explicitly unresolved pending measurement or approval
 
-### Deferred pending measurement
+- Whether shell evidence should become stricter than classified command shape.
+- A measured vector cosine threshold and query-level abstention policy.
+- Suppression of low-confidence vector candidates from RRF.
+- Compact search evidence/confidence signaling.
+- Full AST body output versus bounded preview metadata.
+- Complete cross-language `kind` documentation/contract.
+- Process-unique fallback session identity.
+- Configured Git identity policy.
+- Foreground versus background/worker embedding loading.
+- RRF `k` configurability.
+- `src/index.ts` decomposition.
+- Public naming consistency.
 
-- A fixed vector cosine threshold or query-level vector abstention policy.
-- Full AST body output versus explicit bounded-preview metadata.
-- Same-batch completed-result guard semantics.
-- Broader commit identity-policy changes.
+### Current verification record
 
-### Verification recorded so far
-
-The affected focused sections passed after the implementation changes:
-
-```text
-Sections 5, 6, 7, 8, 10, 13, 20, and 25: passed
-Primary diagnostics for changed implementation and focused test files: 0 errors
-```
-
-The complete focused suite passed with zero failures. Targeted TypeScript
-compilation and primary diagnostics reported no errors, and `git diff --check`
-reported no whitespace errors. The implementation commits are complete. The
-remaining dirty worktree contains pre-existing unrelated changes and artifacts
-that were not altered or discarded; they require separate ownership review.
+The selected implementation scope was verified with the focused suite and targeted
+checks previously recorded in repository history. Before any new implementation
+from this plan is accepted, the final verification protocol in Section 17 must be
+run again for the newly changed files, with exact outputs recorded here. No
+unavailable or inconclusive check may be labeled clean.
