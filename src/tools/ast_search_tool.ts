@@ -29,7 +29,9 @@ export function registerAstSearchTool(
 				}),
 			),
 			filePattern: Type.Optional(
-				Type.String({ description: "Optional relative path, filename, or extension substring filter" }),
+				Type.String({
+					description: "Optional relative path, filename, or extension substring filter",
+				}),
 			),
 			includeBody: Type.Optional(
 				Type.Boolean({
