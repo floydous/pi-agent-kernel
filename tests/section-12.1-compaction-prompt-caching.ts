@@ -14,13 +14,14 @@ async function main(): Promise<void> {
 			"System prompt includes the static summarization instructions",
 			systemPrompt.includes("CRITICAL INSTRUCTIONS FOR CHRONOLOGICAL RECONCILIATION") &&
 				systemPrompt.includes("STRICT MONOTONIC TASK RECONCILIATION") &&
-				systemPrompt.includes("3-TIER EPISTEMIC CLASSIFICATION") &&
+				systemPrompt.includes("EPISTEMIC COMPRESSION") &&
+				!systemPrompt.includes("3-TIER EPISTEMIC CLASSIFICATION") &&
 				systemPrompt.includes("You are a context summarization assistant"),
 			{ systemPrompt: systemPrompt.slice(0, 200) }
 		);
 		logPass("System prompt includes static instructions (cacheable across compactions)");
 
-		// 2. The user message builder does NOT include the static instructions.
+		// 2. The user message builder does NOT include the static instructions or their status-label guidance.
 		const userMessage = buildChronologicalCompactionPrompt({
 			previousSummary: "## Progress",
 			discardedConversationText: "User: hi\nAssistant: hello",
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
 			!userMessage.includes("CRITICAL INSTRUCTIONS FOR CHRONOLOGICAL RECONCILIATION") &&
 				!userMessage.includes("STRICT MONOTONIC TASK RECONCILIATION") &&
 				!userMessage.includes("3-TIER EPISTEMIC CLASSIFICATION") &&
+				!userMessage.includes("EPISTEMIC COMPRESSION") &&
 				!userMessage.includes("[VERIFIED]") &&
 				!userMessage.includes("[ASSERTED]") &&
 				!userMessage.includes("[AMBIGUOUS]"),
