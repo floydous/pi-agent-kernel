@@ -8,7 +8,7 @@ to `src/editing/patch.ts`.
 1. Resolve the target path.
 2. Apply one search/replace block or multiple disjoint blocks.
 3. Enforce the read-before-write guard for existing files when enabled.
-4. Run bounded local syntax verification.
+4. Validate the complete candidate content with the bounded local syntax gate; the target is written only after validation succeeds.
 5. Reuse an already-ready LSP client when one exists; verification does not
    start a new language server or trigger broad analysis.
 6. Return compact status text and structured verification details.
@@ -32,10 +32,12 @@ These states must not be collapsed into `clean`.
 ## Git behavior
 
 The existing edit path retains its current automatic commit behavior after a
-clean local syntax gate. `autoCommitFile()` and `undoLastCommit()` are separate
-helpers in `src/editing/git-verify.ts`; changing commit policy is intentionally
-separate from the source-layout migration.
+clean local syntax gate. `autoCommitFile()` and `autoCommitFileDetailed()` are separate
+helpers in `src/editing/git-verify.ts`; the detailed result distinguishes
+`committed`, `not_git_repo`, `failed`, and `nothing_to_commit`. `undoLastCommit()`
+is separate as well.
 
 The edit result reports verification and commit information in `details`,
-while the visible message remains compact. Failed verification preserves the
-edit and reports the failure instead of silently rolling it back.
+while the visible message remains compact. Failed candidate validation leaves
+the target unchanged and reports the failure. Post-write diagnostic failures do
+not roll back an already-valid edit; their uncertainty remains explicit.
