@@ -29,11 +29,11 @@ export function registerAstSearchTool(
 				}),
 			),
 			filePattern: Type.Optional(
-				Type.String({ description: "Optional file name/extension filter" }),
+				Type.String({ description: "Optional relative path, filename, or extension substring filter" }),
 			),
 			includeBody: Type.Optional(
 				Type.Boolean({
-					description: "Include surrounding code body (default: false)",
+					description: "Include up to 25 lines of the symbol body (default: false)",
 				}),
 			),
 		}),
