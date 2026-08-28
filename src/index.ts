@@ -608,8 +608,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			};
 		}
 
-		// 9b. Intercept edit and write tools for syntax verification, git auto-commit, and post-edit LSP diagnostics
-		if (toolName === "edit" || toolName === "write") {
+		// 9b. Preserve the host write-tool compatibility path. The custom edit
+		// tool owns its complete verification and commit lifecycle; intercepting
+		// edit results here would duplicate syntax/LSP/commit work.
+		if (toolName === "write") {
 			const input = event.input as any;
 			const targetPath = input?.path;
 
