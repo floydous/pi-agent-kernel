@@ -23,8 +23,8 @@ export interface DiagnosticVerification {
 export interface PostEditVerification {
 	edit: "applied" | "not applied";
 	syntax: {
-	state: VerificationState;
-	message?: string;
+		state: VerificationState;
+		message?: string;
 	};
 	diagnostic: DiagnosticVerification;
 	tests: "not run";
@@ -53,11 +53,16 @@ function diagnosticValue(result: DiagnosticVerification): string {
 		counts.set(severity, (counts.get(severity) || 0) + 1);
 	}
 	return Array.from(counts.entries())
-		.map(([severity, count]) => `${count} ${severity === "warning" ? "warn" : severity === "info" ? "info" : "err"}`)
+		.map(
+			([severity, count]) =>
+				`${count} ${severity === "warning" ? "warn" : severity === "info" ? "info" : "err"}`,
+		)
 		.join(",");
 }
 
-function verificationEntries(result: PostEditVerification): Array<[string, string]> {
+function verificationEntries(
+	result: PostEditVerification,
+): Array<[string, string]> {
 	if (result.edit === "not applied") return [["edit", "not applied"]];
 	return [
 		["syntax", result.syntax.state],
@@ -75,19 +80,25 @@ export function renderPostEditVerification(
 	reason?: string,
 ): string {
 	const hasSyntaxFailure = result.syntax.state === "failed";
+	const hasSyntaxUncertainty = ["unavailable", "inconclusive", "timeout"].includes(
+		result.syntax.state,
+	);
 	const hasDiagnosticError = result.diagnostic.findings.some(
 		(finding) => finding.severity === "error" || !finding.severity,
 	);
 	const hasDiagnosticWarning = result.diagnostic.findings.some(
 		(finding) => finding.severity === "warning" || finding.severity === "info",
 	);
+	const hasDiagnosticUncertainty = ["unavailable", "inconclusive", "timeout"].includes(
+		result.diagnostic.state,
+	);
 	const overall =
 		result.edit === "not applied" ||
-			hasSyntaxFailure ||
-			result.diagnostic.state === "failed" ||
-			hasDiagnosticError
+		hasSyntaxFailure ||
+		result.diagnostic.state === "failed" ||
+		hasDiagnosticError
 			? "FAIL!"
-			: hasDiagnosticWarning
+			: hasSyntaxUncertainty || hasDiagnosticUncertainty || hasDiagnosticWarning
 				? "WARN!"
 				: "OK!";
 
@@ -100,7 +111,9 @@ export function renderPostEditVerification(
 
 	const lines = [overall];
 	for (const value of Array.from(groups.keys())) {
-		const labels = LABEL_ORDER.filter((label) => groups.get(value)?.includes(label));
+		const labels = LABEL_ORDER.filter((label) =>
+			groups.get(value)?.includes(label),
+		);
 		lines.push(`${labels.join(",")}:${value}`);
 	}
 
@@ -139,7 +152,10 @@ export async function verifyEditedFile(
 	if (!syntax.valid) {
 		return {
 			edit: "applied",
-			syntax: { state: "failed", message: syntax.error },
+			syntax: {
+				state: syntax.status || "failed",
+				message: syntax.error,
+			},
 			diagnostic: { state: "not run", findings: [] },
 			tests: "not run",
 		};
@@ -156,7 +172,12 @@ export async function verifyEditedFile(
 		} catch (error) {
 			diagnostic = {
 				state: "inconclusive",
-				findings: [{ message: error instanceof Error ? error.message : String(error), severity: "info" }],
+				findings: [
+					{
+						message: error instanceof Error ? error.message : String(error),
+						severity: "info",
+					},
+				],
 			};
 		}
 	}
