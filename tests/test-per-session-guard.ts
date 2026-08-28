@@ -3,12 +3,12 @@
 //   1. Per-session isolation: a file read in session A is not visible in session B
 //   2. resetSession only clears one session, not others
 //   3. The same path normalizes the same way regardless of relative/absolute
-//   4. The default session id works for CLI single-session mode
+//   4. Explicit fallback-like ids remain valid regular session keys
 
 import * as path from "node:path";
 import * as os from "node:os";
 import * as fs from "node:fs";
-import { EpistemicGuard, extractInspectedFilesFromCommand } from "../safety/epistemic_guard";
+import { EpistemicGuard, extractInspectedFilesFromCommand } from "../src/safety/epistemic_guard";
 
 let passed = 0;
 let failed = 0;
@@ -65,12 +65,13 @@ async function main(): Promise<void> {
 		expect("relative path resolves to same normalized form", check.allowed);
 	}
 
-	// Test 4: default session id works
+	// Test 4: explicit fallback-like ids remain valid regular session keys
 	{
 		const guard = new EpistemicGuard();
-		guard.recordFileRead(testFile, "__default__");
-		const check = guard.checkReadPrecondition(testFile, "edit", "__default__");
-		expect("default session id behaves like a regular session", check.allowed);
+		const fallbackId = `__default__${process.pid}_1__`;
+		guard.recordFileRead(testFile, fallbackId);
+		const check = guard.checkReadPrecondition(testFile, "edit", fallbackId);
+		expect("fallback session id behaves like a regular session", check.allowed);
 	}
 
 	// Test 5: extractInspectedFilesFromCommand still works as before
