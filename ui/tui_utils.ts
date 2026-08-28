@@ -231,12 +231,17 @@ export class Text {
 		const contentLines = wrappedLines.map(
 			(line) => leftMargin + line + rightMargin,
 		);
+		// The width argument is authoritative: Pi hard-fails if any returned
+		// line exceeds it, regardless of the width available during formatting.
+		const safeContentLines = contentLines.map((line) =>
+			truncateToWidth(line, width, ""),
+		);
 		const emptyLine = " ".repeat(width);
 		const emptyLines: string[] = [];
 		for (let i = 0; i < this.paddingY; i++) {
 			emptyLines.push(emptyLine);
 		}
-		return [...emptyLines, ...contentLines, ...emptyLines];
+		return [...emptyLines, ...safeContentLines, ...emptyLines];
 	}
 }
 
