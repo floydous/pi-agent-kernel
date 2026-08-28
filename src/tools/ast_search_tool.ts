@@ -25,17 +25,20 @@ export function registerAstSearchTool(
 			),
 			kind: Type.Optional(
 				Type.String({
-					description: "Kind: function | class | method | interface | type",
+					description:
+						"Kind: function | class | method | interface | type | struct | trait | enum | impl | alias | variable | constant", 
 				}),
 			),
 			filePattern: Type.Optional(
 				Type.String({
-					description: "Optional relative path, filename, or extension substring filter",
+					description:
+						"Optional relative path, filename, or extension substring filter",
 				}),
 			),
 			includeBody: Type.Optional(
 				Type.Boolean({
-					description: "Include up to 25 lines of the symbol body (default: false)",
+					description:
+						"Include a bounded preview of up to 25 symbol lines (default: false); use read_symbol for the complete body",
 				}),
 			),
 		}),
