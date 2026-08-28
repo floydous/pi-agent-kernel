@@ -5,6 +5,7 @@ This directory contains focused documentation for the `agent-kernel` Pi package.
 ## Guides
 
 - [Architecture](architecture.md) — source layout, subsystem boundaries, and runtime flow.
+- [LSP](lsp.md) — language-server discovery, lifecycle, and diagnostics.
 - [Configuration](configuration.md) — global, project-local, and environment configuration.
 - [Editing and verification](editing-and-verification.md) — surgical edits, safety checks, and post-edit verification.
 - [Retrieval](retrieval.md) — repository maps, AST search, and hybrid code search.
