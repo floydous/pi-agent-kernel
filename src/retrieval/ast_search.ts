@@ -10,6 +10,7 @@ export interface AstQueryResult {
 	signature: string;
 	line: number;
 	codeBlock?: string;
+	bodyTruncated?: boolean;
 	aliasedFrom?: {
 		module?: string;
 		originalName: string;
@@ -735,7 +736,9 @@ export function searchAstSymbols(
 				const relPath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
 				if (
 					query.filePattern &&
-					!relPath.toLowerCase().includes(query.filePattern.replace(/\\/g, "/").toLowerCase())
+					!relPath
+						.toLowerCase()
+						.includes(query.filePattern.replace(/\\/g, "/").toLowerCase())
 				) {
 					continue;
 				}
@@ -751,10 +754,12 @@ export function searchAstSymbols(
 
 					for (const def of tags.definitions) {
 						let codeBlock: string | undefined;
+						let bodyTruncated = false;
 						if (query.includeBody) {
 							const start = Math.max(0, def.line - 1);
 							const end = Math.min(lines.length, def.line + 25);
 							codeBlock = lines.slice(start, end).join("\n");
+							bodyTruncated = end < lines.length;
 						}
 
 						const item: AstQueryResult = {
@@ -764,6 +769,7 @@ export function searchAstSymbols(
 							signature: def.signature,
 							line: def.line,
 							codeBlock,
+							bodyTruncated: query.includeBody ? bodyTruncated : undefined,
 							aliasedFrom: def.aliasedFrom,
 						};
 
@@ -846,9 +852,10 @@ export function searchAstSymbols(
 					name: hit.name,
 					kind: foundOrig.kind,
 					signature: foundOrig.signature,
-					line: foundOrig.line,
-					codeBlock: foundOrig.codeBlock,
-					aliasedFrom: {
+							line: foundOrig.line,
+							codeBlock: foundOrig.codeBlock,
+							bodyTruncated: foundOrig.bodyTruncated,
+							aliasedFrom: {
 						module: `${hit.filePath}:${hit.line}`,
 						originalName: origName,
 					},
