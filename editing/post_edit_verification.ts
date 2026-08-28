@@ -58,12 +58,12 @@ function diagnosticValue(result: DiagnosticVerification): string {
 }
 
 function verificationEntries(result: PostEditVerification): Array<[string, string]> {
-	const entries: Array<[string, string]> = [];
-	if (result.edit === "not applied") entries.push(["edit", "not applied"]);
-	entries.push(["syntax", result.syntax.state]);
-	entries.push(["diagnostic", diagnosticValue(result.diagnostic)]);
-	entries.push(["tests", result.tests]);
-	return entries;
+	if (result.edit === "not applied") return [["edit", "not applied"]];
+	return [
+		["syntax", result.syntax.state],
+		["diagnostic", diagnosticValue(result.diagnostic)],
+		["tests", result.tests],
+	];
 }
 
 /**
@@ -116,6 +116,18 @@ export function renderPostEditVerification(
 }
 
 /** Run the cheap local syntax gate and an optional bounded diagnostic check. */
+export function renderEditFailure(reason: string): string {
+	return renderPostEditVerification(
+		{
+			edit: "not applied",
+			syntax: { state: "not run" },
+			diagnostic: { state: "not run", findings: [] },
+			tests: "not run",
+		},
+		reason,
+	);
+}
+
 export async function verifyEditedFile(
 	filePath: string,
 	diagnostics?: () => Promise<DiagnosticCheck>,
