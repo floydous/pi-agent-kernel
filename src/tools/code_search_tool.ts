@@ -84,7 +84,7 @@ export function registerCodeSearchTool(
 			const formatted = hits.map((hit, idx) => {
 				const chunk = hit.chunk;
 				let header = `[${idx + 1}] ${chunk.breadcrumb} (lines ${chunk.startLine}-${chunk.endLine})`;
-				header += `\n    Relevance: RRF=${hit.rrfScore.toFixed(4)}`;
+				header += `\n    Signal: ${hit.signal} | Relevance: RRF=${hit.rrfScore.toFixed(4)}`;
 				if (hit.bm25Score > 0) header += ` | BM25=${hit.bm25Score.toFixed(2)}`;
 				if (hit.vectorScore > 0)
 					header += ` | VecCos=${hit.vectorScore.toFixed(3)}`;
