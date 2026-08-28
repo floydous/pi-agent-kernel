@@ -94,7 +94,7 @@ async function main(): Promise<void> {
 			assertPass(
 				"TypeScript parser catches invalid expressions",
 				invalidTypeScript.syntax.state === "failed" &&
-				invalidTypeScript.syntax.message?.includes("Expression expected"),
+				!!invalidTypeScript.syntax.message?.includes("Expression expected"),
 				{ invalidTypeScript },
 			);
 			assertPass(
