@@ -33,6 +33,7 @@ export class HybridSearchIndex {
 	private fileHashes: Map<string, string> = new Map(); // relPath -> SHA256 hash
 	private isInitialized = false;
 	private isIndexing = false;
+	private vectorCacheValid = false;
 
 	constructor(cwd: string, profile?: SearchProfile) {
 		this.cwd = cwd;
@@ -126,29 +127,42 @@ export class HybridSearchIndex {
 				this.fileHashes.set(f, h as string);
 			}
 
-			// Only load binary vectors if current active profile actually uses vectors
+			// Only load binary vectors when metadata proves a complete, one-to-one
+			// chunk/vector mapping. Otherwise retain the safe BM25 index only.
 			const wantsVectors =
 				this.config.effectiveProfile === "hybrid" ||
 				this.config.effectiveProfile === "full";
-			if (wantsVectors && fs.existsSync(vectorsPath) && data.vectorDim > 0) {
+			const vectorChunkIds = data.vectorChunkIds;
+			const chunkIds = (data.chunks as CodeChunk[]).map((chunk) => chunk.id);
+			const validVectorMetadata =
+				wantsVectors &&
+				fs.existsSync(vectorsPath) &&
+				Number.isInteger(data.vectorDim) &&
+				data.vectorDim > 0 &&
+				Array.isArray(vectorChunkIds) &&
+				vectorChunkIds.length > 0 &&
+				new Set(vectorChunkIds).size === vectorChunkIds.length &&
+				vectorChunkIds.every((id: unknown) => typeof id === "string" && this.chunks.has(id));
+			if (validVectorMetadata) {
 				const buf = fs.readFileSync(vectorsPath);
-				const dim = data.vectorDim;
-				const floatArray = new Float32Array(
-					buf.buffer,
-					buf.byteOffset,
-					buf.byteLength / 4,
-				);
+				const dim = data.vectorDim as number;
+				const expectedBytes = vectorChunkIds.length * dim * 4;
+				if (buf.byteLength === expectedBytes) {
+					const floatArray = new Float32Array(
+						buf.buffer,
+						buf.byteOffset,
+						buf.byteLength / 4,
+					);
 
-				let offset = 0;
-				for (const chunkId of data.vectorChunkIds || []) {
-					if (offset + dim <= floatArray.length) {
+					for (let index = 0; index < vectorChunkIds.length; index++) {
 						const vec = new Float32Array(dim);
-						vec.set(floatArray.subarray(offset, offset + dim));
-						this.vectors.set(chunkId, vec);
-						offset += dim;
+						vec.set(floatArray.subarray(index * dim, (index + 1) * dim));
+						this.vectors.set(vectorChunkIds[index], vec);
 					}
+					this.vectorCacheValid = this.vectors.size === vectorChunkIds.length;
 				}
 			}
+			void chunkIds;
 
 			this.isInitialized = true;
 			return true;
