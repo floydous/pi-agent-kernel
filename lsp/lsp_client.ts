@@ -317,6 +317,7 @@ export class StdioLspClient {
     }
 
     this.openDocuments.set(uri, { version: 1, text });
+    this.diagnosticsCache.delete(uri);
     this.sendNotification("textDocument/didOpen", {
       textDocument: {
         uri,
@@ -335,6 +336,7 @@ export class StdioLspClient {
     const existing = this.openDocuments.get(uri);
     const version = (existing?.version || 0) + 1;
     this.openDocuments.set(uri, { version, text });
+    this.diagnosticsCache.delete(uri);
 
     this.sendNotification("textDocument/didChange", {
       textDocument: {
@@ -357,13 +359,17 @@ export class StdioLspClient {
   }
 
   /**
-   * Get diagnostics (push cache + optional pull diagnostics)
+   * Get diagnostics with an explicit uncertainty status.
+   * An empty result is only clean when the server positively reported it.
    */
-  public async getDiagnostics(filePath: string): Promise<LspDiagnostic[]> {
+  public async getDiagnosticsResult(filePath: string): Promise<{
+    status: "clean" | "findings" | "timeout" | "inconclusive";
+    diagnostics: LspDiagnostic[];
+  }> {
     const uri = pathToUri(filePath);
     await this.openDocument(filePath);
 
-    // Check pull diagnostics if supported
+    // Pull diagnostics provide an explicit empty result as well as findings.
     if (this.serverCapabilities.diagnosticProvider) {
       try {
         const pullRes = await this.sendRequest<any>(
@@ -375,21 +381,38 @@ export class StdioLspClient {
         );
         if (pullRes?.items && Array.isArray(pullRes.items)) {
           this.diagnosticsCache.set(uri, pullRes.items);
-          return pullRes.items;
+          return {
+            status: pullRes.items.length > 0 ? "findings" : "clean",
+            diagnostics: pullRes.items,
+          };
         }
       } catch (e) {
         kernelDebug(e);
+        if (e instanceof Error && e.message.includes("timed out")) {
+          return { status: "timeout", diagnostics: [] };
+        }
+        return { status: "inconclusive", diagnostics: [] };
       }
     }
 
-    // Wait briefly for background type-checker to publish push diagnostics if not yet received
-    let diags = this.diagnosticsCache.get(uri);
-    if (!diags || diags.length === 0) {
-      await new Promise((r) => setTimeout(r, 200));
-      diags = this.diagnosticsCache.get(uri);
+    // Push-only servers must publish a fresh result after didChange/didOpen.
+    await new Promise((r) => setTimeout(r, 200));
+    if (!this.diagnosticsCache.has(uri)) {
+      return { status: "inconclusive", diagnostics: [] };
     }
+    const diagnostics = this.diagnosticsCache.get(uri) || [];
+    return {
+      status: diagnostics.length > 0 ? "findings" : "clean",
+      diagnostics,
+    };
+  }
 
-    return diags || [];
+  /**
+   * Backward-compatible diagnostics accessor for the LSP tool.
+   */
+  public async getDiagnostics(filePath: string): Promise<LspDiagnostic[]> {
+    const result = await this.getDiagnosticsResult(filePath);
+    return result.diagnostics;
   }
 
   /**
