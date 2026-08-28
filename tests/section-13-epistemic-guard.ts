@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { EpistemicGuard, extractInspectedFilesFromCommand } from "../safety/epistemic_guard";
+import { EpistemicGuard, extractInspectedFilesFromCommand } from "../src/safety/epistemic_guard";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
