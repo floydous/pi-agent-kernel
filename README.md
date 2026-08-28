@@ -22,7 +22,7 @@ agent-kernel/
 ├── tests/                  # Focused verification sections
 ├── examples/
 │   └── config.example.toml # Example user configuration
-├── docs/                   # Project documentation
+├── docs/                   # Project documentation and guides
 ├── test.ts                 # Compatibility shim for the full test suite
 ├── README.md
 └── package.json
