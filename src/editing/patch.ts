@@ -3,6 +3,14 @@ import * as path from "path";
 import * as diff from "diff";
 import { checkSyntaxContent } from "./git-verify";
 
+/**
+ * Result of composing and validating a surgical patch.
+ *
+ * `success: true` means the requested block was located, the complete
+ * candidate content passed the local syntax gate, and the target was written.
+ * It does not imply type correctness, semantic correctness, or clean LSP
+ * diagnostics; those checks remain the caller's responsibility.
+ */
 export interface PatchResult {
 	success: boolean;
 	filePath: string;
