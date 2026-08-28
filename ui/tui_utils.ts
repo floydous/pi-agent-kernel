@@ -185,7 +185,9 @@ export function getSafeLineWidth(): number {
  */
 export function makeOutputText(content: string, paddingX = 0): Text {
 	const safeWidth = getSafeLineWidth();
-	const safeContent = content
+	// Match Pi's native Text renderer: tabs occupy three spaces there.
+	const normalizedContent = content.replace(/\t/g, "   ");
+	const safeContent = normalizedContent
 		.split(/\r\n|\r|\n/)
 		.map((line) => truncateToWidth(line, safeWidth, "…"))
 		.join("\n");
@@ -221,11 +223,9 @@ export class Text {
 			this.paddingX,
 			Math.max(0, Math.floor((width - 1) / 2)),
 		);
-		// Pi renders tool components inside a padded parent. Keep a reserve
-		// larger than the observed parent-width discrepancy so the parent
-		// cannot make an otherwise fitting line overflow.
-		const contentWidth = Math.max(1, width - paddingX * 2 - 8);
-		const wrappedLines = wrapTextWithAnsi(this.text, contentWidth);
+		const normalizedText = this.text.replace(/\t/g, "   ");
+		const contentWidth = Math.max(1, width - paddingX * 2);
+		const wrappedLines = wrapTextWithAnsi(normalizedText, contentWidth);
 		const leftMargin = " ".repeat(paddingX);
 		const rightMargin = " ".repeat(paddingX);
 		const contentLines = wrappedLines.map(
