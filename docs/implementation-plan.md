@@ -219,14 +219,15 @@ between a stronger observable-content policy and an honest weaker name/contract.
 #### A0 — Current classified command-shape evidence
 
 Control group. Keep native reads, search results, and known shell content-reader
-shapes as evidence. Continue rejecting metadata-only commands. Preserve same-batch
-preflight compatibility.
+shapes as evidence. Continue rejecting metadata-only and count/quiet/filename-only
+search modes. Preserve same-batch preflight compatibility.
 
 #### A1 — Stricter shell command policy
 
 Permit only commands whose normal operation emits file content, with explicit
 handling for options and redirections. Search commands that can return only counts
-or status would not automatically satisfy the guard.
+or status would not automatically satisfy the guard. This stricter option remains
+available if future workflows show that command-shape evidence is insufficient.
 
 #### A2 — Result-aware shell evidence
 
@@ -266,9 +267,10 @@ and whether the observation is definitive or preflight-only.
 
 ### Exit criteria
 
-Select the smallest policy that rejects clearly non-content evidence, preserves
-needed workflows, and accurately states what is and is not proven. Add focused
-regressions for every retained boundary.
+The initial selected policy is A0 with explicit rejection of non-content grep/rg
+modes. It rejects clearly non-content evidence, preserves same-batch workflows,
+and accurately states what is and is not proven. Focused regressions cover the
+retained boundaries; result-aware evidence remains a future architectural option.
 
 ## 8. Phase 2 — Make the patch contract explicit
 
