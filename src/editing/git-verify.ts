@@ -236,8 +236,8 @@ export function checkSyntax(filePath: string): VerificationResult {
 			if (structuralError) throw new Error(structuralError);
 
 			const compiler = path.resolve(
-				process.cwd(),
-				"node_modules/typescript/bin/tsc",
+				__dirname,
+				"../../node_modules/typescript/bin/tsc",
 			);
 			const compilerArgs = [
 				"--noEmit",
