@@ -610,5 +610,5 @@ normalized code-search paths, isolated fallback session IDs, AST body truncation
 metadata, lexical/semantic/hybrid signal labels, bounded RRF tuning, and
 background indexing lifecycle behavior. Focused checks for the changed behavior
 passed where executed; the complete final verification protocol in Section 17
-remains pending and must record exact outputs before release. No unavailable or
-inconclusive check may be labeled clean.
+remains pending and must record exact outputs before release. No unavailable,
+failed, or inconclusive check may be labeled clean.
