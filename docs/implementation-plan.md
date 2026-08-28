@@ -1,7 +1,7 @@
 # Pi Agent Kernel Feedback Implementation Plan
 
-**Status:** Selected safety/reliability scope complete; remaining feedback work is
-planned and requires measured decisions before implementation.
+**Status:** Implementation in progress; selected feedback fixes are being applied
+with bounded measurements.
 **Repository:** `pi-agent-kernel`
 **Authoritative plan:** This file is the implementation and verification record for
 the feedback reviewed in `_feedback/`.
@@ -130,21 +130,19 @@ available from the parser.
 
 ### 4.5 Hybrid search
 
-Vector candidates are currently ranked and included in RRF without a minimum
-cosine threshold. A controlled no-BM25 test produced vector-only results for
-scores of `0.60` and `0.50`. Consequently, nonsense or absent queries can still
-produce ordinary-looking vector results, and low-confidence vectors can affect
-RRF ordering.
-
-The fixed threshold remains unselected because no labeled retrieval corpus has
-established a reliable boundary for the configured embedding dimensions and
-profiles.
+Vector candidates are now filtered before RRF using an initial `0.6` cosine floor
+for hybrid and full profiles. A bounded feedback fixture showed positive-query
+scores from approximately `0.687` to `0.746` and negative-query scores from
+approximately `0.446` to `0.555`; vector-only candidates below the floor were
+excluded. This is an initial operational boundary, not a final corpus-calibrated
+threshold, so larger labeled-corpus calibration remains planned.
 
 ### 4.6 Session and performance behavior
 
-The session fallback remains the shared string `__default__` when the host does
-not provide a session ID. Hybrid/full embedding initialization is awaited in the
-foreground indexing path. `src/index.ts` remains a large integration module.
+The integration now assigns a process- and context-unique fallback session ID when
+the host does not provide one. Hybrid/full embedding initialization is still
+awaited in the foreground indexing path. `src/index.ts` remains a large
+integration module.
 
 ## 5. Decision gates
 
@@ -584,12 +582,10 @@ Add or update only tests relevant to selected behavior:
 ### Explicitly unresolved pending measurement or approval
 
 - Whether shell evidence should become stricter than classified command shape.
-- A measured vector cosine threshold and query-level abstention policy.
-- Suppression of low-confidence vector candidates from RRF.
+- Larger labeled-corpus calibration of the initial vector cosine threshold.
 - Compact search evidence/confidence signaling.
 - Full AST body output versus bounded preview metadata.
 - Complete cross-language `kind` documentation/contract.
-- Process-unique fallback session identity.
 - Configured Git identity policy.
 - Foreground versus background/worker embedding loading.
 - RRF `k` configurability.
