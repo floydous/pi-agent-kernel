@@ -5,13 +5,10 @@
 
 import { runSection } from "./_setup";
 
-interface SectionModule {
-	main: () => Promise<void>;
-}
-
 interface TestEntry {
 	name: string;
-	loader: () => Promise<SectionModule>;
+	// Section modules execute their tests through import side effects.
+	loader: () => Promise<unknown>;
 }
 
 const sections: TestEntry[] = [
