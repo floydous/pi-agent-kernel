@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { execSync } from "node:child_process";
-import { extractGitGroundTruth } from "../context/compaction_enhanced";
+import { extractGitGroundTruth } from "../src/context/compaction_enhanced";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
