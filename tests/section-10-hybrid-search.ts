@@ -106,6 +106,15 @@ async function main(): Promise<void> {
 				mixedHits.length > 0 && ["lexical", "semantic", "hybrid"].includes(mixedHits[0].signal),
 				{ mixedHits },
 			);
+			const tunedHits = await mixedIndex.search("calculate_tax", {
+				limit: 5,
+				rrfK: 120,
+			});
+			assertPass(
+				"RRF smoothing constant is bounded and configurable",
+				tunedHits.length > 0 && tunedHits[0].rrfScore < mixedHits[0].rrfScore,
+				{ tunedHits, mixedHits },
+			);
 		} finally {
 			ws.cleanup();
 		}
