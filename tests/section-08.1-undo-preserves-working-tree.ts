@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { execSync } from "node:child_process";
-import { autoCommitFile, undoLastCommit } from "../editing/git-verify";
+import { autoCommitFile, undoLastCommit } from "../src/editing/git-verify";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
