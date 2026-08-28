@@ -3,7 +3,13 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import { applySurgicalPatch, applyMultiBlockPatch } from "../editing/patch";
-import { checkSyntax, autoCommitFile } from "../editing/git-verify";
+import { autoCommitFile } from "../editing/git-verify";
+import {
+	renderEditFailure,
+	renderPostEditVerification,
+	verifyEditedFile,
+} from "../editing/post_edit_verification";
+import { LspManager } from "../lsp";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
 import type { SessionDeps } from "./context";
 
@@ -111,42 +117,59 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			if (!patchRes.success) {
 				return {
-					content: [{ type: "text", text: `[EDIT FAILED] ${patchRes.error}` }],
+					content: [{ type: "text", text: renderEditFailure(patchRes.error || "patch failed") }],
 					details: { error: patchRes.error, success: false },
 					isError: true,
 				};
 			}
 
-			// Post-edit syntax verification
-			const syntaxRes = checkSyntax(resolvedPath);
-			let statusText = `[EDIT SUCCESS] Applied via ${patchRes.strategy} strategy.\n\n${patchRes.diffOutput || ""}`;
-
-			if (!syntaxRes.valid) {
-				statusText += `\n\n[SYNTAX WARNING] ${syntaxRes.error}\nPlease fix the syntax error immediately.`;
-				return {
-					content: [{ type: "text", text: statusText }],
-					details: {
-						strategy: patchRes.strategy,
-						syntaxError: syntaxRes.error,
-						success: true,
-					},
-					isError: false,
-				};
-			}
-
-			// Auto-commit if git repo
-			const committed = autoCommitFile(
-				ctx.cwd,
+			// Verify locally first. Reuse an already-ready LSP client only; edit
+			// verification must not spawn a server or trigger broad analysis.
+			const readyLsp = LspManager.getInstance().getReadyClientForFile(
 				resolvedPath,
-				params.commit_message,
+				ctx.cwd,
 			);
-			if (committed) {
-				statusText += "\n[GIT] Changes automatically committed to git.";
-			}
+			const verification = await verifyEditedFile(
+				resolvedPath,
+				readyLsp
+					? async () => {
+						const result = await readyLsp.getDiagnosticsResult(resolvedPath);
+						return {
+							state: result.status,
+							findings: result.diagnostics.map((finding) => ({
+								line: finding.range.start.line + 1,
+								message: finding.message,
+								severity:
+									finding.severity === 1
+										? "error" as const
+										: finding.severity === 2
+											? "warning" as const
+											: "info" as const,
+							})),
+						};
+					}
+					: undefined,
+			);
 
+			// Auto-commit after the local syntax gate, preserving the existing
+			// commit behavior. Diagnostic findings remain visible to the agent.
+			const committed = verification.syntax.state === "clean"
+				? autoCommitFile(ctx.cwd, resolvedPath, params.commit_message)
+				: false;
+			const statusText = renderPostEditVerification(verification);
 			return {
 				content: [{ type: "text", text: statusText }],
-				details: { strategy: patchRes.strategy, committed, success: true },
+				details: {
+					strategy: patchRes.strategy,
+					committed,
+					verification,
+					success: verification.syntax.state === "clean",
+				},
+				isError:
+					verification.syntax.state === "failed" ||
+					verification.diagnostic.findings.some(
+						(finding) => finding.severity === "error" || !finding.severity,
+					),
 			};
 		},
 		renderCall(args: any, theme: any, context: any) {
