@@ -1,17 +1,19 @@
 import { EpistemicGuard } from './src/safety/epistemic_guard';
+import { extractInspectedFilesFromCommand } from './src/safety/epistemic_guard';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const testFile = 'C:/Users/brat/temp_epistemic_test/target.ts';
-console.log('File exists:', fs.existsSync(testFile));
-
+const SID = '__default__';
 const g = new EpistemicGuard();
-const SID = '__test_direct__';
-const chk = g.checkReadPrecondition(testFile, 'edit', SID);
-console.log('Direct guard check (no record):');
-console.log('  allowed:', chk.allowed);
-console.log('  reason:', chk.reason);
-
-g.recordFileRead(testFile, SID);
-const chk2 = g.checkReadPrecondition(testFile, 'edit', SID);
-console.log('After recordFileRead:');
-console.log('  allowed:', chk2.allowed);
+const inspected = g.getInspectedFiles(SID);
+console.log('All files currently marked inspected in __default__ session:');
+for (const f of inspected) {
+	console.log(' -', f);
+}
+console.log('\nTotal:', inspected.length);
+console.log('\nNow: try target.ts in temp_epistemic_test:');
+const targetFile = 'C:/Users/brat/temp_epistemic_test/target.ts';
+const norm = g['normalize'] ? g['normalize'](targetFile) : targetFile;
+console.log('  normalized:', norm);
+console.log('  isInspected:', g.isFileInspected(targetFile, SID));
+console.log('  exists:', fs.existsSync(targetFile));
