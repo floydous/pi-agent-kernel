@@ -82,7 +82,10 @@ def raise_rate_limit_exceeded():
 					"utf8",
 				);
 
-				const longBody = ["def long_rate_limit():", ...Array.from({ length: 30 }, (_, i) => `    value_${i} = ${i}`)].join("\n") + "\n";
+				const longBody = [
+					"def long_rate_limit():",
+					...Array.from({ length: 30 }, (_, i) => `    value_${i} = ${i}`),
+				].join("\n") + "\n";
 				fs.writeFileSync(path.join(srcDir, "long_body.py"), longBody, "utf8");
 
 				// Query alias WebSocketClient
