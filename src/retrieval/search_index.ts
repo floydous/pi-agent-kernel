@@ -135,6 +135,7 @@ export class HybridSearchIndex {
 			const vectorChunkIds = data.vectorChunkIds;
 			const validVectorMetadata =
 				wantsVectors &&
+				data.profile === this.config.profile &&
 				fs.existsSync(vectorsPath) &&
 				Number.isInteger(data.vectorDim) &&
 				data.vectorDim > 0 &&
