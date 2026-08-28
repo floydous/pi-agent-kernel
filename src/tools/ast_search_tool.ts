@@ -32,7 +32,7 @@ export function registerAstSearchTool(
 			filePattern: Type.Optional(
 				Type.String({
 					description:
-						"Optional normalized relative path substring (e.g. 'src/safety', '.py', 'test')", 
+						"Optional normalized relative path substring (e.g. 'src/safety', '.py', 'test')",
 				}),
 			),
 			includeBody: Type.Optional(
