@@ -234,6 +234,42 @@ export function checkSyntax(filePath: string): VerificationResult {
 			const tsContent = fs.readFileSync(resolvedPath, "utf8");
 			const structuralError = checkTsStructure(tsContent);
 			if (structuralError) throw new Error(structuralError);
+
+			const compiler = path.resolve(
+				__dirname,
+				"../node_modules/typescript/bin/tsc",
+			);
+			const compilerArgs = [
+				"--noEmit",
+				"--noCheck",
+				"--noResolve",
+				"--skipLibCheck",
+				"--pretty",
+				"false",
+				"--target",
+				"ES2020",
+				"--module",
+				"CommonJS",
+				...(ext === ".tsx" || ext === ".jsx"
+					? ["--jsx", "preserve", "--allowJs"]
+					: []),
+				resolvedPath,
+			];
+			try {
+				execFileSync(process.execPath, [compiler, ...compilerArgs], {
+					stdio: "pipe",
+					timeout: 5000,
+				});
+			} catch (error: any) {
+				if (error?.code === "ENOENT" || error?.status === 9009) {
+					return {
+						valid: false,
+						status: "unavailable",
+						error: "TypeScript compiler unavailable",
+					};
+				}
+				throw error;
+			}
 		}
 		return { valid: true, status: "clean" };
 	} catch (err: any) {
