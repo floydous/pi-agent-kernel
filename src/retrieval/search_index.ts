@@ -451,9 +451,12 @@ export class HybridSearchIndex {
 				}
 
 				vecScores.sort((a, b) => b.score - a.score);
-				vecScores.slice(0, 100).forEach((item, idx) => {
-					vectorRankMap.set(item.chunkId, { rank: idx + 1, score: item.score });
-				});
+				vecScores
+					.filter((item) => item.score >= 0.7)
+					.slice(0, 100)
+					.forEach((item, idx) => {
+						vectorRankMap.set(item.chunkId, { rank: idx + 1, score: item.score });
+					});
 			}
 		}
 
