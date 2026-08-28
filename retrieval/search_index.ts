@@ -295,6 +295,10 @@ export class HybridSearchIndex {
 					}
 				}
 			}
+			if (filesToDelete.length > 0) {
+				this.bm25.recalculateStats();
+				this.saveToDisk();
+			}
 
 			// Handle additions and modifications
 			if (filesToReindex.length > 0) {
