@@ -2,6 +2,13 @@
 
 A high-leverage agentic coding extension suite for `@earendil-works/pi-coding-agent`.
 
+## Design Priorities
+
+`agent-kernel` is designed for bare-minimum token usage while maximizing
+performance and reliability across agent work. It favors focused retrieval,
+bounded output, deterministic checks, and grounded edits over unnecessary
+context, background processing, or speculative automation.
+
 ## Architecture & Directory Layout
 
 Authored runtime code lives under `src/`; tests, documentation, and example
