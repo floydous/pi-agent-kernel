@@ -2,7 +2,7 @@
 // Tests computeRepoMap on a git workspace containing a real Python file.
 
 import * as path from "node:path";
-import { computeRepoMap } from "../retrieval/repomap";
+import { computeRepoMap } from "../src/retrieval/repomap";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
