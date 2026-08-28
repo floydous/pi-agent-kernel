@@ -336,7 +336,9 @@ Control group.
 
 Measure a range of thresholds; values such as `0.70` and `0.75` are experimental
 inputs only, not predetermined answers. Use separate measurements for 256 and
-768 dimensions if their distributions differ.
+768 dimensions if their distributions differ. The initial implementation selects
+`0.6` for both profiles because the bounded fixture measured positive scores at
+approximately `0.687`–`0.746` and negative scores at approximately `0.446`–`0.555`.
 
 #### D2 — Query-level abstention
 
@@ -355,6 +357,10 @@ If useful after D1–D3, expose one bounded signal label: `lexical`, `semantic`,
 agent decisions enough to justify its token cost.
 
 ### Exit criteria
+
+The initial selected behavior uses D1 plus D2/D3: scores below `0.6` are removed
+before RRF, while BM25 results remain available. A semantic-only query with no
+above-threshold candidates follows the no-result path.
 
 - Negative queries do not produce ordinary-looking relevant results without an
   explicit abstention/uncertainty result.
@@ -594,7 +600,6 @@ Add or update only tests relevant to selected behavior:
 - Full AST body output versus bounded preview metadata.
 - Configured Git identity policy.
 - Foreground versus background/worker embedding loading.
-- RRF `k` configurability.
 - `src/index.ts` decomposition.
 - Public naming consistency.
 
