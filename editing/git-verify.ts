@@ -1,0 +1,347 @@
+import * as fs from "fs";
+import * as path from "path";
+import { execSync, execFileSync } from "child_process";
+
+export interface VerificationResult {
+	valid: boolean;
+	error?: string;
+}
+
+/**
+ * Structural syntax validation for TypeScript/JSX files.
+ *
+ * `node --check` cannot parse TS and a full `tsc` parse is too slow for a
+ * per-edit gate, so this strips comments and string/template literals
+ * (respecting escapes) and verifies that all delimiters — ( ) [ ] { } — are
+ * balanced. This deterministically catches the dominant per-edit failure
+ * class: truncated replacements, missing closing braces/parens, unterminated
+ * strings or block comments. It is NOT a full parse; type errors remain the
+ * job of the post-edit LSP diagnostics hook.
+ */
+/**
+ * Decides whether a '/' at the current position starts a regex literal
+ * rather than a division operator. Standard lexer heuristic:
+ * - right after certain keywords (return /re/, typeof /re/, ...) -> regex
+ * - right after any other identifier/number -> division (x / 2)
+ * - right after ')', ']', '}', '.', or a closing quote -> division
+ * - anywhere else (start of file, after operators, '(', '=', ',', etc.)
+ *   -> regex
+ */
+const REGEX_PRECEDING_KEYWORDS = new Set([
+	"return",
+	"typeof",
+	"instanceof",
+	"in",
+	"of",
+	"new",
+	"delete",
+	"void",
+	"throw",
+	"case",
+	"do",
+	"else",
+	"yield",
+	"await",
+]);
+
+function regexCanStart(prevSig: string, lastWord: string): boolean {
+	if (lastWord) return REGEX_PRECEDING_KEYWORDS.has(lastWord);
+	if (prevSig === "") return true;
+	return !")]}\"'`.".includes(prevSig);
+}
+
+function checkTsStructure(content: string): string | null {
+	const stack: { ch: string; line: number }[] = [];
+	let line = 1;
+	let i = 0;
+	// State machine over raw source: code | 'str' | "str" | `tpl` | //line | /*block */ | /regex/
+	type State =
+		| "code"
+		| "squote"
+		| "dquote"
+		| "template"
+		| "lineComment"
+		| "blockComment"
+		| "regex";
+	let state: State = "code";
+	// Inside a regex character class [...], '/' does not terminate the regex.
+	let inCharClass = false;
+	// Last significant (non-whitespace) char seen in code state — used to
+	// decide whether a '/' starts a regex literal or is a division operator.
+	let prevSig = "";
+	// Current identifier/number token being scanned (for keyword detection).
+	let lastWord = "";
+	const closers: Record<string, string> = {
+		")": "(",
+		"]": "[",
+		"}": "{",
+	};
+
+	while (i < content.length) {
+		const ch = content[i];
+		const next = content[i + 1];
+		if (ch === "\n") {
+			line++;
+			if (state === "lineComment") state = "code";
+			i++;
+			continue;
+		}
+
+		switch (state) {
+			case "lineComment":
+				break;
+			case "blockComment":
+				if (ch === "*" && next === "/") {
+					state = "code";
+					i++;
+				}
+				break;
+			case "squote":
+				if (ch === "\\") i++;
+				else if (ch === "'") state = "code";
+				break;
+			case "dquote":
+				if (ch === "\\") i++;
+				else if (ch === '"') state = "code";
+				break;
+			case "template":
+				if (ch === "\\") i++;
+				else if (ch === "`") state = "code";
+				// NOTE: ${...} interpolations are tracked as part of the template
+				// body; braces inside them are balanced by JS itself, and any
+				// imbalance surfaces as an unbalanced delimiter anyway.
+				break;
+			case "code":
+				if (ch === "/" && next === "/") {
+					state = "lineComment";
+					i++;
+				} else if (ch === "/" && next === "*") {
+					state = "blockComment";
+					i++;
+				} else if (ch === "/" && regexCanStart(prevSig, lastWord)) {
+					// Regex literal (division makes no sense at this position).
+					// Delimiters inside it are pattern syntax, not code structure.
+					state = "regex";
+					inCharClass = false;
+					lastWord = "";
+				} else if (ch === "'") {
+					state = "squote";
+					prevSig = "'";
+					lastWord = "";
+				} else if (ch === '"') {
+					state = "dquote";
+					prevSig = '"';
+					lastWord = "";
+				} else if (ch === "`") {
+					state = "template";
+					prevSig = "`";
+					lastWord = "";
+				} else if (ch === "(" || ch === "[" || ch === "{") {
+					stack.push({ ch, line });
+				} else if (ch === ")" || ch === "]" || ch === "}") {
+					const top = stack.pop();
+					if (!top || top.ch !== closers[ch]) {
+						return `Unbalanced '${ch}' on line ${line}${top ? ` (unclosed '${top.ch}' from line ${top.line})` : " (no matching opener)"}`;
+					}
+				}
+				if (!/\s/.test(ch)) prevSig = ch;
+				// Accumulate identifier/number tokens; whitespace preserves the
+				// token (so 'return /re/' and 'x / 2' both resolve correctly),
+				// while any other character ends it.
+				if (/\s/.test(ch)) {
+					// keep lastWord
+				} else if (/[A-Za-z0-9_$]/.test(ch)) {
+					lastWord += ch;
+				} else {
+					lastWord = "";
+				}
+				break;
+			case "regex":
+				if (ch === "\\") i++;
+				else if (ch === "[") inCharClass = true;
+				else if (ch === "]") inCharClass = false;
+				else if (ch === "/" && !inCharClass) state = "code";
+				break;
+		}
+		i++;
+	}
+
+	if (state === "squote" || state === "dquote" || state === "template") {
+		return `Unterminated string literal (reached end of file, last line ${line})`;
+	}
+	if (state === "blockComment") {
+		return `Unterminated block comment (last line ${line})`;
+	}
+	if (stack.length > 0) {
+		const unclosed = stack[stack.length - 1];
+		return `Unclosed '${unclosed.ch}' opened on line ${unclosed.line} (still open at end of file)`;
+	}
+	return null;
+}
+
+export function checkSyntax(filePath: string): VerificationResult {
+	const resolvedPath = path.isAbsolute(filePath)
+		? filePath
+		: path.resolve(process.cwd(), filePath);
+	if (!fs.existsSync(resolvedPath)) {
+		return { valid: true };
+	}
+
+	const ext = path.extname(resolvedPath).toLowerCase();
+
+	try {
+		if (ext === ".py") {
+			try {
+				execFileSync("python", ["-m", "py_compile", resolvedPath], {
+					stdio: "pipe",
+					timeout: 5000,
+				});
+			} catch {
+				execFileSync("python3", ["-m", "py_compile", resolvedPath], {
+					stdio: "pipe",
+					timeout: 5000,
+				});
+			}
+		} else if (ext === ".json") {
+			const content = fs.readFileSync(resolvedPath, "utf8");
+			JSON.parse(content);
+		} else if (ext === ".js" || ext === ".mjs" || ext === ".cjs") {
+			execFileSync(process.execPath, ["--check", resolvedPath], {
+				stdio: "pipe",
+				timeout: 5000,
+			});
+		} else if (
+			ext === ".ts" ||
+			ext === ".tsx" ||
+			ext === ".jsx" ||
+			ext === ".mts" ||
+			ext === ".cts"
+		) {
+			const tsContent = fs.readFileSync(resolvedPath, "utf8");
+			const structuralError = checkTsStructure(tsContent);
+			if (structuralError) {
+				throw new Error(structuralError);
+			}
+		}
+		return { valid: true };
+	} catch (err: any) {
+		const stderr = err.stderr ? err.stderr.toString() : err.message;
+		return {
+			valid: false,
+			error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${stderr}`,
+		};
+	}
+}
+
+export function isGitRepo(cwd: string): boolean {
+	try {
+		const res = execSync("git rev-parse --is-inside-work-tree", {
+			cwd,
+			stdio: "pipe",
+		});
+		return res.toString().trim() === "true";
+	} catch {
+		return false;
+	}
+}
+
+export function autoCommitFile(
+	cwd: string,
+	filePath: string,
+	message?: string,
+): boolean {
+	if (!isGitRepo(cwd)) return false;
+
+	try {
+		const resolvedPath = path.isAbsolute(filePath)
+			? filePath
+			: path.resolve(cwd, filePath);
+		const relPath = path.relative(cwd, resolvedPath);
+		const commitMsg = message || `pi: update ${relPath}`;
+		execFileSync("git", ["add", resolvedPath], { cwd, stdio: "pipe" });
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.name=Pi Agent",
+				"-c",
+				"user.email=pi@agent.local",
+				"commit",
+				"-m",
+				commitMsg,
+			],
+			{ cwd, stdio: "pipe" },
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export interface UndoResult {
+	success: boolean;
+	message: string;
+	/**
+	 * List of working-tree paths that had uncommitted changes BEFORE the undo ran.
+	 * The undo itself uses `git reset --mixed` which preserves all working-tree
+	 * files (committed or uncommitted), so the data is not lost. The caller can
+	 * use this list to surface a heads-up to the user.
+	 */
+	dirtyWorkingTree: string[];
+}
+
+function readDirtyWorkingTree(cwd: string): string[] {
+	try {
+		const res = execSync("git status --porcelain", {
+			cwd,
+			stdio: "pipe",
+			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+		});
+		return res
+			.toString()
+			.split("\n")
+			.map((l) => l.trimEnd())
+			.filter((l) => l.length > 0);
+	} catch {
+		return [];
+	}
+}
+
+export function undoLastCommit(cwd: string): UndoResult {
+	if (!isGitRepo(cwd)) {
+		return {
+			success: false,
+			message: "Not inside a git repository.",
+			dirtyWorkingTree: [],
+		};
+	}
+
+	// Snapshot the working tree BEFORE the reset so the caller can warn if
+	// the user had uncommitted changes that ended up tangled with the undo.
+	const dirtyWorkingTree = readDirtyWorkingTree(cwd);
+
+	try {
+		// `--mixed` (the default reset mode) unstages files and moves HEAD~1,
+		// but PRESERVES the working tree contents. This is critical for an
+		// `/undo` command exposed to an LLM: the user's uncommitted scratch
+		// must never be silently destroyed by the agent rolling back its own
+		// commit. Use `--hard` only if the caller has explicitly confirmed
+		// the working tree is clean and the destruction is intended.
+		execSync("git reset --mixed HEAD~1", {
+			cwd,
+			stdio: "pipe",
+			env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+		});
+		return {
+			success: true,
+			message: "Successfully rolled back to previous git commit (HEAD~1).",
+			dirtyWorkingTree,
+		};
+	} catch (err: any) {
+		return {
+			success: false,
+			message: `Git rollback failed: ${err.message}`,
+			dirtyWorkingTree,
+		};
+	}
+}

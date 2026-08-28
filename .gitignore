@@ -1,0 +1,20 @@
+# Dependencies
+node_modules
+node_modules/
+**/node_modules
+**/node_modules/
+
+# Logs & Temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Test artifacts & caches
+coverage/
+.cache/
+.pi/
+**/.pi/
+_tool_test_temp.ts
+config.toml
+
+
