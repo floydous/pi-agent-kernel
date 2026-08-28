@@ -60,6 +60,18 @@ async function main(): Promise<void> {
 			{ warning },
 		);
 
+		const unavailable = renderPostEditVerification({
+			edit: "applied",
+			syntax: { state: "unavailable", message: "Runtime unavailable" },
+			diagnostic: { state: "not run", findings: [] },
+			tests: "not run",
+		});
+		assertPass(
+			"Unavailable syntax checks are not reported as clean",
+			unavailable.startsWith("WARN!") && unavailable.includes("syntax:unavailable"),
+			{ unavailable },
+		);
+
 		const ws = createTestWorkspace();
 		try {
 			const valid = await verifyEditedFile(ws.calculatorPath);
@@ -94,12 +106,14 @@ async function main(): Promise<void> {
 			assertPass(
 				"TypeScript parser catches invalid expressions",
 				invalidTypeScript.syntax.state === "failed" &&
-				!!invalidTypeScript.syntax.message?.includes("Expression expected"),
+					!!invalidTypeScript.syntax.message?.includes("Expression expected"),
 				{ invalidTypeScript },
 			);
 			assertPass(
 				"Syntax compiler errors are rendered with details",
-				renderPostEditVerification(invalidTypeScript).includes("Expression expected"),
+				renderPostEditVerification(invalidTypeScript).includes(
+					"Expression expected",
+				),
 				{ invalidTypeScript },
 			);
 		} finally {
