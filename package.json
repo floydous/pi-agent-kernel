@@ -4,10 +4,12 @@
   "description": "Unified Hybrid Kernel and tooling extensions for Pi",
   "scripts": {
     "test": "npx tsx test.ts",
-    "extension": "src/index.ts",
     "test:focused": "npx tsx tests/run-all.ts"
   },
-  "keywords": [],
+  "keywords": ["pi-package"],
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
   "author": "",
   "license": "ISC",
   "dependencies": {
