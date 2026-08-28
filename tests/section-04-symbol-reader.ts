@@ -5,7 +5,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractSymbolContent } from "../retrieval/symbol_reader";
+import { extractSymbolContent } from "../src/retrieval/symbol_reader";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
