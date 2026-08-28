@@ -29,7 +29,8 @@ agent-kernel/
 ```
 
 Each `src/` subsystem owns its implementation and public exports. `src/index.ts`
-is the integration boundary that registers the extension with Pi.
+is the integration boundary that registers the extension with Pi. The package
+entry is `src/index.ts`; the root `test.ts` exists only for test compatibility.
 
 ## Verified Features
 
