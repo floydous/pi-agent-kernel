@@ -757,7 +757,7 @@ export function searchAstSymbols(
 						let bodyTruncated = false;
 						if (query.includeBody) {
 							const start = Math.max(0, def.line - 1);
-							const end = Math.min(lines.length, def.line + 25);
+							const end = Math.min(lines.length, start + 25);
 							codeBlock = lines.slice(start, end).join("\n");
 							bodyTruncated = end < lines.length;
 						}
