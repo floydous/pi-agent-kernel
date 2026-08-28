@@ -95,6 +95,17 @@ async function main(): Promise<void> {
 				{ abstainedHits },
 			);
 			logPass("Low-confidence vector candidates excluded from RRF!");
+
+			const mixedIndex: any = new HybridSearchIndex(ws.tempDir, "hybrid");
+			mixedIndex.isInitialized = true;
+			mixedIndex.isIndexing = false;
+			mixedIndex.embedder.embed = async () => new Float32Array([1, 0]);
+			const mixedHits = await mixedIndex.search("calculate_tax", { limit: 5 });
+			assertPass(
+				"Search hit exposes evidence signal",
+				mixedHits.length > 0 && ["lexical", "semantic", "hybrid"].includes(mixedHits[0].signal),
+				{ mixedHits },
+			);
 		} finally {
 			ws.cleanup();
 		}
