@@ -2,7 +2,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { pathToUri, uriToPath, detectLanguageFromPath, findWorkspaceRoot } from "../lsp";
+import { pathToUri, uriToPath, detectLanguageFromPath, findWorkspaceRoot } from "../src/lsp";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
