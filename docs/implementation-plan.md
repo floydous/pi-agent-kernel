@@ -1,6 +1,6 @@
 # Pi Agent Kernel Feedback Implementation Plan
 
-**Status:** Initial implementation pass complete; final focused verification pending.
+**Status:** Feedback implementation pass complete; final full-suite verification pending.
 **Repository:** `pi-agent-kernel`
 **Authoritative plan:** This file is the implementation and verification record for
 the feedback reviewed in `_feedback/`.
@@ -614,4 +614,4 @@ per-session guard test reported 8 passed and 0 failed; targeted TypeScript
 compilation exited 0; cached diagnostics reported no error issues across 16
 files; and `git diff --check` exited 0 with only expected line-ending warnings.
 The complete final suite remains pending. No unavailable, failed, or inconclusive
-check may be labeled clean.
+check may be labeled clean. No commit or push has been performed for this pass.
