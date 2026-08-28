@@ -273,11 +273,11 @@ export function checkSyntax(filePath: string): VerificationResult {
 		}
 		return { valid: true, status: "clean" };
 	} catch (err: any) {
-		const stderr = err.stderr ? err.stderr.toString() : err.message;
+		const output = err.stderr || err.stdout || err.message || String(err);
 		return {
 			valid: false,
 			status: "failed",
-			error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${stderr}`,
+			error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${output.toString()}`,
 		};
 	}
 }
