@@ -608,7 +608,10 @@ The initial implementation pass added focused regressions for non-content shell
 search modes and vector abstention. It also added the patch-result contract,
 normalized code-search paths, isolated fallback session IDs, AST body truncation
 metadata, lexical/semantic/hybrid signal labels, bounded RRF tuning, and
-background indexing lifecycle behavior. Focused checks for the changed behavior
-passed where executed; the complete final verification protocol in Section 17
-remains pending and must record exact outputs before release. No unavailable,
-failed, or inconclusive check may be labeled clean.
+background indexing lifecycle behavior. The focused checks for the changed
+behavior passed as follows: sections 5, 6, 10, 13, 20, and 25; the standalone
+per-session guard test reported 8 passed and 0 failed; targeted TypeScript
+compilation exited 0; cached diagnostics reported no error issues across 16
+files; and `git diff --check` exited 0 with only expected line-ending warnings.
+The complete final suite remains pending. No unavailable, failed, or inconclusive
+check may be labeled clean.
