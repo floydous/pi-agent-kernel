@@ -23,13 +23,17 @@ fast discovery does not require loading the local embedding model.
 - `auto`: lets the runtime select the configured/default profile.
 
 During indexing, search can fall back to the lean path rather than blocking on
-model initialization. Vector-confidence thresholding remains deferred pending a
-labeled corpus; current hybrid/full searches retain their existing vector ranking
-behavior. Output limits remain enforced so retrieval cannot flood agent context.
+model initialization. Hybrid/full profiles require vector cosine similarity of at
+least 0.6 before candidates enter reciprocal-rank fusion; lower-confidence vector
+candidates are abstained from while BM25 results remain available. This floor is a
+conservative initial boundary measured on the bounded feedback fixture and must be
+recalibrated against a larger labeled corpus before changing it. Output limits
+remain enforced so retrieval cannot flood agent context.
 
-AST path filters match normalized relative paths (including directory fragments,
-filenames, and extensions). `includeBody` returns a bounded preview of up to 25
-lines; use the targeted symbol reader when the complete implementation is needed.
+AST and code-search path filters match normalized relative path substrings
+(including directory fragments, filenames, and extensions). `includeBody` returns
+a bounded preview of up to 25 lines; use the targeted symbol reader when the
+complete implementation is needed.
 Vector caches are accepted only when their metadata, chunk IDs, dimensions, byte
 length, and content hash agree; invalid vector data is ignored while the BM25
 index remains usable.
