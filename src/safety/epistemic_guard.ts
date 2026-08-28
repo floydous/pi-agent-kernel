@@ -15,6 +15,22 @@ import { kernelDebug } from "./kernel_debug";
  * Handles single/double quotes, pipes, flags, subcommands, and verifies if
  * referenced tokens exist as real files on disk.
  */
+const CONTENT_READING_COMMANDS = new Set([
+	"cat",
+	"head",
+	"tail",
+	"sed",
+	"awk",
+	"grep",
+	"rg",
+	"less",
+	"more",
+]);
+
+function commandName(token: string): string {
+	return path.basename(token).toLowerCase().replace(/\.exe$/, "");
+}
+
 export function extractInspectedFilesFromCommand(
 	command: string,
 	cwd: string = process.cwd(),
