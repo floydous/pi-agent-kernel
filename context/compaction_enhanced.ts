@@ -12,10 +12,12 @@ CRITICAL INSTRUCTIONS FOR CHRONOLOGICAL RECONCILIATION & EPISTEMIC GROUNDING:
    - Examine <historical-summary-baseline>. If a task was previously marked "[ ] In Progress", cross-reference it with <recent-turn-actions-digest> and <git-workspace-ground-truth>.
    - If the code was written, tests passed (exit code 0), or changes were committed to git, you MUST move the task to "### Done" with "[x]".
    - "### In Progress / Blocked" MUST ONLY contain active tasks that remain unfinished at the true end of the trajectory. If all work was completed, state "- (None - ready for user instructions)".
-2. 3-TIER EPISTEMIC CLASSIFICATION:
-   - [VERIFIED]: Proven by real tool outputs, passing test exit codes, disk files, or git commits.
-   - [ASSERTED]: Stated by user or claimed in conversation, but not yet verified via tool execution.
-   - [AMBIGUOUS]: Open ambiguities, conflicting requirements, or unresolved blockers.
+2. EPISTEMIC COMPRESSION:
+   - Use section headings as status labels; do not repeat [VERIFIED], [ASSERTED], or [AMBIGUOUS] on every bullet.
+   - Put proven facts under "Verified Facts & State".
+   - Put user/model claims that are not tool-verified under "User-Reported / Unverified".
+   - Put unresolved questions, conflicting requirements, and blockers under "Open Ambiguities & Unresolved Blockers".
+   - Use an inline status marker only when a single bullet contains mixed-status claims.
 3. PRESERVE [WHY-NOT & FAILED ATTEMPTS]: Record why certain approaches failed so the agent never enters a retry loop.
 4. PRESERVE NEGATIVE CONSTRAINTS & USER PROHIBITIONS VERBATIM.
 
@@ -29,12 +31,15 @@ Enumerate every negative constraint, explicit user prohibition, frozen file/modu
 
 ## Verified Facts & State (Backed by Real Tool Outputs / Exit Codes)
 Enumerate key ground truths established by real tool executions:
-- Tag each item with its epistemic status: [VERIFIED] (proven by tool execution / command output / git commit) vs [ASSERTED] (claimed by user or model without execution).
+- Include only facts proven by tool execution, command output, disk state, or git commits.
 - Specific compiler errors, test results, or exit codes encountered.
 - Absolute paths, ports, or IDs verified to exist.
 
+## User-Reported / Unverified
+- Include user or model claims that matter to continuation but were not established by tool execution, or "(None)".
+
 ## Open Ambiguities & Unresolved Blockers
-- List [AMBIGUOUS] items or open questions needing clarification, or "(None - all current requirements verified)".
+- List open questions, conflicting requirements, or unresolved blockers, or "(None - all current requirements verified)".
 
 ## Progress (Evaluated at the True End of Conversation)
 ### Done
