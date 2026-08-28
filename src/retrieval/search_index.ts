@@ -214,12 +214,15 @@ export class HybridSearchIndex {
 				if (vectorDim === 0) vectorDim = vec.length;
 			}
 
-			const vectorBuffer =
-				vectorArrays.length > 0 && vectorDim > 0
-					? Buffer.from(
-							Float32Array.from(vectorArrays.flatMap((vector) => Array.from(vector))).buffer,
-						)
-					: Buffer.alloc(0);
+			const vectorBuffer = Buffer.alloc(vectorArrays.length * vectorDim * 4);
+			for (let i = 0; i < vectorArrays.length; i++) {
+				const bytes = Buffer.from(
+					vectorArrays[i].buffer,
+					vectorArrays[i].byteOffset,
+					vectorArrays[i].byteLength,
+				);
+				bytes.copy(vectorBuffer, i * vectorDim * 4);
+			}
 			const vectorHash = crypto
 				.createHash("sha256")
 				.update(JSON.stringify(vectorChunkIds))
