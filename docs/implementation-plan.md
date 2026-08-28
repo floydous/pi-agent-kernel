@@ -1,6 +1,6 @@
 # Agent-Kernel Correctness and Reliability Implementation Plan
 
-**Status:** Planning only
+**Status:** Implementation in progress
 **Scope:** Feedback-driven correctness, reliability, retrieval, and documentation work
 **Repository:** `pi-agent-kernel`
 
@@ -98,6 +98,8 @@ The feedback's literal `[EMAIL]` placeholder is not present in the current
 remaining commit-observability question still requires testing.
 
 ## 3. Constraints
+
+Implementation notes from the baseline experiments are recorded in Section 17.
 
 - Do not use guesses, assumptions, or hypotheses as implementation justification.
 - Reproduce every applicable feedback claim against the current source first.
@@ -630,5 +632,48 @@ selected fix:
 13. Review diff/status and commit intentionally.
 ```
 
-No production option is selected in advance. Selection must follow the recorded
-results of the controlled comparisons.
+The baseline experiments selected the smallest verified changes currently
+implemented: classify shell command shapes as content-read evidence, validate
+patch candidates before writing, normalize AST path filtering, expose explicit
+commit outcomes, and reject incomplete vector-cache mappings. The fixed vector
+threshold remains deferred until a labeled retrieval corpus establishes a
+measured boundary.
+
+## 17. Implementation record
+
+### Completed
+
+- Baseline guard and syntax-order issues reproduced.
+- Shell metadata commands no longer count as inspection evidence.
+- Candidate single- and multi-block patches are syntax-validated before writing.
+- Invalid patch regression tests verify byte preservation.
+- AST path filtering now uses normalized relative paths.
+- AST tool descriptions identify the path-filter and 25-line body-preview
+  contracts.
+- Edit verification is no longer duplicated for the custom `edit` tool by the
+  result interceptor; the compatibility `write` path remains unchanged.
+- Detailed commit outcomes are available through `autoCommitFileDetailed()` while
+  the existing boolean helper remains compatible.
+- Vector cache loading validates profile, IDs, dimensions, exact byte length, and
+  a content hash; invalid vector data falls back to BM25.
+- README and focused documentation no longer claim six-tier instruction
+  precedence and document the selected edit/retrieval behavior.
+
+### Deferred pending measurement
+
+- A fixed vector cosine threshold or query-level vector abstention policy.
+- Full AST body output versus explicit bounded-preview metadata.
+- Same-batch completed-result guard semantics.
+- Broader commit identity-policy changes.
+
+### Verification recorded so far
+
+The affected focused sections passed after the implementation changes:
+
+```text
+Sections 5, 6, 7, 8, 10, 13, 20, and 25: passed
+Primary diagnostics for changed implementation and focused test files: 0 errors
+```
+
+The complete suite and final diff/status review remain required before the work is
+considered complete.
