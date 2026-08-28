@@ -411,6 +411,8 @@ export class HybridSearchIndex {
 			limit?: number;
 			filePattern?: string;
 			profile?: SearchProfile;
+			/** Bounded RRF smoothing constant; defaults to 60. */
+			rrfK?: number;
 		} = {},
 	): Promise<SearchHit[]> {
 		if (!this.isInitialized && !this.isIndexing) {
@@ -418,6 +420,7 @@ export class HybridSearchIndex {
 		}
 
 		const limit = options.limit || 5;
+		const k = Math.max(1, Math.min(Math.floor(options.rrfK ?? 60), 200));
 		const activeConfig = options.profile
 			? getSearchConfig(options.profile)
 			: this.config;
@@ -468,7 +471,6 @@ export class HybridSearchIndex {
 		}
 
 		// 3. Reciprocal Rank Fusion (RRF)
-		const k = 60;
 		const candidateIds = new Set([
 			...bm25RankMap.keys(),
 			...vectorRankMap.keys(),
