@@ -1,6 +1,6 @@
 # Agent-Kernel Correctness and Reliability Implementation Plan
 
-**Status:** Implementation in progress
+**Status:** Implementation complete (selected scope)
 **Scope:** Feedback-driven correctness, reliability, retrieval, and documentation work
 **Repository:** `pi-agent-kernel`
 
@@ -636,8 +636,8 @@ The baseline experiments selected the smallest verified changes currently
 implemented: classify shell command shapes as content-read evidence, validate
 patch candidates before writing, normalize AST path filtering, expose explicit
 commit outcomes, and reject incomplete vector-cache mappings. The fixed vector
-threshold remains deferred until a labeled retrieval corpus establishes a
-measured boundary.
+The fixed vector threshold remains deferred until a labeled retrieval corpus establishes a
+measured boundary; no unsupported threshold claim is part of the selected scope.
 
 ## 17. Implementation record
 
@@ -679,7 +679,6 @@ Primary diagnostics for changed implementation and focused test files: 0 errors
 
 The complete focused suite passed with zero failures. Targeted TypeScript
 compilation and primary diagnostics reported no errors, and `git diff --check`
-reported no whitespace errors. The remaining dirty worktree contains pre-existing
-unrelated changes and artifacts that have not been altered or discarded; final
-diff/status review and intentional commit grouping remain required before the work
-is considered complete.
+reported no whitespace errors. The implementation commits are complete. The
+remaining dirty worktree contains pre-existing unrelated changes and artifacts
+that were not altered or discarded; they require separate ownership review.
