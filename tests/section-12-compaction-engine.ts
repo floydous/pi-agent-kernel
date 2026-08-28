@@ -6,7 +6,7 @@ import {
 	extractGitGroundTruth,
 	extractTrajectoryDigest,
 	buildChronologicalCompactionPrompt,
-} from "../context/compaction_enhanced";
+} from "../src/context/compaction_enhanced";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
