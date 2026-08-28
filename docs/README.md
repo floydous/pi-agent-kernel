@@ -2,6 +2,13 @@
 
 This directory contains focused documentation for the `agent-kernel` Pi package.
 
+## Design priorities
+
+The extension targets bare-minimum token usage while maximizing performance and
+reliability across agent work. Its documentation and implementation favor
+focused retrieval, bounded output, deterministic verification, and grounded
+edits instead of unnecessary context or background processing.
+
 ## Guides
 
 - [Architecture](architecture.md) — source layout, subsystem boundaries, and runtime flow.
