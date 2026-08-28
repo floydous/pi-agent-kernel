@@ -142,7 +142,9 @@ export class HybridSearchIndex {
 				Array.isArray(vectorChunkIds) &&
 				vectorChunkIds.length > 0 &&
 				new Set(vectorChunkIds).size === vectorChunkIds.length &&
-				vectorChunkIds.every((id: unknown) => typeof id === "string" && this.chunks.has(id));
+				vectorChunkIds.every(
+					(id: unknown) => typeof id === "string" && this.chunks.has(id),
+				);
 			if (validVectorMetadata) {
 				const buf = fs.readFileSync(vectorsPath);
 				const dim = data.vectorDim as number;
@@ -451,9 +453,16 @@ export class HybridSearchIndex {
 				}
 
 				vecScores.sort((a, b) => b.score - a.score);
-				vecScores.slice(0, 100).forEach((item, idx) => {
-					vectorRankMap.set(item.chunkId, { rank: idx + 1, score: item.score });
-				});
+				const threshold = activeConfig.vectorSimilarityThreshold;
+				vecScores
+					.filter((item) => item.score >= threshold)
+					.slice(0, 100)
+					.forEach((item, idx) => {
+						vectorRankMap.set(item.chunkId, {
+							rank: idx + 1,
+							score: item.score,
+						});
+					});
 			}
 		}
 
