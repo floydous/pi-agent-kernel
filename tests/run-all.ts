@@ -42,6 +42,7 @@ const sections: TestEntry[] = [
 	{ name: "22. Rust Full AST", loader: () => import("./section-22-rust-ast") },
 	{ name: "23. TOML Configuration", loader: () => import("./section-23-toml-config") },
 	{ name: "24. Extension Lifecycle", loader: () => import("./section-24-extension-lifecycle") },
+	{ name: "25. Compact Post-Edit Verification", loader: () => import("./section-25-post-edit-verification") },
 ];
 
 async function main(): Promise<void> {
