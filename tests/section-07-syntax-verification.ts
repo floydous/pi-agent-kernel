@@ -2,7 +2,7 @@
 // Tests checkSyntax detects valid and broken Python.
 
 import * as fs from "node:fs";
-import { checkSyntax } from "../editing/git-verify";
+import { checkSyntax } from "../src/editing/git-verify";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
