@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as diff from "diff";
+import { checkSyntaxContent } from "./git-verify";
 
 export interface PatchResult {
 	success: boolean;
@@ -169,6 +170,16 @@ export function applySurgicalPatch(
 		};
 	}
 
+	const syntax = checkSyntaxContent(resolvedPath, res.newContent);
+	if (!syntax.valid) {
+		return {
+			success: false,
+			filePath: resolvedPath,
+			strategy: res.strategy,
+			error: syntax.error || "Candidate syntax validation failed",
+		};
+	}
+
 	fs.writeFileSync(resolvedPath, res.newContent, "utf8");
 	const patchDiff = diff.createPatch(
 		path.basename(resolvedPath),
@@ -230,6 +241,16 @@ export function applyMultiBlockPatch(
 		}
 		currentContent = res.newContent;
 		appliedStrategies.push(`Block ${i + 1}: ${res.strategy}`);
+	}
+
+	const syntax = checkSyntaxContent(resolvedPath, currentContent);
+	if (!syntax.valid) {
+		return {
+			success: false,
+			filePath: resolvedPath,
+			strategy: appliedStrategies.join(", "),
+			error: syntax.error || "Candidate syntax validation failed",
+		};
 	}
 
 	fs.writeFileSync(resolvedPath, currentContent, "utf8");
