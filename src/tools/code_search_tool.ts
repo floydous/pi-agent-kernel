@@ -103,7 +103,11 @@ export function registerCodeSearchTool(
 				],
 				details: {
 					count: hits.length,
-					hits: hits.map((h) => ({ id: h.chunk.id, score: h.rrfScore })),
+					hits: hits.map((h) => ({
+						id: h.chunk.id,
+						score: h.rrfScore,
+						signal: h.signal,
+					})),
 				},
 			};
 		},
