@@ -599,7 +599,6 @@ Add or update only tests relevant to selected behavior:
 - Larger labeled-corpus calibration of the initial vector cosine threshold.
 - Full AST body output versus bounded preview metadata.
 - Configured Git identity policy.
-- Foreground versus background/worker embedding loading.
 - `src/index.ts` decomposition.
 - Public naming consistency.
 
