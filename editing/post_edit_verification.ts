@@ -4,6 +4,7 @@ export type VerificationState =
 	| "clean"
 	| "failed"
 	| "findings"
+	| "timeout"
 	| "not run"
 	| "unavailable"
 	| "inconclusive";
