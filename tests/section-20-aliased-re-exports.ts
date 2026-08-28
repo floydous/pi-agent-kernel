@@ -2,7 +2,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractLocalSymbolHover, searchAstSymbols } from "../retrieval/ast_search";
+import { extractLocalSymbolHover, searchAstSymbols } from "../src/retrieval/ast_search";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
@@ -125,7 +125,16 @@ def raise_rate_limit_exceeded():
 				keywordHover === null,
 				{ keywordHover }
 			);
-			logPass("Import line hover & keyword defense verified!");
+			const pathHits = searchAstSymbols(ws.tempDir, {
+				name: "rate_limit",
+				filePattern: "src/webshocket",
+			});
+			assertPass(
+				"AST path filter matches relative directories",
+				pathHits.length > 0 && pathHits.every((hit) => hit.filePath.includes("src/webshocket")),
+				{ pathHits },
+			);
+			logPass("Import line hover, keyword defense, and path filtering verified!");
 		} finally {
 			ws.cleanup();
 		}
