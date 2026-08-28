@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { type CodeChunk, chunkWorkspace, computeHash } from "./search_chunker";
+import * as crypto from "node:crypto";import { type CodeChunk, chunkWorkspace, computeHash } from "./search_chunker";
 import { BM25Engine } from "./search_bm25";
 import { LocalEmbedder } from "./search_embedder";
 import {
@@ -133,7 +133,6 @@ export class HybridSearchIndex {
 				this.config.effectiveProfile === "hybrid" ||
 				this.config.effectiveProfile === "full";
 			const vectorChunkIds = data.vectorChunkIds;
-			const chunkIds = (data.chunks as CodeChunk[]).map((chunk) => chunk.id);
 			const validVectorMetadata =
 				wantsVectors &&
 				fs.existsSync(vectorsPath) &&
@@ -147,7 +146,16 @@ export class HybridSearchIndex {
 				const buf = fs.readFileSync(vectorsPath);
 				const dim = data.vectorDim as number;
 				const expectedBytes = vectorChunkIds.length * dim * 4;
-				if (buf.byteLength === expectedBytes) {
+				if (
+					buf.byteLength === expectedBytes &&
+					typeof data.vectorHash === "string" &&
+					data.vectorHash ===
+						crypto
+							.createHash("sha256")
+							.update(JSON.stringify(vectorChunkIds))
+							.update(buf)
+							.digest("hex")
+				) {
 					const floatArray = new Float32Array(
 						buf.buffer,
 						buf.byteOffset,
@@ -162,7 +170,6 @@ export class HybridSearchIndex {
 					this.vectorCacheValid = this.vectors.size === vectorChunkIds.length;
 				}
 			}
-			void chunkIds;
 
 			this.isInitialized = true;
 			return true;
@@ -207,6 +214,18 @@ export class HybridSearchIndex {
 				if (vectorDim === 0) vectorDim = vec.length;
 			}
 
+			const vectorBuffer =
+				vectorArrays.length > 0 && vectorDim > 0
+					? Buffer.from(
+							Float32Array.from(vectorArrays.flatMap((vector) => Array.from(vector))).buffer,
+						)
+					: Buffer.alloc(0);
+			const vectorHash = crypto
+				.createHash("sha256")
+				.update(JSON.stringify(vectorChunkIds))
+				.update(vectorBuffer)
+				.digest("hex");
+
 			const indexData = {
 				version: 1,
 				updatedAt: new Date().toISOString(),
@@ -215,6 +234,7 @@ export class HybridSearchIndex {
 				fileHashes: fileHashesObj,
 				chunks: chunkList,
 				vectorChunkIds,
+				vectorHash,
 			};
 
 			writeFileSyncAtomic(
@@ -223,16 +243,8 @@ export class HybridSearchIndex {
 			);
 
 			// Write binary vectors
-			if (vectorArrays.length > 0 && vectorDim > 0) {
-				const totalFloats = vectorArrays.length * vectorDim;
-				const fullBuffer = new Float32Array(totalFloats);
-				for (let i = 0; i < vectorArrays.length; i++) {
-					fullBuffer.set(vectorArrays[i], i * vectorDim);
-				}
-				writeFileSyncAtomic(
-					this.getVectorsFilePath(),
-					Buffer.from(fullBuffer.buffer),
-				);
+			if (vectorBuffer.length > 0) {
+				writeFileSyncAtomic(this.getVectorsFilePath(), vectorBuffer);
 			}
 		} catch (err) {
 			console.error("[Search Index] Failed saving cache:", err);
