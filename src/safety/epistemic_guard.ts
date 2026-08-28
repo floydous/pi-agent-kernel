@@ -14,6 +14,7 @@ import { kernelDebug } from "./kernel_debug";
  * Extract file paths used as inputs by known shell content-reader commands.
  * This is command-shape evidence recorded during tool-call preflight; it does
  * not claim that a shell command produced output or that the agent understood it.
+ * Search modes that emit only counts, filenames, or status are excluded.
  */
 const CONTENT_READING_COMMANDS = new Set([
 	"cat",
