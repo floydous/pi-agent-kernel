@@ -36,6 +36,7 @@ entry is `src/index.ts`; the root `test.ts` exists only for test compatibility.
 
 - [Documentation index](docs/README.md)
 - [Architecture](docs/architecture.md)
+- [LSP](docs/lsp.md)
 - [Configuration](docs/configuration.md)
 - [Editing and verification](docs/editing-and-verification.md)
 - [Retrieval](docs/retrieval.md)
