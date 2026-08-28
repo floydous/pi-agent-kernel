@@ -81,7 +81,7 @@ export function registerAstSearchTool(
 			const formatted = results.slice(0, 30).map((r) => {
 				let str = `[${r.kind.toUpperCase()}] ${r.name} (${r.filePath}:${r.line})\n  Signature: ${r.signature}`;
 				if (r.codeBlock) {
-					str += `\n  Body:\n${r.codeBlock}`;
+					str += `\n  Body${r.bodyTruncated ? " (truncated; use read_symbol for the complete body)" : ""}:\n${r.codeBlock}`;
 				}
 				return str;
 			});
