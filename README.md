@@ -3,7 +3,6 @@
 A high-leverage agentic coding extension suite for `@earendil-works/pi-coding-agent`.
 
 ## Architecture & Directory Layout
-## Architecture & Directory Layout
 
 Authored runtime code lives under `src/`; tests, documentation, and example
 configuration stay at the repository boundary.
