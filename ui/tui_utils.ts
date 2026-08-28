@@ -189,10 +189,7 @@ export function makeOutputText(content: string, paddingX = 0): Text {
 		.split(/\r\n|\r|\n/)
 		.map((line) => truncateToWidth(line, safeWidth, "…"))
 		.join("\n");
-	// Tool results are rendered inside a parent content box that contributes
-	// padding after this component renders. Reserve a small margin here so a
-	// terminal-width mismatch cannot make the parent overflow by a few cells.
-	return new Text(safeContent, paddingX, 0, 4);
+	return new Text(safeContent, paddingX, 0);
 }
 
 export class Text {
@@ -224,7 +221,9 @@ export class Text {
 			this.paddingX,
 			Math.max(0, Math.floor((width - 1) / 2)),
 		);
-		const contentWidth = Math.max(1, width - paddingX * 2);
+		// Pi renders tool components inside a padded parent. Keep a small
+		// reserve so the parent cannot make an otherwise fitting line overflow.
+		const contentWidth = Math.max(1, width - paddingX * 2 - 4);
 		const wrappedLines = wrapTextWithAnsi(this.text, contentWidth);
 		const leftMargin = " ".repeat(paddingX);
 		const rightMargin = " ".repeat(paddingX);
