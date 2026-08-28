@@ -1,6 +1,6 @@
 # Pi Agent Kernel Feedback Implementation Plan
 
-**Status:** Feedback implementation pass complete; final full-suite verification pending.
+**Status:** Feedback reproduction and implementation verification complete.
 **Repository:** `pi-agent-kernel`
 **Authoritative plan:** This file is the implementation and verification record for
 the feedback reviewed in `_feedback/`.
@@ -614,4 +614,8 @@ background indexing lifecycle behavior. The focused checks for the changed behav
 no error issues across 16 files; and `git diff --check` exited 0 with only
 expected line-ending warnings. The final complete suite then reported `28 passed,
 0 failed` in 11.7 seconds with exit code 0. No unavailable, failed, or inconclusive
-check was labeled clean. No commit or push has been performed for this pass.
+check was labeled clean. The feedback reproduction pass re-exercised the guard,
+atomic patching, vector abstention, AST path/body behavior, cache validation,
+git identity, first-commit handling, fallback session IDs, lifecycle background
+indexing, and documented prompt behavior. No commit or push has been performed
+for this pass.
