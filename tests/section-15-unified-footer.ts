@@ -3,7 +3,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
-import { renderFooter, stripAnsi } from "../ui/footer";
+import { renderFooter, stripAnsi } from "../src/ui/footer";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
