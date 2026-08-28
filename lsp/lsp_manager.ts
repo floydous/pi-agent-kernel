@@ -58,6 +58,22 @@ export class LspManager {
   }
 
   /**
+   * Return a ready client without spawning a language server.
+   * Used by bounded verification paths where startup latency is undesirable.
+   */
+  public getReadyClientForFile(filePath: string, cwd: string): StdioLspClient | null {
+    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
+    const langKey = detectLanguageFromPath(absPath);
+    if (!langKey) return null;
+
+    const rootDir = findWorkspaceRoot(path.dirname(absPath), langKey);
+    const client = this.clients.get(`${langKey}:${rootDir}`);
+    if (!client || client.getState() !== "ready") return null;
+    client.touch();
+    return client;
+  }
+
+  /**
    * Get or spawn an active LSP client for a target file
    */
   public async getClientForFile(filePath: string, cwd: string): Promise<StdioLspClient | null> {
