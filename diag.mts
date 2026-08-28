@@ -1,7 +1,5 @@
 import { EpistemicGuard } from './src/safety/epistemic_guard';
-import { extractInspectedFilesFromCommand } from './src/safety/epistemic_guard';
 import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 const SID = '__default__';
 const g = new EpistemicGuard();
