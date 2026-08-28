@@ -11,9 +11,9 @@ import * as path from "node:path";
 import { kernelDebug } from "./kernel_debug";
 
 /**
- * Extract file paths from a shell command that were inspected or referenced.
- * Handles single/double quotes, pipes, flags, subcommands, and verifies if
- * referenced tokens exist as real files on disk.
+ * Extract file paths used as inputs by known shell content-reader commands.
+ * This is command-shape evidence recorded during tool-call preflight; it does
+ * not claim that a shell command produced output or that the agent understood it.
  */
 const CONTENT_READING_COMMANDS = new Set([
 	"cat",
@@ -28,7 +28,10 @@ const CONTENT_READING_COMMANDS = new Set([
 ]);
 
 function commandName(token: string): string {
-	return path.basename(token).toLowerCase().replace(/\.exe$/, "");
+	return path
+		.basename(token)
+		.toLowerCase()
+		.replace(/\.exe$/, "");
 }
 
 export function extractInspectedFilesFromCommand(
@@ -71,8 +74,7 @@ export function extractInspectedFilesFromCommand(
 		const candidates: string[] = [];
 		const positional = tokens.slice(1).filter((token) => {
 			return (
-				!token.startsWith("-") &&
-				![">", ">>", "<", "2>", "2>&1"].includes(token)
+				!token.startsWith("-") && ![">", ">>", "<", "2>", "2>&1"].includes(token)
 			);
 		});
 
@@ -144,7 +146,7 @@ export class EpistemicGuard {
 	}
 
 	/**
-	 * Record that a file has been read or extracted via symbol reader.
+	 * Record that a file's contents were exposed by a native reader or symbol reader.
 	 */
 	public recordFileRead(filePath: string, sessionId: string): void {
 		if (!filePath) return;
@@ -153,7 +155,8 @@ export class EpistemicGuard {
 	}
 
 	/**
-	 * Record that a file has been discovered/searched via AST or vector search.
+	 * Record that a file was returned by AST or vector search.
+	 * Search results are treated as inspection evidence for edit compatibility.
 	 */
 	public recordFileSearched(filePath: string, sessionId: string): void {
 		if (!filePath) return;
@@ -162,7 +165,9 @@ export class EpistemicGuard {
 	}
 
 	/**
-	 * Record all file paths referenced and inspected in a shell command.
+	 * Record files used by classified shell content-reader commands.
+	 * This runs during tool-call preflight so same-batch shell-read/edit behavior
+	 * remains compatible; result output is not available at this point.
 	 */
 	public recordCommandExecution(
 		command: string,
