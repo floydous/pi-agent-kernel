@@ -1,13 +1,10 @@
 import * as path from "path";
-import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { computeRepoMap } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
 import type { SearchProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
 import {
-	checkSyntax,
-	autoCommitFile,
 	undoLastCommit,
 } from "./editing/git-verify";
 import { globalEpistemicGuard } from "./safety/epistemic_guard";
@@ -39,7 +36,6 @@ import {
 	LspManager,
 	LspControlModal,
 	LspDownloadModal,
-	formatDiagnostics,
 	installLanguageServer,
 	LSP_SERVERS,
 	findExecutable,
