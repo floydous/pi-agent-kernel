@@ -1,7 +1,6 @@
 # Pi Agent Kernel Feedback Implementation Plan
 
-**Status:** Implementation in progress; selected feedback fixes are being applied
-with bounded measurements.
+**Status:** Initial implementation pass complete; final focused verification pending.
 **Repository:** `pi-agent-kernel`
 **Authoritative plan:** This file is the implementation and verification record for
 the feedback reviewed in `_feedback/`.
@@ -583,9 +582,7 @@ Add or update only tests relevant to selected behavior:
 
 - Whether shell evidence should become stricter than classified command shape.
 - Larger labeled-corpus calibration of the initial vector cosine threshold.
-- Compact search evidence/confidence signaling.
 - Full AST body output versus bounded preview metadata.
-- Complete cross-language `kind` documentation/contract.
 - Configured Git identity policy.
 - Foreground versus background/worker embedding loading.
 - RRF `k` configurability.
@@ -594,8 +591,9 @@ Add or update only tests relevant to selected behavior:
 
 ### Current verification record
 
-The selected implementation scope was verified with the focused suite and targeted
-checks previously recorded in repository history. Before any new implementation
-from this plan is accepted, the final verification protocol in Section 17 must be
-run again for the newly changed files, with exact outputs recorded here. No
-unavailable or inconclusive check may be labeled clean.
+The initial implementation pass added focused regressions for non-content shell
+search modes, vector abstention, normalized code-search paths, isolated fallback
+session IDs, patch-result semantics, and AST body truncation metadata. The focused
+checks for these changes passed where executed; the complete final verification
+protocol in Section 17 remains pending and must record exact outputs before release.
+No unavailable or inconclusive check may be labeled clean.
