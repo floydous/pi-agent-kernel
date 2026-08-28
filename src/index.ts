@@ -24,8 +24,23 @@ import { registerLspTool } from "./tools/lsp_tool";
  * shared default for single-session CLI use and in-memory sessions that
  * have no UUID assigned.
  */
+let fallbackSessionCounter = 0;
+const fallbackSessionIds = new WeakMap<object, string>();
+
 function getSessionId(ctx: any): string {
-	return ctx?.sessionManager?.getSessionId?.() ?? "__default__";
+	const provided = ctx?.sessionManager?.getSessionId?.();
+	if (typeof provided === "string" && provided.length > 0) return provided;
+
+	if (ctx && (typeof ctx === "object" || typeof ctx === "function")) {
+		let fallback = fallbackSessionIds.get(ctx);
+		if (!fallback) {
+			fallback = `__default__${process.pid}_${++fallbackSessionCounter}__`;
+			fallbackSessionIds.set(ctx, fallback);
+		}
+		return fallback;
+	}
+
+	return `__default__${process.pid}`;
 }
 import {
 	clampCommandOutput,
