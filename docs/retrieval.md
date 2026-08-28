@@ -34,7 +34,8 @@ AST and code-search path filters match normalized relative path substrings
 (including directory fragments, filenames, and extensions). `includeBody` returns
 a bounded preview of up to 25 lines; when the preview is truncated, the AST
 result marks it as truncated; use the targeted symbol reader for the complete
-implementation.
+implementation. `code_search` reports whether each result is `lexical`, `semantic`,
+or `hybrid`, and accepts an optional bounded RRF smoothing constant from 1 to 200.
 Vector caches are accepted only when their metadata, chunk IDs, dimensions, byte
 length, and content hash agree; invalid vector data is ignored while the BM25
 index remains usable.
