@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractFileTags, SymbolDef } from "./repomap";
+import { extractFileTags } from "./repomap";
 import { kernelDebug } from "../safety/kernel_debug";
 
 export interface AstQueryResult {
