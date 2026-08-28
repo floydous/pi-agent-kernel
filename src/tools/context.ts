@@ -12,5 +12,5 @@ export interface SearchDeps extends SessionDeps {
  /** Lazily create/access the workspace hybrid search index singleton. */
  getSearchIndex: (
   cwd: string,
-  ) => import("../retrieval/search_index").HybridSearchIndex;
+ ) => import("../retrieval/search_index").HybridSearchIndex;
 }
