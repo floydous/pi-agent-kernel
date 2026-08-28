@@ -2,8 +2,8 @@
 // Tests chunkFile, HybridSearchIndex, and search with fallback during indexing.
 
 import * as fs from "node:fs";
-import { chunkFile } from "../retrieval/search_chunker";
-import { HybridSearchIndex } from "../retrieval/search_index";
+import { chunkFile } from "../src/retrieval/search_chunker";
+import { HybridSearchIndex } from "../src/retrieval/search_index";
 import { createTestWorkspace, PY_CODE, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
