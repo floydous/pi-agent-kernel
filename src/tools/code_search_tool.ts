@@ -2,7 +2,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
-import type { HybridSearchIndex } from "../retrieval/search_index";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
 import type { SearchDeps } from "./context";
 
