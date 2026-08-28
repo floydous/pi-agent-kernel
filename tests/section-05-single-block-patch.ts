@@ -1,7 +1,7 @@
 // Section 5: Single-Block Surgical Patching
 // Tests applySurgicalPatch with a relative path on a file in the workspace.
 
-import { applySurgicalPatch } from "../editing/patch";
+import { applySurgicalPatch } from "../src/editing/patch";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
