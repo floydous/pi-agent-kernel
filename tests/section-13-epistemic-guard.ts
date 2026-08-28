@@ -98,6 +98,21 @@ async function main(): Promise<void> {
 				);
 			}
 
+			const nonContentSearchCommands = [
+				"grep -c absent proxy_server.py",
+				"rg --count absent proxy_server.py",
+				"grep -q absent proxy_server.py",
+				"rg -l absent proxy_server.py",
+			];
+			for (const command of nonContentSearchCommands) {
+				const extracted = extractInspectedFilesFromCommand(command, ws.tempDir);
+				assertPass(
+					`Non-content search mode is not inspection evidence: ${command}`,
+					extracted.length === 0,
+					{ command, extracted },
+				);
+			}
+
 			// Command parsing cannot observe whether a search produced output because
 			// this hook runs before the shell result exists. The guard therefore
 			// records classified content-reader commands, not result-level claims.
