@@ -51,9 +51,9 @@ entry is `src/index.ts`; the root `test.ts` exists only for test compatibility.
 
 ## Verified Features
 
-1. **Direct Behavioral Kernel (`src/index.ts`)**: Direct unblocked execution with strict epistemic grounding and 6-tier instruction precedence.
+1. **Direct Behavioral Kernel (`src/index.ts`)**: Direct execution with strict read-before-write grounding and explicit runtime lifecycle hooks.
 2. **Hybrid Retrieval (`src/retrieval/`)**: `retrieval:bm25` (Lean), `retrieval:hybrid-256d` (Hybrid Matryoshka), and `retrieval:dense-768d` (Full).
-3. **Surgical Patching (`src/editing/`)**: Multi-strategy fuzzy search/replace with immediate syntax validation.
+3. **Surgical Patching (`src/editing/`)**: Multi-strategy fuzzy search/replace with candidate syntax validation before the target file is written.
 4. **Epistemic Read-Before-Write (`src/safety/`)**: Blocks hallucinated file mutations on uninspected files.
 5. **Deterministic Test Oracle (`src/safety/`)**: Evaluates real binary exit codes (`/oracle [cmd]`).
    > ⚠️ `/oracle <command>` executes the given command through the system shell with your user privileges — by design, as an explicitly user-invoked verification escape hatch. Only pass commands you trust.
