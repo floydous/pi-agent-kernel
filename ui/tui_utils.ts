@@ -221,9 +221,10 @@ export class Text {
 			this.paddingX,
 			Math.max(0, Math.floor((width - 1) / 2)),
 		);
-		// Pi renders tool components inside a padded parent. Keep a small
-		// reserve so the parent cannot make an otherwise fitting line overflow.
-		const contentWidth = Math.max(1, width - paddingX * 2 - 4);
+		// Pi renders tool components inside a padded parent. Keep a reserve
+		// larger than the observed parent-width discrepancy so the parent
+		// cannot make an otherwise fitting line overflow.
+		const contentWidth = Math.max(1, width - paddingX * 2 - 8);
 		const wrappedLines = wrapTextWithAnsi(this.text, contentWidth);
 		const leftMargin = " ".repeat(paddingX);
 		const rightMargin = " ".repeat(paddingX);
