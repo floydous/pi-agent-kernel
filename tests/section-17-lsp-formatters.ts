@@ -9,7 +9,7 @@ import {
 	formatDocumentSymbols,
 	LspDiagnosticSeverity,
 	LspSymbolKind,
-} from "../lsp";
+} from "../src/lsp";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
