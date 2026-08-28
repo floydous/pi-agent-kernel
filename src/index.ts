@@ -142,7 +142,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			);
 		};
 
-		runSync()
+		// Keep profile changes responsive: model warm-up and indexing run in the
+		// existing background lifecycle, while progress remains visible in the UI.
+		void runSync()
 			.then((result) => {
 				clearWidget();
 				ctx.ui?.notify?.(
