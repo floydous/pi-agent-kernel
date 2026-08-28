@@ -608,7 +608,8 @@ Add or update only tests relevant to selected behavior:
 The initial implementation pass added focused regressions for non-content shell
 search modes and vector abstention. It also added the patch-result contract,
 normalized code-search paths, isolated fallback session IDs, AST body truncation
-metadata, and lexical/semantic/hybrid signal labels. Focused checks for the
-changed behavior passed where executed; the complete final verification protocol
-in Section 17 remains pending and must record exact outputs before release. No
-unavailable or inconclusive check may be labeled clean.
+metadata, lexical/semantic/hybrid signal labels, bounded RRF tuning, and
+background indexing lifecycle behavior. Focused checks for the changed behavior
+passed where executed; the complete final verification protocol in Section 17
+remains pending and must record exact outputs before release. No unavailable or
+inconclusive check may be labeled clean.
