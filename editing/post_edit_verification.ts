@@ -82,7 +82,10 @@ export function renderPostEditVerification(
 		(finding) => finding.severity === "warning" || finding.severity === "info",
 	);
 	const overall =
-		result.edit === "not applied" || hasSyntaxFailure || hasDiagnosticError
+		result.edit === "not applied" ||
+			hasSyntaxFailure ||
+			result.diagnostic.state === "failed" ||
+			hasDiagnosticError
 			? "FAIL!"
 			: hasDiagnosticWarning
 				? "WARN!"
