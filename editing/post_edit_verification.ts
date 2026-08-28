@@ -3,6 +3,7 @@ import { checkSyntax } from "./git-verify";
 export type VerificationState =
 	| "clean"
 	| "failed"
+	| "findings"
 	| "not run"
 	| "unavailable"
 	| "inconclusive";
