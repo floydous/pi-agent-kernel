@@ -36,6 +36,11 @@ export function registerCodeSearchTool(
 						"Maximum number of code chunks to return (default: 5, max: 15)",
 				}),
 			),
+			rrf_k: Type.Optional(
+				Type.Number({
+					description: "Optional RRF smoothing constant from 1 to 200 (default: 60)",
+				}),
+			),
 		}),
 		async execute(
 			_toolCallId: string,
@@ -62,6 +67,7 @@ export function registerCodeSearchTool(
 			const hits = await index.search(query, {
 				limit,
 				filePattern: params.file_pattern,
+				rrfK: params.rrf_k,
 			});
 
 			const sessionId = deps.getSessionId(ctx);
