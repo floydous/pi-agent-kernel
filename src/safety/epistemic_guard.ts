@@ -133,8 +133,8 @@ export function extractInspectedFilesFromCommand(
 }
 
 export class EpistemicGuard {
-	// Per-session inspection sets. Keyed by session id (or "__default__" for
-	// CLI single-session use, or in-memory sessions that have no UUID).
+	// Per-session inspection sets. The integration supplies a process- and
+	// context-unique fallback when the host does not provide a session UUID.
 	// This prevents cross-session contamination in RPC mode where one Node
 	// process hosts multiple concurrent sessions.
 	private inspectedFilesBySession: Map<string, Set<string>> = new Map();
