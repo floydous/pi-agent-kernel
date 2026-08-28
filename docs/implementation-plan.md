@@ -656,6 +656,8 @@ measured boundary.
   the existing boolean helper remains compatible.
 - Vector cache loading validates profile, IDs, dimensions, exact byte length, and
   a content hash; invalid vector data falls back to BM25.
+- The fixed vector threshold remains deferred because a labeled retrieval corpus
+  has not yet established a measured confidence boundary.
 - README and focused documentation no longer claim six-tier instruction
   precedence and document the selected edit/retrieval behavior.
 
@@ -675,5 +677,9 @@ Sections 5, 6, 7, 8, 10, 13, 20, and 25: passed
 Primary diagnostics for changed implementation and focused test files: 0 errors
 ```
 
-The complete suite and final diff/status review remain required before the work is
-considered complete.
+The complete focused suite passed with zero failures. Targeted TypeScript
+compilation and primary diagnostics reported no errors, and `git diff --check`
+reported no whitespace errors. The remaining dirty worktree contains pre-existing
+unrelated changes and artifacts that have not been altered or discarded; final
+diff/status review and intentional commit grouping remain required before the work
+is considered complete.
