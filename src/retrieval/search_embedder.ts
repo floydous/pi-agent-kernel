@@ -37,7 +37,7 @@ export class LocalEmbedder {
 			const candidateDirs = [
 				path.join(
 					__dirname,
-					"node_modules",
+					"../../node_modules",
 					"@huggingface",
 					"transformers",
 					".cache",
