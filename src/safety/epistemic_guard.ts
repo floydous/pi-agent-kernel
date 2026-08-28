@@ -65,43 +65,33 @@ export function extractInspectedFilesFromCommand(
 
 		if (tokens.length === 0) continue;
 
-		for (let i = 0; i < tokens.length; i++) {
-			const tok = tokens[i];
+		const command = commandName(tokens[0]);
+		if (!CONTENT_READING_COMMANDS.has(command)) continue;
 
-			// Skip flags/options (starts with - or --)
-			if (tok.startsWith("-")) continue;
+		const candidates: string[] = [];
+		const positional = tokens.slice(1).filter((token) => {
+			return (
+				!token.startsWith("-") &&
+				![">", ">>", "<", "2>", "2>&1"].includes(token)
+			);
+		});
 
-			// Skip redirection operators
-			if (
-				tok === ">" ||
-				tok === ">>" ||
-				tok === "<" ||
-				tok === "2>" ||
-				tok === "2>&1"
-			)
-				continue;
+		if (command === "grep" || command === "rg" || command === "awk") {
+			// The first positional argument is the pattern/program; only later
+			// positional arguments can be files.
+			candidates.push(...positional.slice(1));
+		} else if (command === "sed") {
+			// sed's first positional argument is its editing script.
+			candidates.push(...positional.slice(1));
+		} else {
+			candidates.push(...positional);
+		}
 
-			// Skip common command names in 0th position (e.g. "cat", "node", "python", "grep")
-			// unless the token looks like a script path (contains path separators or known script extension)
-			if (i === 0) {
-				const isScriptPath =
-					tok.includes("/") ||
-					tok.includes("\\") ||
-					tok.endsWith(".js") ||
-					tok.endsWith(".ts") ||
-					tok.endsWith(".py") ||
-					tok.endsWith(".sh") ||
-					tok.endsWith(".bat");
-				if (!isScriptPath) continue;
-			}
-
+		for (const tok of candidates) {
 			try {
 				const resolved = path.isAbsolute(tok) ? tok : path.resolve(cwd, tok);
-				if (fs.existsSync(resolved)) {
-					const stat = fs.statSync(resolved);
-					if (stat.isFile()) {
-						inspected.push(resolved);
-					}
+				if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+					inspected.push(resolved);
 				}
 			} catch (e) {
 				kernelDebug(e);
