@@ -121,7 +121,8 @@ use configured Git identity with an explicit fallback.
 `src/safety`, `safety`, filenames, extensions, and normalized separators.
 
 `includeBody` remains intentionally bounded to an approximately 25-line preview.
-It does not return a complete large symbol body.
+When the preview is truncated, the result and rendered tool output mark it as
+truncated; it does not return a complete large symbol body.
 
 The implementation recognizes more kinds than the short public description lists,
 including `struct`, `trait`, `enum`, `alias`, `variable`, and `constant` where
@@ -139,9 +140,10 @@ threshold, so larger labeled-corpus calibration remains planned.
 ### 4.6 Session and performance behavior
 
 The integration now assigns a process- and context-unique fallback session ID when
-the host does not provide one. Hybrid/full embedding initialization is still
-awaited in the foreground indexing path. `src/index.ts` remains a large
-integration module.
+the host does not provide one. Hybrid/full embedding initialization and workspace
+synchronization run through the existing background lifecycle so profile changes
+do not await model loading in the foreground handler. `src/index.ts` remains a
+large integration module.
 
 ## 5. Decision gates
 
