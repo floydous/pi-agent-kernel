@@ -53,4 +53,4 @@ npx tsx tests/section-13-epistemic-guard.ts
 
 - Each test file creates its own temp git workspace. Tests are fully independent — you can run them in any order, in parallel, or skip individual ones.
 - `assertPass` throws on failure (rather than calling `process.exit`) so the runner can catch and continue with the next section.
-- The original monolithic `test.ts` still exists at the project root as a thin shim that just imports `tests/run-all.ts`. This preserves the `npx tsx test.ts` UX.
+- The root `test.ts` remains a thin compatibility shim that imports `tests/run-all.ts`, preserving the `npx tsx test.ts` UX after runtime code moved under `src/`.
