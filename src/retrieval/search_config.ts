@@ -11,6 +11,8 @@ export interface SearchConfig {
 	profile: SearchProfile;
 	effectiveProfile: "lean" | "hybrid" | "full" | "off";
 	matryoshkaDim: number;
+	/** Minimum cosine similarity required before vector results enter RRF. */
+	vectorSimilarityThreshold: number;
 	numThreads: number;
 	modelId: string;
 	dtype: "q8" | "fp32" | "fp16";
@@ -92,6 +94,7 @@ export function getSearchConfig(
 			profile,
 			effectiveProfile: "off",
 			matryoshkaDim: 0,
+			vectorSimilarityThreshold: 0,
 			numThreads: 1,
 			modelId: "nomic-ai/nomic-embed-text-v1.5",
 			dtype: "q8",
@@ -124,6 +127,7 @@ export function getSearchConfig(
 			profile,
 			effectiveProfile: "hybrid",
 			matryoshkaDim: 256,
+			vectorSimilarityThreshold: 0.7,
 			numThreads: 1,
 			modelId: "nomic-ai/nomic-embed-text-v1.5",
 			dtype: "q8",
@@ -139,6 +143,7 @@ export function getSearchConfig(
 		profile,
 		effectiveProfile: "full",
 		matryoshkaDim: 768,
+		vectorSimilarityThreshold: 0.7,
 		numThreads: Math.min(2, Math.max(1, Math.floor(os.cpus().length / 2))),
 		modelId: "nomic-ai/nomic-embed-text-v1.5",
 		dtype: "q8",
