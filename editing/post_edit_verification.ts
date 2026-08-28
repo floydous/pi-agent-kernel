@@ -43,9 +43,7 @@ function compactMessage(message: string, maxLength = 240): string {
 }
 
 function diagnosticValue(result: DiagnosticVerification): string {
-	if (result.state !== "failed" || result.findings.length === 0) {
-		return result.state;
-	}
+	if (result.findings.length === 0) return result.state;
 
 	const counts = new Map<string, number>();
 	for (const finding of result.findings) {
