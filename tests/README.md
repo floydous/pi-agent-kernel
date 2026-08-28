@@ -2,6 +2,11 @@
 
 The agent-kernel test suite is split into one file per logical test under this directory.
 
+The suite supports the project's core priorities: bare-minimum token usage,
+maximum performance, and reliable agent behavior. Tests emphasize bounded
+outputs, deterministic verification, read-before-write safety, and isolated
+execution.
+
 ## Running tests
 
 ```sh
@@ -22,7 +27,7 @@ npx tsx tests/section-13-epistemic-guard.ts
 ## Test files
 
 | File | What it tests |
-|---|---|
+| --- | --- |
 | `section-01-ast-extraction.ts` | `extractFileTags` for Python class/method extraction |
 | `section-03-repo-map.ts` | `computeRepoMap` and PageRank ranking on a real workspace |
 | `section-04-symbol-reader.ts` | `extractSymbolContent` for absolute and relative paths on large files |
