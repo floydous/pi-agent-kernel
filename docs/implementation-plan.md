@@ -568,7 +568,7 @@ Add or update only tests relevant to selected behavior:
 
 ### Completed and retained
 
-- Metadata-only shell commands are excluded from guard evidence.
+- Metadata-only shell commands and non-content grep/rg modes are excluded from guard evidence.
 - Candidate syntax is validated before target writes.
 - Invalid single- and multi-block edits preserve target bytes.
 - AST filters use normalized relative paths.
@@ -576,6 +576,11 @@ Add or update only tests relevant to selected behavior:
 - Detailed commit states are exposed without breaking the boolean helper.
 - Vector-cache integrity checks preserve BM25 fallback.
 - Unsupported six-tier precedence claims were removed.
+- Initial vector abstention is applied at a measured 0.6 floor before RRF.
+- Non-content grep/rg modes are excluded from shell inspection evidence.
+- Fallback session IDs are isolated per process/context.
+- AST body truncation is explicitly reported.
+- Search results expose lexical/semantic/hybrid signal labels.
 - Compact output and terminal-width constraints remain protected.
 
 ### Explicitly unresolved pending measurement or approval
@@ -592,8 +597,9 @@ Add or update only tests relevant to selected behavior:
 ### Current verification record
 
 The initial implementation pass added focused regressions for non-content shell
-search modes, vector abstention, normalized code-search paths, isolated fallback
-session IDs, patch-result semantics, and AST body truncation metadata. The focused
-checks for these changes passed where executed; the complete final verification
-protocol in Section 17 remains pending and must record exact outputs before release.
-No unavailable or inconclusive check may be labeled clean.
+search modes and vector abstention. It also added the patch-result contract,
+normalized code-search paths, isolated fallback session IDs, AST body truncation
+metadata, and lexical/semantic/hybrid signal labels. Focused checks for the
+changed behavior passed where executed; the complete final verification protocol
+in Section 17 remains pending and must record exact outputs before release. No
+unavailable or inconclusive check may be labeled clean.
