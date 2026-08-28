@@ -45,7 +45,7 @@ export class LocalEmbedder {
 				),
 				path.join(
 					__dirname,
-					"..",
+					"../..",
 					"node_modules",
 					"@huggingface",
 					"transformers",
