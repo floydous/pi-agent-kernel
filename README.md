@@ -32,6 +32,15 @@ Each `src/` subsystem owns its implementation and public exports. `src/index.ts`
 is the integration boundary that registers the extension with Pi. The package
 entry is `src/index.ts`; the root `test.ts` exists only for test compatibility.
 
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [Editing and verification](docs/editing-and-verification.md)
+- [Retrieval](docs/retrieval.md)
+- [Testing](docs/testing.md)
+
 ## Verified Features
 
 1. **Direct Behavioral Kernel (`src/index.ts`)**: Direct unblocked execution with strict epistemic grounding and 6-tier instruction precedence.
