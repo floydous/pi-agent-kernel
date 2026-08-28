@@ -23,5 +23,14 @@ fast discovery does not require loading the local embedding model.
 - `auto`: lets the runtime select the configured/default profile.
 
 During indexing, search can fall back to the lean path rather than blocking on
-model initialization. Output limits remain enforced so retrieval cannot flood
-agent context.
+model initialization. In hybrid/full profiles, vector candidates below the
+configured confidence floor are abstained from before reciprocal-rank fusion;
+lexical BM25 results remain available. Output limits remain enforced so retrieval
+cannot flood agent context.
+
+AST path filters match normalized relative paths (including directory fragments,
+filenames, and extensions). `includeBody` returns a bounded preview of up to 25
+lines; use the targeted symbol reader when the complete implementation is needed.
+Vector caches are accepted only when their metadata, chunk IDs, dimensions, byte
+length, and content hash agree; invalid vector data is ignored while the BM25
+index remains usable.
