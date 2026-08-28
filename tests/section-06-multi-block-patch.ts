@@ -1,7 +1,7 @@
 // Section 6: Multi-Block Disjoint Patching
 // Tests applyMultiBlockPatch with two disjoint edit blocks on the same file.
 
-import { applyMultiBlockPatch } from "../editing/patch";
+import { applyMultiBlockPatch } from "../src/editing/patch";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
