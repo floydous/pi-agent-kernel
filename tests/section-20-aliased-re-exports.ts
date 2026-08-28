@@ -133,7 +133,7 @@ def raise_rate_limit_exceeded():
 				);
 
 				const largeBodyHits = searchAstSymbols(ws.tempDir, {
-					name: "rate_limit",
+					name: "long_rate_limit",
 					includeBody: true,
 				});
 				assertPass(
