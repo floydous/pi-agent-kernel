@@ -189,7 +189,10 @@ export function makeOutputText(content: string, paddingX = 0): Text {
 		.split(/\r\n|\r|\n/)
 		.map((line) => truncateToWidth(line, safeWidth, "…"))
 		.join("\n");
-	return new Text(safeContent, paddingX, 0);
+	// Tool results are rendered inside a parent content box that contributes
+	// padding after this component renders. Reserve a small margin here so a
+	// terminal-width mismatch cannot make the parent overflow by a few cells.
+	return new Text(safeContent, paddingX, 0, 4);
 }
 
 export class Text {
