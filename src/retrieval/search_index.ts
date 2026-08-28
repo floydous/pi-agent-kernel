@@ -480,7 +480,9 @@ export class HybridSearchIndex {
 
 			if (
 				options.filePattern &&
-				!chunk.filePath.toLowerCase().includes(options.filePattern.toLowerCase())
+				!chunk.filePath
+					.toLowerCase()
+					.includes(options.filePattern.replace(/\\/g, "/").toLowerCase())
 			) {
 				continue;
 			}
