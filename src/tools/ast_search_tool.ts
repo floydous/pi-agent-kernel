@@ -26,7 +26,7 @@ export function registerAstSearchTool(
 			kind: Type.Optional(
 				Type.String({
 					description:
-						"Kind: function | class | method | interface | type | struct | trait | enum | impl | alias | variable | constant", 
+						"Kind: function | class | method | interface | type | struct | trait | enum | impl | alias | variable | constant",
 				}),
 			),
 			filePattern: Type.Optional(
