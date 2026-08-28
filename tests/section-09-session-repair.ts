@@ -3,7 +3,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { sanitizeSessionFiles } from "../context/session_repair";
+import { sanitizeSessionFiles } from "../src/context/session_repair";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
