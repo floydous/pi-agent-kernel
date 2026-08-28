@@ -111,6 +111,7 @@ export function getSearchConfig(
 			profile,
 			effectiveProfile: "lean",
 			matryoshkaDim: 0,
+			vectorSimilarityThreshold: 0,
 			numThreads: 1,
 			modelId: "nomic-ai/nomic-embed-text-v1.5",
 			dtype: "q8",
