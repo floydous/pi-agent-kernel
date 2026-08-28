@@ -128,7 +128,9 @@ export function getSearchConfig(
 			profile,
 			effectiveProfile: "hybrid",
 			matryoshkaDim: 256,
-			vectorSimilarityThreshold: 0.7,
+			// Measured on the bounded feedback fixture: separates the observed
+			// negative-query ceiling from the observed positive-query floor.
+			vectorSimilarityThreshold: 0.6,
 			numThreads: 1,
 			modelId: "nomic-ai/nomic-embed-text-v1.5",
 			dtype: "q8",
@@ -144,7 +146,9 @@ export function getSearchConfig(
 		profile,
 		effectiveProfile: "full",
 		matryoshkaDim: 768,
-		vectorSimilarityThreshold: 0.7,
+		// Use the same conservative floor until a larger labeled corpus justifies
+		// profile-specific calibration.
+		vectorSimilarityThreshold: 0.6,
 		numThreads: Math.min(2, Math.max(1, Math.floor(os.cpus().length / 2))),
 		modelId: "nomic-ai/nomic-embed-text-v1.5",
 		dtype: "q8",
