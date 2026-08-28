@@ -1,7 +1,7 @@
 // Section 14: Deterministic Test Oracle & Contract Verification
 // Tests runOracle correctly reports pass/fail based on exit code.
 
-import { runOracle } from "../safety/test_oracle";
+import { runOracle } from "../src/safety/test_oracle";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
