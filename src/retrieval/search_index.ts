@@ -443,7 +443,7 @@ export class HybridSearchIndex {
 			wantsVectors && !this.isIndexing && this.vectors.size > 0;
 
 		if (isVectorReady) {
-			const queryVec = await this.embedder.embed(query, true);
+					queryVec = await this.embedder.embed(query, true);
 			if (queryVec) {
 				const vecScores: { chunkId: string; score: number }[] = [];
 				for (const [chunkId, vec] of this.vectors.entries()) {
