@@ -46,7 +46,7 @@ Track every reported feedback issue and work through them one at a time. This fi
 
 - **Status:** `PARTIAL / OPEN`
 - **Reported behavior:** A file named in a command can become eligible even when the command did not expose its contents to the model. The guard’s name and error text imply stronger epistemic grounding.
-- **Verified current evidence:** `ls`, `stat`, `wc -l`, `grep -c`, `grep -q`, and `rg -l` produce no inspected-file evidence. `cat`, `grep -n`, and `rg -n` are classified as content inspection by command shape. The guard remains preflight/shape based and cannot prove that output was displayed or understood.
+- **Verified tool-boundary matrix (2026-08-30):** Through the registered `edit` tool, `cat`, `head`, `tail`, `sed`, `awk`, `grep`, and `rg` allowed the edit after `tool_call` preflight. `grep -c`, `rg -l`, `ls`, `stat`, `wc -l`, `file`, and `find` rejected it. Native `read` followed by edit allowed the edit; AST search followed by edit did not in the temporary fixture because the query did not return the target symbol. A shell-read preflight followed by edit allowed the edit even though no shell result was executed in this direct harness. This confirms the current implementation is command-shape/preflight evidence, not proof that output was exposed or understood.
 - **Required decision:** Compare and measure a stricter result-aware/native-reader design against the current behavior before selecting one. Consider whether the correct outcome is stronger enforcement or an honest rename/documentation change.
 - **Completion evidence:** Actual tool-boundary reproduction, same-batch behavior, focused regression tests, and explicit documentation of what the guard proves.
 
