@@ -48,7 +48,7 @@ async function main(): Promise<void> {
 				type: "message",
 				message: {
 					role: "assistant",
-					content: [{ type: "toolCall", toolName: "bash", args: { command: "npx tsx features/test.ts" } }],
+					content: [{ type: "toolCall", toolName: "bash", args: { command: "npx tsx tests/run-all.ts" } }],
 				},
 			},
 			{
