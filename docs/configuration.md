@@ -8,7 +8,7 @@ The configuration loader applies values in this order:
    or `.pi/config.toml` while walking upward from the workspace.
 4. Environment-variable overrides supported by the loader.
 
-Start with [`examples/config.example.toml`](../examples/config.example.toml).
+
 The repository-root `config.toml` is ignored so local settings are not committed.
 
 ## Main sections
