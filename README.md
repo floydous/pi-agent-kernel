@@ -27,17 +27,14 @@ agent-kernel/
 │   ├── tools/              # Pi tool registrations
 │   └── ui/                 # Terminal UI components
 ├── tests/                  # Focused verification sections
-├── examples/
-│   └── config.example.toml # Example user configuration
 ├── docs/                   # Project documentation and guides
-├── test.ts                 # Compatibility shim for the full test suite
 ├── README.md
 └── package.json
 ```
 
 Each `src/` subsystem owns its implementation and public exports. `src/index.ts`
 is the integration boundary that registers the extension with Pi. The package
-entry is `src/index.ts`; the root `test.ts` exists only for test compatibility.
+entry is `src/index.ts`.
 
 ## Documentation
 
