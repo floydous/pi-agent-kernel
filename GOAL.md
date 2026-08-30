@@ -36,9 +36,9 @@ Track every reported feedback issue and work through them one at a time. This fi
 - Repository: `C:\Users\brat\.pi\agent\extensions\agent-kernel`
 - Branch: `master`
 - HEAD at the start of this tracking file: `f1ddde4 docs: record feedback reproduction verification`
-- Feedback claims a 30-section suite; the current repository runner verifies 28 sections. The two-section discrepancy is unresolved.
-- The worktree contains implementation, test, documentation, deletion, untracked-artifact, and unrelated UI changes. Ownership and retention are unresolved.
-- No implementation change is made by creating this file.
+- Feedback claimed a 30-section suite; the repository contains 28 `tests/section-*.ts` files and the runner imports all 28. Historical `test.ts` is only a compatibility shim, and repository history contains no additional section files. The feedback’s 30-section count is not reproducible from this checkout; the two-section discrepancy is recorded as `NOT REPRODUCED`, not as a missing implementation.
+- The worktree was cleaned for the push: ambiguous/unrelated changes remain preserved in `stash@{0}`, `_feedback/` remains excluded, and the branch is synchronized with `origin/master`.
+- No source implementation change was made by creating or updating this tracking file.
 
 ## Issue matrix
 
