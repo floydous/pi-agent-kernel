@@ -16,7 +16,7 @@ export interface TestWorkspace {
 
 /**
  * The standard Python code used by workspace-dependent tests.
- * Mirrors the original `test.ts` section 2 fixture.
+ * Provides the standard fixture shared by workspace-dependent sections.
  */
 export const PY_CODE = `
 class Calculator:
@@ -68,7 +68,7 @@ export function createTestWorkspace(prefix: string = "pi_kernel_test_"): TestWor
 }
 
 /**
- * Print a section header in the format the original test.ts used.
+ * Print a section header in the format used by the section runner.
  */
 export function logSection(name: string): void {
 	console.log(`[${name}]`);
