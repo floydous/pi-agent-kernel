@@ -61,18 +61,19 @@ Track every reported feedback issue and work through them one at a time. This fi
 
 ### Feedback 3 — Literal `[EMAIL]` Git identity
 
-- **Status:** `FIXED for placeholder; OPEN as policy question`
+- **Status:** `PARTIAL / OPEN` (placeholder fixed; identity policy not selected)
 - **Reported behavior:** Auto-commits could use a literal placeholder identity.
 - **Verified current evidence:** Fresh-repository auto-commit produced `Pi Agent <pi@agent.local>`, not `[EMAIL]`.
-- **Remaining question:** Whether auto-commit should honor repository-configured `user.name` and `user.email` instead of using the deterministic fallback. Do not change this without deciding the identity policy and testing configured, absent, and first-commit cases.
+- **Experiment result (2026-08-30):** Fresh repositories with and without local Git identity, plus a repository configured as `Configured User <configured@example.com>`, all committed as `Pi Agent <pi@agent.local>`. No `[EMAIL]` placeholder entered history.
+- **Remaining decision:** Choose whether auto-commit should honor repository-configured `user.name` and `user.email` instead of using the deterministic fallback. Do not change this without deciding the identity policy and testing configured, absent, and first-commit cases.
 
 ### Feedback 4 — First-commit failure visibility
 
-- **Status:** `NOT REPRODUCED / OPEN FOR CONTRACT REVIEW`
+- **Status:** `PARTIAL / OPEN FOR CONTRACT REVIEW`
 - **Reported behavior:** First-commit failure could be silent and leave the edit only in the working tree.
-- **Verified current evidence:** A fresh Git repository with no prior commit successfully auto-committed and returned `{ state: "committed" }` using `Pi Agent <pi@agent.local>`.
-- **Remaining question:** Independently of the successful path, define the result contract for a genuine commit failure. The user-facing edit result must distinguish committed, working-tree-only, and failed states.
-- **Completion evidence:** Inject or reproduce a real commit failure and verify the visible result and `/undo` behavior without claiming a failed or unavailable scenario is clean.
+- **Verified current evidence:** A fresh Git repository with no prior commit successfully auto-committed and returned `{ state: "committed" }` using `Pi Agent <pi@agent.local>`. A real pre-commit hook failure returned `{ state: "failed", error: "blocked-hook" }`; the file remained changed and staged, while the visible registered edit-tool text still began `OK!` and `details.commit.state` carried the failure.
+- **Required action:** Define and implement the user-facing result contract for a genuine commit failure. The result must distinguish committed, working-tree-only, and failed states; a syntactically valid but uncommitted edit must not be presented as an unqualified `OK!`.
+- **Completion evidence:** Reproduce a real commit failure and verify the visible result, structured details, staged/working-tree state, and `/undo` behavior without claiming a failed or unavailable scenario is clean.
 
 ### Feedback 5 — Global `__default__` session ID
 
