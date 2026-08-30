@@ -10,9 +10,8 @@ execution.
 ## Running tests
 
 ```sh
-# Run the full suite (recommended)
-npx tsx test.ts                # via the legacy shim
-npx tsx tests/run-all.ts       # the actual runner
+# Run the full suite
+npx tsx tests/run-all.ts
 
 # Run a single test in isolation
 npx tsx tests/section-13-epistemic-guard.ts
@@ -58,4 +57,3 @@ npx tsx tests/section-13-epistemic-guard.ts
 
 - Each test file creates its own temp git workspace. Tests are fully independent — you can run them in any order, in parallel, or skip individual ones.
 - `assertPass` throws on failure (rather than calling `process.exit`) so the runner can catch and continue with the next section.
-- The root `test.ts` remains a thin compatibility shim that imports `tests/run-all.ts`, preserving the `npx tsx test.ts` UX after runtime code moved under `src/`.
