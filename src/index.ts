@@ -182,7 +182,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		description:
 			"Run deterministic test/type-check verification oracle (/oracle [test-command])",
 		handler: async (args: string, ctx: any) => {
-			const cmd = args?.trim() || "npx tsx test.ts";
+			const cmd = args?.trim() || "npx tsx tests/run-all.ts";
 			ctx.ui?.notify?.(`Executing Test Oracle: '${cmd}'...`, "info");
 			const result = await runOracle(cmd, { cwd: ctx.cwd });
 			const notifyType = result.passed ? "info" : "error";
