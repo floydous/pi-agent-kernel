@@ -6,7 +6,7 @@ independently runnable and uses isolated temporary workspaces where needed.
 ## Commands
 
 ```sh
-# Full compatibility entry point
+# Full suite
 npm test
 
 # Direct section orchestrator
@@ -16,8 +16,7 @@ npm run test:focused
 npx tsx tests/section-13-epistemic-guard.ts
 ```
 
-The root `test.ts` imports `tests/run-all.ts` for compatibility with existing
-commands and the `/oracle` default.
+`npm test` runs the section orchestrator under `tests/`.
 
 ## Verification policy
 
