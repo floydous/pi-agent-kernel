@@ -41,5 +41,4 @@ src/
 6. Compaction uses deterministic workspace state and recent trajectory data to
    build a grounded summary prompt.
 
-The root `test.ts` is intentionally only a compatibility shim. It is not part
-of the runtime integration boundary.
+
