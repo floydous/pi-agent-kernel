@@ -1,7 +1,7 @@
 // Section 19: AST Fallback Extensions - Document Symbols, References, Local Scope Hover
 
 import * as path from "node:path";
-import { extractDocumentSymbols, findSymbolReferences, extractLocalSymbolHover } from "../retrieval/ast_search";
+import { extractDocumentSymbols, findSymbolReferences, extractLocalSymbolHover } from "../src/retrieval/ast_search";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
