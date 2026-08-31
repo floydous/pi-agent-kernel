@@ -156,14 +156,12 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			return {
 				content: [{ type: "text", text: statusText }],
 				details: {
-
 					strategy: patchRes.strategy,
 					verification,
 					success: verification.syntax.state === "clean",
 				},
 				isError:
-
-							verification.syntax.state === "failed" ||
+					verification.syntax.state === "failed" ||
 						verification.diagnostic.findings.some(
 							(finding) => finding.severity === "error" || !finding.severity,
 						),
