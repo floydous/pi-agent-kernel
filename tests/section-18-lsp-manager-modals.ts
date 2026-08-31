@@ -19,7 +19,7 @@ async function main(): Promise<void> {
 		const mockTheme = {
 			fg: (_color: string, text: string) => text,
 			bold: (text: string) => text,
-		};
+		} as any;
 		let modalDoneResult: any = null;
 		const lspModal = new LspControlModal(mockLspTui, lspMgr, mockTheme, (res) => {
 			modalDoneResult = res;
@@ -57,10 +57,12 @@ async function main(): Promise<void> {
 		logPass("LspControlModal selection box, download indicator & space-toggling verified!");
 
 		// 7.1 LspDownloadModal ASCII Spinner & Progress Rendering
-		let downloadDone = false;
-		const downloadModal = new LspDownloadModal(mockLspTui, ["rust", "python"], mockTheme, () => {
-			downloadDone = true;
-		});
+		const downloadModal = new LspDownloadModal(
+			mockLspTui,
+			["rust", "python"],
+			mockTheme,
+			() => {},
+		);
 		const dlLines = downloadModal.render(100);
 		const dlText = dlLines.join("\n");
 		assertPass(
