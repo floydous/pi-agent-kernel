@@ -1,9 +1,9 @@
 // Section 12: Epistemically-Grounded Chronological Compaction Engine
-// Tests the compaction prompt builder, workspace state extraction, and
+// Tests the compaction prompt builder, Git ground truth extraction, and
 // trajectory digest extraction.
 
 import {
-	extractWorkspaceState,
+	extractGitGroundTruth,
 	extractTrajectoryDigest,
 	buildChronologicalCompactionPrompt,
 } from "../src/context/compaction_enhanced";
@@ -13,16 +13,17 @@ async function main(): Promise<void> {
 	await runSection(
 		"12. Epistemically-Grounded Chronological Compaction Engine",
 		() => {
-			// Test 1: Workspace State Extraction
-			const workspaceState = extractWorkspaceState(process.cwd());
+			// Test 1: Git Ground Truth Extraction
+			const gitGroundTruth = extractGitGroundTruth(process.cwd());
 			assertPass(
 				"Workspace state extraction verified",
-				workspaceState.includes("<workspace-state>") &&
-					workspaceState.includes("<workspace-state>") &&
-					workspaceState.includes("</workspace-state>"),
-				{ workspaceState },
+				"Git workspace ground truth extraction verified",
+				gitGroundTruth.includes("<git-workspace-ground-truth>") &&
+					gitGroundTruth.includes("[Status]:") &&
+					gitGroundTruth.includes("[Recent Commits]:"),
+				{ gitGroundTruth },
 			);
-			logPass("Workspace state extraction verified!");
+			logPass("Git workspace ground truth extraction verified!");
 
 			// Test 2: Recent Trajectory Digest Extraction from Kept Turns
 			const mockBranchEntries = [
@@ -108,25 +109,25 @@ async function main(): Promise<void> {
 				previousSummary: samplePrevSummary,
 				discardedConversationText: "User: start strategy 2\nAssistant: planning...",
 				recentTrajectoryDigest: trajectoryDigest,
-				workspaceState,
+				gitGroundTruth,
 				customInstructions: "Preserve all error codes",
 			});
 
 			const idxBaseline = prompt.indexOf("<historical-summary-baseline>");
 			const idxDiscarded = prompt.indexOf("<discarded-conversation-history>");
 			const idxTrajectory = prompt.indexOf("<recent-turn-actions-digest>");
-			const idxWorkspace = prompt.indexOf("<workspace-state>");
+			const idxGit = prompt.indexOf("<git-workspace-ground-truth>");
 
 			assertPass(
 				"Chronological prompt topology sequence is correct",
 				idxBaseline !== -1 &&
 					idxDiscarded !== -1 &&
 					idxTrajectory !== -1 &&
-					idxWorkspace !== -1 &&
-					idxBaseline < idxDiscarded &&
-					idxDiscarded < idxTrajectory &&
-					idxTrajectory < idxWorkspace,
-				{ idxBaseline, idxDiscarded, idxTrajectory, idxWorkspace },
+				idxGit !== -1 &&
+				idxBaseline < idxDiscarded &&
+				idxDiscarded < idxTrajectory &&
+				idxTrajectory < idxGit,
+				{ idxBaseline, idxDiscarded, idxTrajectory, idxGit },
 			);
 			assertPass(
 				"User message no longer contains static summarization instructions (moved to system prompt for caching)",
