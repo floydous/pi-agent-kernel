@@ -618,9 +618,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 			// The harness does not reliably propagate result-level isError to this
 			// hook, so a FAILED edit can still reach here. Committing then would
-				// stage untracked files wholesale under a misleading message even though
-				// nothing was applied. Detect the edit tool's failure markers in the
-				// result text and bail out before post-write checks.
+			// Detect the edit tool's failure markers and bail out before post-write
+			// checks.
 			const resultText = (event.content || [])
 				.map((c: any) =>
 					c.type === "text" && typeof c.text === "string" ? c.text : "",
