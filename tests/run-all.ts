@@ -55,7 +55,7 @@ const sections: TestEntry[] = [
 		loader: () => import("./section-12.1-compaction-prompt-caching"),
 	},
 	{
-		name: "12.2. Bounded workspace-state extraction",
+name: "12.2. Bounded workspace-state extraction",
 		loader: () => import("./section-12.2-workspace-state"),
 	},
 	{
