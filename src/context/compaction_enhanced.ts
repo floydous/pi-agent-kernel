@@ -208,7 +208,7 @@ export function buildChronologicalCompactionPrompt(options: {
  * so that providers' prompt caches can reuse the static portion across calls.
  *
  * The user message built by `buildChronologicalCompactionPrompt` contains only
- * varying data (conversation, git state, trajectory digest). The system prompt
+ * varying data (conversation, workspace state, trajectory digest). The system prompt
  * here is the stable, cacheable half.
  */
 export function buildCompactionSystemPrompt(): string {
@@ -676,7 +676,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				}
 			}
 
-			// Append deterministic Git workspace state
+			// Append deterministic workspace state
 			if (workspaceState) {
 				summaryText += `\n\n${workspaceState}`;
 			}
