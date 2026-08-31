@@ -1,3 +1,4 @@
+import * as child_process from "child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -57,16 +58,33 @@ Enumerate key ground truths established by real tool executions:
 
 Keep the summary dense, grounded, and actionable. Do NOT lose critical negative constraints or verified errors.`;
 
-export function extractWorkspaceState(cwd: string): string {
+export function extractGitGroundTruth(cwd: string): string {
 	try {
-		const entries = fs
-			.readdirSync(cwd, { withFileTypes: true })
-			.filter((entry) => !entry.name.startsWith("."))
-			.slice(0, 100);
-		const lines = entries.map(
-			(entry) => `${entry.isDirectory() ? "dir" : "file"}: ${entry.name}`,
-		);
-		return `<workspace-state>\n${lines.join("\n")}\n</workspace-state>`;
+		// Keep Git subprocess output captured so warnings do not leak into the TUI.
+		const commonOpts = {
+			cwd,
+			encoding: "utf8" as const,
+			timeout: 5000,
+			stdio: "pipe" as const,
+		};
+		const gitStatus = child_process
+			.execFileSync("git", ["status", "-s"], commonOpts)
+			.toString()
+			.trim();
+		const gitLog = child_process
+			.execFileSync("git", ["log", "-n", "5", "--oneline"], commonOpts)
+			.toString()
+			.trim();
+		const gitDiffStat = child_process
+			.execFileSync("git", ["diff", "--stat"], commonOpts)
+			.toString()
+			.trim();
+
+		let out = `<git-workspace-ground-truth>\n[Status]:\n${gitStatus || "clean (working tree clean)"}`;
+		if (gitLog) out += `\n\n[Recent Commits]:\n${gitLog}`;
+		if (gitDiffStat) out += `\n\n[Uncommitted Diff Stat]:\n${gitDiffStat}`;
+		out += `\n</git-workspace-ground-truth>`;
+		return out;
 	} catch {
 		return "";
 	}
@@ -167,7 +185,7 @@ export function buildChronologicalCompactionPrompt(options: {
 	previousSummary?: string;
 	discardedConversationText: string;
 	recentTrajectoryDigest?: string;
-	workspaceState?: string;
+	gitGroundTruth?: string;
 	customInstructions?: string;
 }): string {
 	let prompt = "";
@@ -186,8 +204,8 @@ export function buildChronologicalCompactionPrompt(options: {
 	}
 
 	// 4. Deterministic workspace state
-	if (options.workspaceState) {
-		prompt += `${options.workspaceState}\n\n`;
+	if (options.gitGroundTruth) {
+		prompt += `${options.gitGroundTruth}\n\n`;
 	}
 
 	// Note: The static summarization instructions (`ENHANCED_SUMMARIZATION_PROMPT`)
@@ -208,12 +226,12 @@ export function buildChronologicalCompactionPrompt(options: {
  * so that providers' prompt caches can reuse the static portion across calls.
  *
  * The user message built by `buildChronologicalCompactionPrompt` contains only
- * varying data (conversation, workspace state, trajectory digest). The system prompt
+ * varying data (conversation, git state, trajectory digest). The system prompt
  * here is the stable, cacheable half.
  */
 export function buildCompactionSystemPrompt(): string {
 	return (
-		"You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against workspace state and recent tool outputs. Do NOT continue the conversation.\n\n" +
+		"You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against git ground truth and recent tool outputs. Do NOT continue the conversation.\n\n" +
 		ENHANCED_SUMMARIZATION_PROMPT
 	);
 }
@@ -306,7 +324,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 
 			// Extract deterministic workspace state
 			const workspaceDir = ctx.cwd || process.cwd();
-			const workspaceState = extractWorkspaceState(workspaceDir);
+			const gitGroundTruth = extractGitGroundTruth(workspaceDir);
 			const recentTrajectoryDigest = extractTrajectoryDigest(branchEntries, 40);
 
 			// Build strictly chronological, grounded prompt.
@@ -321,7 +339,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				previousSummary: preparation.previousSummary,
 				discardedConversationText: conversationText,
 				recentTrajectoryDigest,
-				workspaceState,
+				gitGroundTruth,
 				customInstructions,
 			});
 
@@ -525,7 +543,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 						previousSummary: preparation.previousSummary,
 						discardedConversationText: conversationText,
 						recentTrajectoryDigest,
-						workspaceState,
+						gitGroundTruth,
 						customInstructions,
 					});
 					// Reset state for retry
@@ -676,9 +694,9 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				}
 			}
 
-			// Append deterministic workspace state
-			if (workspaceState) {
-				summaryText += `\n\n${workspaceState}`;
+			// Append deterministic Git workspace state
+			if (gitGroundTruth) {
+				summaryText += `\n\n${gitGroundTruth}`;
 			}
 
 			// Compute read/modified files
