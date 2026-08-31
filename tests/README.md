@@ -36,7 +36,7 @@ npx tsx tests/section-13-epistemic-guard.ts
 | `section-09-session-repair.ts` | `sanitizeSessionFiles` heals missing `usage.cost.total` |
 | `section-10-hybrid-search.ts` | `HybridSearchIndex` chunking, search, and indexing fallback |
 | `section-11-output-clamping.ts` | `clampCommandOutput` and `isDiscoveryCommand` |
-| `section-12-compaction-engine.ts` | `extractGitGroundTruth`, `extractTrajectoryDigest`, `buildChronologicalCompactionPrompt` |
+| `section-12-compaction-engine.ts` | workspace-state extraction, `extractTrajectoryDigest`, `buildChronologicalCompactionPrompt` |
 | `section-12.1-compaction-prompt-caching.ts` | `buildCompactionSystemPrompt` keeps static instructions in the system prompt for caching |
 | `section-13-epistemic-guard.ts` | `EpistemicGuard` blocking, per-session scope, case-sensitivity |
 | `section-14-test-oracle.ts` | `runOracle` correctly reports pass/fail based on exit code |
