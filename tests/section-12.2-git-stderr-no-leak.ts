@@ -17,13 +17,11 @@ async function main(): Promise<void> {
 				path.join(os.tmpdir(), "epistemic-workspace-state-"),
 			);
 			try {
-			fs.mkdirSync(path.join(tmpDir, "nested"));
+				fs.mkdirSync(path.join(tmpDir, "nested"));
 
 				// Write a regular file and leave the nested directory visible.
-				const target = path.join(tmpDir, "lf-only.txt");
+				const target = path.join(tmpDir, "workspace.txt");
 				fs.writeFileSync(target, "// regular file\n", "utf8");
-
-
 
 				// Now run extractWorkspaceState.
 				const out = extractWorkspaceState(tmpDir);
