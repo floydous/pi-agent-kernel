@@ -5,7 +5,7 @@ import * as path from "node:path";
 import {
 	renderPostEditVerification,
 	verifyEditedFile,
-} from "../editing/post_edit_verification";
+} from "../src/editing/post_edit_verification";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
