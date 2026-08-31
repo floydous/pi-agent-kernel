@@ -29,7 +29,7 @@ The renderer keeps uncertainty explicit:
 
 These states must not be collapsed into `clean`.
 
-## Git behavior
+## Repository history
 
 The extension does not automatically stage, commit, reset, or otherwise alter
 a repository. Edits only modify the requested file after the
