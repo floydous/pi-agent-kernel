@@ -5,11 +5,7 @@ import { computeRepoMap } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
 import type { SearchProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
-import {
-	checkSyntax,
-	autoCommitFile,
-	undoLastCommit,
-} from "./editing/git-verify";
+import { checkSyntax } from "./editing/syntax-verify";
 import { globalEpistemicGuard } from "./safety/epistemic_guard";
 import { kernelDebug } from "./safety/kernel_debug";
 import { registerRepoMapTool } from "./tools/repo_map_tool";
@@ -71,7 +67,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// 1. Enhanced Compaction Hook (session_before_compact)
 	registerCustomCompaction(pi);
 
-	// 3. Slash Commands: /repomap, /undo, /oracle, /search, /engine
+	// 3. Slash Commands: /repomap, /oracle, /search, /engine
 	let activeTui: any = null;
 	let searchIndex: HybridSearchIndex | null = null;
 	const getSearchIndex = (cwd: string) => {
@@ -203,18 +199,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				ctx.ui.setWidget("repomap-widget", map.split("\n").slice(0, 25));
 			} else if (!ctx.hasUI) {
 				console.log("\n" + map + "\n");
-			}
-		},
-	});
-
-	pi.registerCommand("undo", {
-		description: "Undo the last automated git commit or edit",
-		handler: async (_args: string, ctx: any) => {
-			const res = undoLastCommit(ctx.cwd);
-			if (res.success) {
-				ctx.ui?.notify?.(res.message, "info");
-			} else {
-				ctx.ui?.notify?.(res.message, "error");
 			}
 		},
 	});
@@ -590,7 +574,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 9. Tool Result Interceptor: Syntax Validation, Auto-Commit, & Output Clamping (ACI)
+	// 9. Tool Result Interceptor: Syntax Validation & Output Clamping (ACI)
 	pi.on("tool_result", async (event: any, ctx: any) => {
 		if (event.isError) return;
 
@@ -687,10 +671,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				} catch (e) {
 					kernelDebug(e);
 				}
-
-				// Auto-commit valid edit
-				const commitMsg = `pi: ${toolName} ${path.basename(resolvedPath)}`;
-				autoCommitFile(ctx.cwd, resolvedPath, commitMsg);
 
 				if (lspNotice) {
 					const updatedContent = event.content.map((c: any) =>
