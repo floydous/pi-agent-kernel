@@ -8,8 +8,8 @@ export const ENHANCED_SUMMARIZATION_PROMPT = `The messages and ground truth abov
 
 CRITICAL INSTRUCTIONS FOR CHRONOLOGICAL RECONCILIATION & EPISTEMIC GROUNDING:
 1. STRICT MONOTONIC TASK RECONCILIATION:
-   - Examine <historical-summary-baseline>. If a task was previously marked "[ ] In Progress", cross-reference it with <recent-turn-actions-digest> and <git-workspace-ground-truth>.
-   - If the code was written, tests passed (exit code 0), or changes were committed to git, you MUST move the task to "### Done" with "[x]".
+   - Examine <historical-summary-baseline>. If a task was previously marked "[ ] In Progress", cross-reference it with <recent-turn-actions-digest> and <workspace-state>.
+   - If the code was written or tests passed (exit code 0), you MUST move the task to "### Done" with "[x]".
    - "### In Progress / Blocked" MUST ONLY contain active tasks that remain unfinished at the true end of the trajectory. If all work was completed, state "- (None - ready for user instructions)".
 2. EPISTEMIC COMPRESSION:
    - Use section headings as status labels; do not repeat [VERIFIED], [ASSERTED], or [AMBIGUOUS] on every bullet.
@@ -30,7 +30,7 @@ Enumerate every negative constraint, explicit user prohibition, frozen file/modu
 
 ## Verified Facts & State (Backed by Real Tool Outputs / Exit Codes)
 Enumerate key ground truths established by real tool executions:
-- Include only facts proven by tool execution, command output, disk state, or git commits.
+- Include only facts proven by tool execution, command output, or disk state.
 - Specific compiler errors, test results, or exit codes encountered.
 - Absolute paths, ports, or IDs verified to exist.
 
@@ -55,7 +55,7 @@ Enumerate key ground truths established by real tool executions:
 1. The immediate next action to take (if all previous tasks are Done, state "Ready for user instructions" or the next logical step).
 2. Subsequent steps in chronological order.
 
-Keep the summary dense, grounded, and actionable. Do NOT lose critical negative constraints, verified errors, or git state.`;
+Keep the summary dense, grounded, and actionable. Do NOT lose critical negative constraints or verified errors.`;
 
 export function extractWorkspaceState(cwd: string): string {
 	try {
@@ -185,7 +185,7 @@ export function buildChronologicalCompactionPrompt(options: {
 		prompt += `${options.recentTrajectoryDigest}\n\n`;
 	}
 
-	// 4. Deterministic Git Ground Truth
+	// 4. Deterministic workspace state
 	if (options.gitGroundTruth) {
 		prompt += `${options.gitGroundTruth}\n\n`;
 	}
@@ -304,7 +304,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 			// Format conversation history accurately
 			let conversationText = serializeAgentMessages(messagesToSummarize);
 
-			// Extract deterministic ground truths
+			// Extract deterministic workspace state
 			const workspaceDir = ctx.cwd || process.cwd();
 			const workspaceState = extractWorkspaceState(workspaceDir);
 			const recentTrajectoryDigest = extractTrajectoryDigest(branchEntries, 40);
