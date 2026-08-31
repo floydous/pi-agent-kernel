@@ -31,13 +31,11 @@ These states must not be collapsed into `clean`.
 
 ## Git behavior
 
-The existing edit path retains its current automatic commit behavior after a
-clean local syntax gate. `autoCommitFile()` and `autoCommitFileDetailed()` are separate
-helpers in `src/editing/git-verify.ts`; the detailed result distinguishes
-`committed`, `not_git_repo`, `failed`, and `nothing_to_commit`. `undoLastCommit()`
-is separate as well.
+The extension does not automatically stage, commit, reset, or otherwise alter
+a repository's Git history. Edits only modify the requested file after the
+candidate passes the local syntax gate.
 
-The edit result reports verification and commit information in `details`,
-while the visible message remains compact. Failed candidate validation leaves
-the target unchanged and reports the failure. Post-write diagnostic failures do
-not roll back an already-valid edit; their uncertainty remains explicit.
+The edit result reports verification in `details`, while the visible message
+remains compact. Failed candidate validation leaves the target unchanged and
+reports the failure. Post-write diagnostic failures do not roll back an
+already-valid edit; their uncertainty remains explicit.
