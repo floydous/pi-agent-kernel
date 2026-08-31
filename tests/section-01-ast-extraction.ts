@@ -1,7 +1,7 @@
 // Section 1: AST Extraction
 // Tests the extractFileTags function on a Python class with multiple methods.
 
-import { extractFileTags } from "../retrieval/repomap";
+import { extractFileTags } from "../src/retrieval/repomap";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
