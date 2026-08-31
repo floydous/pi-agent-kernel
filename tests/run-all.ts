@@ -55,8 +55,8 @@ const sections: TestEntry[] = [
 		loader: () => import("./section-12.1-compaction-prompt-caching"),
 	},
 	{
-name: "12.2. Bounded workspace-state extraction",
-		loader: () => import("./section-12.2-workspace-state"),
+		name: "12.2. Bounded workspace-state extraction",
+		loader: () => import("./section-12.2-git-stderr-no-leak"),
 	},
 	{
 		name: "12.3. Compaction retry logic with large input",
