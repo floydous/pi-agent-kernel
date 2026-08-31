@@ -685,7 +685,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					: path.resolve(resultCwd, targetPath);
 				const syntaxRes = checkSyntax(resolvedPath);
 
-				if (!syntaxRes.valid) {
+				if (!syntaxRes.valid && syntaxRes.status === "failed") {
 					const warning = `\n\n[SYNTAX WARNING] ${syntaxRes.error}\nPlease fix this syntax error.`;
 					const updatedContent = event.content.map((c: any) =>
 						c.type === "text" ? { ...c, text: c.text + warning } : c,

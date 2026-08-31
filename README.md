@@ -1,10 +1,10 @@
-# Pi Agent Operating Kernel & Tooling Extensions (`agent-kernel`)
+# Pi Agent Operating Kernel & Tooling Extensions (`pi-agent-kernel`)
 
 A high-leverage agentic coding extension suite for `@earendil-works/pi-coding-agent`.
 
 ## Design Priorities
 
-`agent-kernel` is designed for bare-minimum token usage while maximizing
+`pi-agent-kernel` is designed for bare-minimum token usage while maximizing
 performance and reliability across agent work. It favors focused retrieval,
 bounded output, deterministic checks, and grounded edits over unnecessary
 context, background processing, or speculative automation.
@@ -15,7 +15,7 @@ Authored runtime code lives under `src/`; tests, documentation, and example
 configuration stay at the repository boundary.
 
 ```
-agent-kernel/
+pi-agent-kernel/
 ├── src/
 │   ├── index.ts            # Main extension entry point
 │   ├── config/             # Hierarchical TOML configuration loader
@@ -28,31 +28,25 @@ agent-kernel/
 │   └── ui/                 # Terminal UI components
 ├── tests/                  # Focused verification sections
 ├── docs/                   # Project documentation and guides
-├── README.md
-└── package.json
+├── config.toml             # Live configuration
+└── package.json            # Extension manifest
 ```
 
-Each `src/` subsystem owns its implementation and public exports. `src/index.ts`
-is the integration boundary that registers the extension with Pi. The package
-entry is `src/index.ts`.
+## Tool Suite
 
-## Documentation
+| Tool | Purpose | Output Strategy |
+|---|---|---|
+| `read` | Content & surgical AST symbol inspection | Bounded, zero bloat, line-targeted |
+| `edit` | Exact & fuzzy surgical patching with syntax gate | Empty on clean (`OK!`), diagnostic on `WARN/FAIL` |
+| `write` | Complete new file authoring | Direct write |
+| `get_repo_map` | PageRank-ranked repository AST definitions | Pure code symbols without import noise (~1k tokens) |
+| `ast_search` | AST structure search across definitions | Concise `file:line [kind] signature` |
+| `code_search` | Hybrid BM25 & semantic AST chunk search | Compact `file:start-end (breadcrumb)` snippets |
+| `lsp` | Realtime Language Server Protocol queries | Compact `def`, `ref`, and structural symbols |
+| `search_tools` | Deferred tool discovery | On-demand tool capability matching |
 
-- [Documentation index](docs/README.md)
-- [Architecture](docs/architecture.md)
-- [LSP](docs/lsp.md)
-- [Configuration](docs/configuration.md)
-- [Editing and verification](docs/editing-and-verification.md)
-- [Retrieval](docs/retrieval.md)
-- [Testing](docs/testing.md)
+## Safety & Invariants
 
-## Verified Features
-
-1. **Direct Behavioral Kernel (`src/index.ts`)**: Direct execution with strict read-before-write grounding and explicit runtime lifecycle hooks.
-2. **Hybrid Retrieval (`src/retrieval/`)**: `retrieval:bm25` (Lean), `retrieval:hybrid-256d` (Hybrid Matryoshka), and `retrieval:dense-768d` (Full).
-3. **Surgical Patching (`src/editing/`)**: Multi-strategy fuzzy search/replace with candidate syntax validation before the target file is written.
-4. **Epistemic Read-Before-Write (`src/safety/`)**: Blocks hallucinated file mutations on uninspected files.
-5. **Deterministic Test Oracle (`src/safety/`)**: Evaluates real binary exit codes (`/oracle [cmd]`).
-   > ⚠️ `/oracle <command>` executes the given command through the system shell with your user privileges — by design, as an explicitly user-invoked verification escape hatch. Only pass commands you trust.
-6. **Chronological Compaction (`src/context/`)**: Reconciles task progress against deterministic workspace state.
-7. **Semantic Pastel Footer (`src/ui/`)**: 24-bit TrueColor ANSI statusline with live token usage and context percentage gauge.
+- **Epistemic Guard**: Enforces inspection-before-mutation (`read` required before `edit`). Rejects ungrounded edits with copy-pasteable minimal instructions.
+- **Output Clamping**: Prevents context-window blowouts by clamping stdout/stderr and persisting full dumps to disk.
+- **Bounded Syntax Verification**: Fast local verification on mutations before committing changes to disk.
