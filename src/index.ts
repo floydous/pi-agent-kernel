@@ -617,9 +617,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			const targetPath = input?.path;
 
 			// The harness does not reliably propagate result-level isError to this
-			// hook, so a FAILED edit can still reach here. Committing then would
-			// Detect the edit tool's failure markers and bail out before post-write
-			// checks.
+			// hook, so a failed edit can still reach here. Detect the edit tool's
+			// failure markers and bail out before post-write checks.
 			const resultText = (event.content || [])
 				.map((c: any) =>
 					c.type === "text" && typeof c.text === "string" ? c.text : "",
