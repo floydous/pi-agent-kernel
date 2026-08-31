@@ -3,7 +3,6 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import { applySurgicalPatch, applyMultiBlockPatch } from "../editing/patch";
-import { autoCommitFileDetailed } from "../editing/git-verify";
 import {
 	renderEditFailure,
 	renderPostEditVerification,
@@ -20,9 +19,9 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		name: "edit",
 		label: "Surgical Code Editor",
 		description:
-			"Surgically edit code using search/replace blocks with multi-strategy fuzzy matching, automatic syntax verification, and atomic git commit tracking. Supports single search/replace and multi-block edits.",
+			"Surgically edit code using search/replace blocks with multi-strategy fuzzy matching and automatic syntax verification. Supports single search/replace and multi-block edits.",
 		promptSnippet:
-			"Surgically edit code using search/replace blocks with automatic syntax verification and git commits",
+			"Surgically edit code using search/replace blocks with automatic syntax verification",
 		renderShell: "default",
 		parameters: Type.Object({
 			path: Type.String({
@@ -47,9 +46,6 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 							"Optional list of multiple disjoint search/replace blocks to apply atomically",
 					},
 				),
-			),
-			commit_message: Type.Optional(
-				Type.String({ description: "Optional git commit message for this edit" }),
 			),
 		}),
 		async execute(
@@ -156,24 +152,18 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					: undefined,
 			);
 
-			// Auto-commit after the local syntax gate, preserving the existing
-			// commit behavior. Diagnostic findings remain visible to the agent.
-			const commit =
-				verification.syntax.state === "clean"
-					? autoCommitFileDetailed(ctx.cwd, resolvedPath, params.commit_message)
-					: { state: "failed" as const, error: "Syntax verification did not pass" };
 			const statusText = renderPostEditVerification(verification);
 			return {
 				content: [{ type: "text", text: statusText }],
 				details: {
+
 					strategy: patchRes.strategy,
-					committed: commit.state === "committed",
-					commit,
 					verification,
 					success: verification.syntax.state === "clean",
 				},
 				isError:
-					verification.syntax.state === "failed" ||
+
+							verification.syntax.state === "failed" ||
 						verification.diagnostic.findings.some(
 							(finding) => finding.severity === "error" || !finding.severity,
 						),
