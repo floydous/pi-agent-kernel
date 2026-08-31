@@ -35,7 +35,7 @@ idle_timeout_ms = 120000
 			logPass("Zero-dependency TOML parser verified!");
 
 			const serialized = stringifyToml(parsedConfig);
-			const roundtripped = parseToml(serialized);
+			const roundtripped = parseToml(serialized) as any;
 			assertPass(
 				"TOML serializer roundtrip",
 				roundtripped.retrieval?.default_profile === "full" && roundtripped.retrieval?.repo_map_budget === 2048,
