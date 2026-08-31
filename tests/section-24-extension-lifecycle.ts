@@ -2,7 +2,7 @@
 // Tests the agent-kernel extension's registerTool/registerCommand/on hooks
 // and the before_agent_start prompt preservation logic.
 
-import kernelExt from "../index";
+import kernelExt from "../src/index";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
