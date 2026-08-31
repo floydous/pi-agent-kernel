@@ -26,7 +26,7 @@ async function main(): Promise<void> {
 			previousSummary: "## Progress",
 			discardedConversationText: "User: hi\nAssistant: hello",
 			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
-			gitGroundTruth: "<git-workspace-ground-truth>clean</git-workspace-ground-truth>",
+			workspaceState: "<workspace-state>clean</workspace-state>",
 			customInstructions: "preserve this",
 		});
 		assertPass(
