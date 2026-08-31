@@ -1,4 +1,3 @@
-import * as child_process from "child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -60,31 +59,14 @@ Keep the summary dense, grounded, and actionable. Do NOT lose critical negative 
 
 export function extractWorkspaceState(cwd: string): string {
 	try {
-		// Keep Git subprocess output captured so warnings do not leak into the TUI.
-		const commonOpts = {
-			cwd,
-			encoding: "utf8" as const,
-			timeout: 5000,
-			stdio: "pipe" as const,
-		};
-		const gitStatus = child_process
-			.execFileSync("git", ["status", "-s"], commonOpts)
-			.toString()
-			.trim();
-		const gitLog = child_process
-			.execFileSync("git", ["log", "-n", "5", "--oneline"], commonOpts)
-			.toString()
-			.trim();
-		const gitDiffStat = child_process
-			.execFileSync("git", ["diff", "--stat"], commonOpts)
-			.toString()
-			.trim();
-
-		let out = `<workspace-state>\n[Status]:\n${gitStatus || "clean (workspace clean)"}`;
-		if (gitLog) out += `\n\n[Recent Entries]:\n${gitLog}`;
-		if (gitDiffStat) out += `\n\n[Uncommitted Changes]:\n${gitDiffStat}`;
-		out += `\n</workspace-state>`;
-		return out;
+		const entries = fs
+			.readdirSync(cwd, { withFileTypes: true })
+			.filter((entry) => !entry.name.startsWith("."))
+			.slice(0, 100);
+		const lines = entries.map(
+			(entry) => `${entry.isDirectory() ? "dir" : "file"}: ${entry.name}`,
+		);
+		return `<workspace-state>\n${lines.join("\n")}\n</workspace-state>`;
 	} catch {
 		return "";
 	}
