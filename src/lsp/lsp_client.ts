@@ -401,11 +401,16 @@ export class StdioLspClient {
     const uri = pathToUri(filePath);
     await this.openDocument(filePath);
 
-    // Pull diagnostics are optional in LSP 3.17. Older servers such as
-    // TypeScript language servers advertise push diagnostics only. The
-    // capability may be absent even though publishDiagnostics is supported,
-    // so always try the pull request only when advertised and otherwise wait
-    // for the push notification emitted by didOpen/didChange.
+    // If push diagnostics were already published and cached, return them immediately.
+    if (this.diagnosticsCache.has(uri)) {
+      const cached = this.diagnosticsCache.get(uri) || [];
+      return {
+        status: cached.length > 0 ? "findings" : "clean",
+        diagnostics: cached,
+      };
+    }
+
+    // Pull diagnostics are optional in LSP 3.17.
     if (this.serverCapabilities.diagnosticProvider) {
       try {
         const pullRes = await this.sendRequest<any>(
@@ -413,7 +418,7 @@ export class StdioLspClient {
           {
             textDocument: { uri },
           },
-          1500,
+          2500,
         );
         if (pullRes?.items && Array.isArray(pullRes.items)) {
           this.diagnosticsCache.set(uri, pullRes.items);
@@ -425,20 +430,25 @@ export class StdioLspClient {
       } catch (e) {
         kernelDebug(e);
         const message = e instanceof Error ? e.message : String(e);
-        if (message.includes("timed out")) {
-          return { status: "timeout", diagnostics: [] };
-        }
         // Method-not-found / unsupported pull is not a failed diagnostic run;
         // continue to the push-diagnostic cache below.
-        if (!message.includes("-32601") && !message.toLowerCase().includes("unhandled method")) {
-          return { status: "inconclusive", diagnostics: [] };
+        if (message.includes("timed out")) {
+          // If pull timed out but push cache arrived, prefer cache
+          if (this.diagnosticsCache.has(uri)) {
+            const cached = this.diagnosticsCache.get(uri) || [];
+            return {
+              status: cached.length > 0 ? "findings" : "clean",
+              diagnostics: cached,
+            };
+          }
+          return { status: "timeout", diagnostics: [] };
         }
       }
     }
 
     // Push-only servers must publish a fresh result after didChange/didOpen.
-    // Poll for up to 1000ms if not immediately in cache
-    for (let i = 0; i < 10; i++) {
+    // Poll for up to 1500ms if not immediately in cache
+    for (let i = 0; i < 15; i++) {
       if (this.diagnosticsCache.has(uri)) break;
       await new Promise((r) => setTimeout(r, 100));
     }
