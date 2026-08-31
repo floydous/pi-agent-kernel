@@ -29,7 +29,7 @@ async function main(): Promise<void> {
 					"extractWorkspaceState returns workspace entries",
 					typeof out === "string" &&
 						out.includes("<workspace-state>") &&
-						out.includes("file: lf-only.txt") &&
+						out.includes("file: workspace.txt") &&
 						out.includes("dir: nested"),
 					{ outPreview: out.slice(0, 300) },
 				);
