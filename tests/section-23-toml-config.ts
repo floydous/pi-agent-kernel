@@ -22,7 +22,7 @@ max_line_length = 450
 idle_timeout_ms = 120000
 `;
 
-			const parsedConfig = parseToml(sampleToml);
+			const parsedConfig = parseToml(sampleToml) as any;
 			assertPass(
 				"TOML parser verification",
 				parsedConfig.retrieval?.default_profile === "full" &&
