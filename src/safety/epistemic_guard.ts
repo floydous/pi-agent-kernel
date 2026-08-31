@@ -2,10 +2,10 @@
  * Epistemic Read-Before-Write Guard
  *
  * Enforces the cognitive invariant that an agent must inspect and ground itself
- * in real file AST tokens before attempting to mutate code.
- * Prevents ungrounded hallucination loops and J-space attention drift.
+ * in real file contents before attempting to mutate code.
  */
 
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { kernelDebug } from "./kernel_debug";
@@ -14,7 +14,6 @@ import { kernelDebug } from "./kernel_debug";
  * Extract file paths used as inputs by known shell content-reader commands.
  * This is command-shape evidence recorded during tool-call preflight; it does
  * not claim that a shell command produced output or that the agent understood it.
- * Search modes that emit only counts, filenames, or status are excluded.
  */
 const CONTENT_READING_COMMANDS = new Set([
 	"cat",
@@ -44,22 +43,18 @@ export function extractInspectedFilesFromCommand(
 	if (!command || typeof command !== "string") return [];
 
 	const inspected: string[] = [];
-
-	// Split by pipelines, subshells, logical AND/OR, and statement separators
 	const subCommands = command.split(/[|;&\n]+/);
 
 	for (const sub of subCommands) {
 		const trimmed = sub.trim();
 		if (!trimmed) continue;
 
-		// Regex to tokenize command respecting single and double quotes
 		const regex = /(?:[^\s"']+|"[^"]*"|'[^']*')+/g;
 		const tokens: string[] = [];
 		let match: RegExpExecArray | null;
 
 		while ((match = regex.exec(trimmed)) !== null) {
 			let token = match[0].trim();
-			// Strip outer quotes
 			if (
 				(token.startsWith('"') && token.endsWith('"')) ||
 				(token.startsWith("'") && token.endsWith("'"))
@@ -74,9 +69,6 @@ export function extractInspectedFilesFromCommand(
 		const command = commandName(tokens[0]);
 		if (!CONTENT_READING_COMMANDS.has(command)) continue;
 
-		// Count, quiet, and filename-only search modes do not expose file
-		// contents. Treat long and combined short options as non-inspection
-		// evidence while retaining ordinary grep/rg output.
 		if (
 			(command === "grep" || command === "rg") &&
 			tokens.slice(1).some((token) => {
@@ -99,32 +91,29 @@ export function extractInspectedFilesFromCommand(
 			continue;
 		}
 
-		const candidates: string[] = [];
-		const positional = tokens.slice(1).filter((token) => {
-			return (
-				!token.startsWith("-") && ![">", ">>", "<", "2>", "2>&1"].includes(token)
+		const positional = tokens
+			.slice(1)
+			.filter(
+				(token) =>
+					!token.startsWith("-") && ![">", ">>", "<", "2>", "2>&1"].includes(token),
 			);
-		});
-
+		let candidates: string[];
 		if (command === "grep" || command === "rg" || command === "awk") {
-			// The first positional argument is the pattern/program; only later
-			// positional arguments can be files.
-			candidates.push(...positional.slice(1));
+			candidates = positional.slice(1);
 		} else if (command === "sed") {
-			// sed's first positional argument is its editing script.
-			candidates.push(...positional.slice(1));
+			candidates = positional.slice(1);
 		} else {
-			candidates.push(...positional);
+			candidates = positional;
 		}
 
-		for (const tok of candidates) {
+		for (const token of candidates) {
 			try {
-				const resolved = path.isAbsolute(tok) ? tok : path.resolve(cwd, tok);
+				const resolved = path.isAbsolute(token) ? token : path.resolve(cwd, token);
 				if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
 					inspected.push(resolved);
 				}
-			} catch (e) {
-				kernelDebug(e);
+			} catch (error) {
+				kernelDebug(error);
 			}
 		}
 	}
@@ -132,90 +121,196 @@ export function extractInspectedFilesFromCommand(
 	return Array.from(new Set(inspected));
 }
 
+interface InspectionEvidence {
+	kind: "read" | "search";
+	fingerprint: string;
+}
+
 export class EpistemicGuard {
-	// Per-session inspection sets. The integration supplies a process- and
-	// context-unique fallback when the host does not provide a session UUID.
-	// This prevents cross-session contamination in RPC mode where one Node
-	// process hosts multiple concurrent sessions.
-	private inspectedFilesBySession: Map<string, Set<string>> = new Map();
+	private inspectedFilesBySession: Map<string, Map<string, InspectionEvidence>> =
+		new Map();
+
+	private resolvePath(filePath: string, cwd = process.cwd()): string {
+		return path.isAbsolute(filePath)
+			? path.resolve(filePath)
+			: path.resolve(cwd, filePath);
+	}
 
 	/**
-	 * Normalize a file path for consistent tracking across relative/absolute forms.
-	 *
-	 * On Windows (case-insensitive filesystem), also lowercases so `Auth.ts` and
-	 * `auth.ts` are recognized as the same file. On Linux and macOS, preserves case
-	 * so the guard doesn't issue a false-positive rejection for a file the model
-	 * legitimately read with a different case.
+	 * Resolve existing symlinks while retaining missing path segments. Broken
+	 * symlinks throw so callers can fail closed instead of writing through one.
 	 */
-	private normalize(filePath: string): string {
-		const isWin = process.platform === "win32";
+	private canonicalPath(resolvedPath: string): string {
+		const missing: string[] = [];
+		let current = path.normalize(resolvedPath);
+
+		while (!fs.existsSync(current)) {
+			try {
+				if (fs.lstatSync(current).isSymbolicLink()) {
+					throw new Error(`Broken symbolic link: ${current}`);
+				}
+			} catch (error: any) {
+				if (error?.code !== "ENOENT") throw error;
+			}
+
+			const parent = path.dirname(current);
+			if (parent === current) return path.normalize(resolvedPath);
+			missing.unshift(path.basename(current));
+			current = parent;
+		}
+
+		return path.join(fs.realpathSync(current), ...missing);
+	}
+
+	/** Normalize a path for tracking across relative/absolute and symlink forms. */
+	private normalize(filePath: string, cwd = process.cwd()): string {
+		const isWindows = process.platform === "win32";
 		try {
-			const resolved = path.isAbsolute(filePath)
-				? filePath
-				: path.resolve(process.cwd(), filePath);
-			const norm = path.normalize(resolved);
-			return isWin ? norm.toLowerCase() : norm;
+			const normalized = path.normalize(
+				this.canonicalPath(this.resolvePath(filePath, cwd)),
+			);
+			return isWindows ? normalized.toLowerCase() : normalized;
 		} catch {
-			const norm = path.normalize(filePath);
-			return isWin ? norm.toLowerCase() : norm;
+			const normalized = path.normalize(this.resolvePath(filePath, cwd));
+			return isWindows ? normalized.toLowerCase() : normalized;
+		}
+	}
+
+	private fingerprint(
+		filePath: string,
+		cwd = process.cwd(),
+		content?: string | Buffer,
+	): string | null {
+		try {
+			const resolved = this.resolvePath(filePath, cwd);
+			if (content === undefined) {
+				if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) {
+					return null;
+				}
+				content = fs.readFileSync(resolved);
+			}
+			return crypto.createHash("sha256").update(content).digest("hex");
+		} catch {
+			return null;
 		}
 	}
 
 	/**
-	 * Get or create the inspection set for a given session id.
+	 * Enforce workspace containment, including symlink resolution. This check is
+	 * independent of the optional inspection setting.
 	 */
-	private getSessionSet(sessionId: string): Set<string> {
-		let set = this.inspectedFilesBySession.get(sessionId);
-		if (!set) {
-			set = new Set();
-			this.inspectedFilesBySession.set(sessionId, set);
+	private isWithinWorkspace(filePath: string, cwd: string): boolean {
+		try {
+			const isWindows = process.platform === "win32";
+			const root = path.normalize(this.canonicalPath(path.resolve(cwd)));
+			const target = path.normalize(
+				this.canonicalPath(this.resolvePath(filePath, cwd)),
+			);
+			const normalizedRoot = isWindows ? root.toLowerCase() : root;
+			const normalizedTarget = isWindows ? target.toLowerCase() : target;
+			const relative = path.relative(normalizedRoot, normalizedTarget);
+			return (
+				relative === "" ||
+				(!relative.startsWith(`..${path.sep}`) &&
+					relative !== ".." &&
+					!path.isAbsolute(relative))
+			);
+		} catch {
+			return false;
 		}
-		return set;
 	}
 
-	/**
-	 * Record that a file's contents were exposed by a native reader or symbol reader.
-	 */
-	public recordFileRead(filePath: string, sessionId: string): void {
+	private getSessionEvidence(
+		sessionId: string,
+	): Map<string, InspectionEvidence> {
+		let evidence = this.inspectedFilesBySession.get(sessionId);
+		if (!evidence) {
+			evidence = new Map();
+			this.inspectedFilesBySession.set(sessionId, evidence);
+		}
+		return evidence;
+	}
+
+	/** Record a successful file read together with its observed content hash. */
+	public recordFileRead(
+		filePath: string,
+		sessionId: string,
+		cwd = process.cwd(),
+		content?: string | Buffer,
+	): void {
 		if (!filePath) return;
-		const norm = this.normalize(filePath);
-		this.getSessionSet(sessionId).add(norm);
+		const fingerprint = this.fingerprint(filePath, cwd, content);
+		if (!fingerprint) return;
+		this.getSessionEvidence(sessionId).set(this.normalize(filePath, cwd), {
+			kind: "read",
+			fingerprint,
+		});
 	}
 
-	/**
-	 * Record that a file was returned by AST or vector search.
-	 * Search results are treated as inspection evidence for edit compatibility.
-	 */
-	public recordFileSearched(filePath: string, sessionId: string): void {
+	/** Search results are weaker evidence and never authorize a mutation. */
+	public recordFileSearched(
+		filePath: string,
+		sessionId: string,
+		cwd = process.cwd(),
+	): void {
 		if (!filePath) return;
-		const norm = this.normalize(filePath);
-		this.getSessionSet(sessionId).add(norm);
+		const fingerprint = this.fingerprint(filePath, cwd);
+		if (!fingerprint) return;
+		const evidence = this.getSessionEvidence(sessionId);
+		const normalized = this.normalize(filePath, cwd);
+		if (evidence.get(normalized)?.kind !== "read") {
+			evidence.set(normalized, { kind: "search", fingerprint });
+		}
 	}
 
-	/**
-	 * Record files used by classified shell content-reader commands.
-	 * This runs during tool-call preflight so same-batch shell-read/edit behavior
-	 * remains compatible; result output is not available at this point.
-	 */
+	private recordShellEvidence(
+		command: string,
+		cwd: string,
+		sessionId: string,
+		files: string[],
+	): void {
+		const isSearch = /^\s*(?:grep|rg)(?:\.exe)?(?:\s|$)/i.test(command);
+		for (const filePath of files) {
+			if (isSearch) {
+				this.recordFileSearched(filePath, sessionId, cwd);
+			} else {
+				this.recordFileRead(filePath, sessionId, cwd);
+			}
+		}
+	}
+
+	/** Record classified shell content-reader evidence during tool-call preflight. */
 	public recordCommandExecution(
 		command: string,
-		cwd: string = process.cwd(),
+		cwd = process.cwd(),
 		sessionId: string,
 	): string[] {
 		const files = extractInspectedFilesFromCommand(command, cwd);
-		for (const f of files) {
-			this.recordFileRead(f, sessionId);
+		for (const subCommand of command.split(/[|;&\n]+/)) {
+			const trimmed = subCommand.trim();
+			if (!trimmed) continue;
+			this.recordShellEvidence(
+				trimmed,
+				cwd,
+				sessionId,
+				extractInspectedFilesFromCommand(trimmed, cwd),
+			);
 		}
 		return files;
 	}
 
 	/**
-	 * Check if a mutation operation (edit/write) satisfies the Read-Before-Write precondition.
+	 * Check workspace containment and require a fresh native read before editing
+	 * or overwriting an existing file when inspection enforcement is enabled.
+	 * The workspace defaults to the current process directory when callers do
+	 * not provide an explicit cwd.
 	 */
 	public checkReadPrecondition(
 		filePath: string,
 		operation: "edit" | "write",
 		sessionId: string,
+		cwd?: string,
+		enforceInspection = true,
 	): { allowed: boolean; reason?: string } {
 		if (!filePath) {
 			return {
@@ -224,61 +319,75 @@ export class EpistemicGuard {
 			};
 		}
 
-		const resolvedPath = path.isAbsolute(filePath)
-			? filePath
-			: path.resolve(process.cwd(), filePath);
-
-		const exists = fs.existsSync(resolvedPath);
-
-		// If writing a brand-new file that does not exist, allow creation directly
-		if (operation === "write" && !exists) {
-			return { allowed: true };
-		}
-
-		// If editing or overwriting an existing file, verify it has been inspected first
-		const norm = this.normalize(filePath);
-		if (exists && !this.getSessionSet(sessionId).has(norm)) {
+		const workspace = cwd || process.cwd();
+		const resolvedPath = this.resolvePath(filePath, workspace);
+		if (cwd !== undefined && !this.isWithinWorkspace(resolvedPath, workspace)) {
 			return {
 				allowed: false,
-				reason:
-					`[EPISTEMIC GUARD REJECTION]: File '${filePath}' must be inspected before editing.\n` +
-					`You must ground your attention in the physical file contents first.\n` +
-					`Action required: Invoke read({ path: "${filePath}", symbol: "..." }) or read the file before calling ${operation}.`,
+				reason: `[WORKSPACE BOUNDARY REJECTION]: Path '${filePath}' resolves outside the workspace '${workspace}'.`,
+			};
+		}
+
+		let exists = false;
+		try {
+			exists = fs.existsSync(resolvedPath);
+			if (exists && !fs.statSync(resolvedPath).isFile()) {
+				return {
+					allowed: false,
+					reason: `[EPISTEMIC GUARD]: Target '${filePath}' is not a regular file.`,
+				};
+			}
+		} catch (error) {
+			return {
+				allowed: false,
+				reason: `[EPISTEMIC GUARD]: Could not inspect target '${filePath}': ${error instanceof Error ? error.message : String(error)}`,
+			};
+		}
+
+		// A new file has no prior contents to inspect. Containment still applies.
+		if (!enforceInspection || !exists) return { allowed: true };
+
+		const normalized = this.normalize(resolvedPath, workspace);
+		const evidence = this.getSessionEvidence(sessionId).get(normalized);
+		const relPath = path.relative(workspace, resolvedPath) || filePath;
+		if (!evidence || evidence.kind !== "read") {
+			return {
+				allowed: false,
+				reason: `[BLOCKED: Read before ${operation} -> read({ path: "${relPath}" })]`,
+			};
+		}
+
+		const currentFingerprint = this.fingerprint(resolvedPath, workspace);
+		if (!currentFingerprint || currentFingerprint !== evidence.fingerprint) {
+			return {
+				allowed: false,
+				reason: `[BLOCKED: File changed since read -> read({ path: "${relPath}" })]`,
 			};
 		}
 
 		return { allowed: true };
 	}
 
-	/**
-	 * Check if a specific file has been inspected.
-	 */
-	public isFileInspected(filePath: string, sessionId: string): boolean {
-		return this.getSessionSet(sessionId).has(this.normalize(filePath));
+	/** Check whether the current session has any inspection evidence for a file. */
+	public isFileInspected(
+		filePath: string,
+		sessionId: string,
+		cwd = process.cwd(),
+	): boolean {
+		return this.getSessionEvidence(sessionId).has(this.normalize(filePath, cwd));
 	}
 
-	/**
-	 * Get the list of all files inspected in the current session.
-	 */
 	public getInspectedFiles(sessionId: string): string[] {
-		return Array.from(this.getSessionSet(sessionId));
+		return Array.from(this.getSessionEvidence(sessionId).keys());
 	}
 
-	/**
-	 * Reset inspection tracking for a single session. Called from session_shutdown
-	 * to bound memory growth across long-lived processes hosting many sessions.
-	 */
 	public resetSession(sessionId: string): void {
 		this.inspectedFilesBySession.delete(sessionId);
 	}
 
-	/**
-	 * Reset inspection tracking for ALL sessions. Use sparingly; prefer resetSession.
-	 */
 	public reset(): void {
 		this.inspectedFilesBySession.clear();
 	}
 }
 
-// Global Singleton Instance
 export const globalEpistemicGuard = new EpistemicGuard();

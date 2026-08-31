@@ -63,7 +63,7 @@ export function registerAstSearchTool(
 
 			const sessionId = deps.getSessionId(ctx);
 			for (const r of results) {
-				globalEpistemicGuard.recordFileSearched(r.filePath, sessionId);
+				globalEpistemicGuard.recordFileSearched(r.filePath, sessionId, ctx.cwd);
 			}
 
 			if (results.length === 0) {
@@ -79,9 +79,9 @@ export function registerAstSearchTool(
 			}
 
 			const formatted = results.slice(0, 30).map((r) => {
-				let str = `[${r.kind.toUpperCase()}] ${r.name} (${r.filePath}:${r.line})\n  Signature: ${r.signature}`;
+				let str = `${r.filePath}:${r.line} [${r.kind}] ${r.signature || r.name}`;
 				if (r.codeBlock) {
-					str += `\n  Body${r.bodyTruncated ? " (truncated; use read_symbol for the complete body)" : ""}:\n${r.codeBlock}`;
+					str += `\n${r.codeBlock}`;
 				}
 				return str;
 			});
@@ -90,7 +90,7 @@ export function registerAstSearchTool(
 				content: [
 					{
 						type: "text",
-						text: `Found ${results.length} AST symbol(s):\n\n${formatted.join("\n\n")}`,
+						text: formatted.join("\n"),
 					},
 				],
 				details: { count: results.length },

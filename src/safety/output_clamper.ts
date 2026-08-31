@@ -141,16 +141,12 @@ export function clampCommandOutput(
 
 	let resultText = clampedLines.join("\n");
 
-	// Append concise, informative footer with spillover pointer
-	const omittedLines = totalLines - lineLimit;
-	let footer = `\n\n[Observation Notice: Output clamped for context safety. Showing ${lineLimit} of ${totalLines} line(s)`;
-	if (omittedLines > 0) {
-		footer += ` (${omittedLines} lines omitted)`;
-	}
+	// Append concise footer with spillover pointer
+	let footer = `\n\n[Truncated: ${lineLimit}/${totalLines} lines.`;
 	if (spilloverPath) {
-		footer += `.\nFull raw output (${(originalBytes / 1024).toFixed(1)} KB) preserved at: ${spilloverPath}\nTo inspect full output: use read({ path: "${spilloverPath}", offset: ..., limit: ... })]`;
+		footer += ` Full: ${spilloverPath}]`;
 	} else {
-		footer += `.]`;
+		footer += `]`;
 	}
 
 	resultText += footer;

@@ -92,7 +92,7 @@ async function main(): Promise<void> {
 			const formattedSyms = formatDocumentSymbols(mockSymbols);
 			assertPass(
 				"Document symbol hierarchy formatting",
-				formattedSyms.includes("[class] Calculator (line 1)") && formattedSyms.includes("[method] calculate_tax (line 4)"),
+				formattedSyms.includes("1: [class] Calculator") && formattedSyms.includes("4: [method] calculate_tax"),
 				{ formattedSyms }
 			);
 			logPass("LSP hover and document symbol hierarchy formatters verified!");

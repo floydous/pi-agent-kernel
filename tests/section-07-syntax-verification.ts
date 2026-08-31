@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 			assertPass(
 				"Syntax verification test passed",
 				validSyntax.valid && !brokenSyntax.valid,
-				{ validSyntax, brokenSyntax }
+				{ validSyntax, brokenSyntax },
 			);
 			logPass("Syntax verification test passed!");
 		} finally {

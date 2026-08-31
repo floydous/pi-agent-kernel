@@ -6,6 +6,8 @@
 export interface SessionDeps {
  /** Resolve stable session id for epistemic-guard bookkeeping. */
  getSessionId: (ctx: any) => string;
+ /** Load runtime settings for the active workspace. */
+ getConfig?: (cwd: string) => import("../config").KernelConfig;
 }
 
 export interface SearchDeps extends SessionDeps {

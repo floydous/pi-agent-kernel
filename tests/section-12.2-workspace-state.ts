@@ -13,7 +13,11 @@ async function main(): Promise<void> {
 		);
 		try {
 			fs.mkdirSync(path.join(tmpDir, "nested"));
-			fs.writeFileSync(path.join(tmpDir, "workspace.txt"), "// regular file\n", "utf8");
+			fs.writeFileSync(
+				path.join(tmpDir, "workspace.txt"),
+				"// regular file\n",
+				"utf8",
+			);
 
 			const out = extractWorkspaceState(tmpDir);
 			assertPass(

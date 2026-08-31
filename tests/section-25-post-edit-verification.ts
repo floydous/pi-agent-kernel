@@ -17,8 +17,8 @@ async function main(): Promise<void> {
 			tests: "not run",
 		});
 		assertPass(
-			"Equal clean statuses are merged",
-			clean === "OK!\ndiagnostic,syntax:clean\ntests:not run",
+			"Clean edit returns empty string to save tokens",
+			clean === "",
 			{ clean },
 		);
 
@@ -68,7 +68,8 @@ async function main(): Promise<void> {
 		});
 		assertPass(
 			"Unavailable syntax checks are not reported as clean",
-			unavailable.startsWith("WARN!") && unavailable.includes("syntax:unavailable"),
+			unavailable.startsWith("WARN!") &&
+				unavailable.includes("syntax:unavailable"),
 			{ unavailable },
 		);
 

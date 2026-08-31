@@ -8,8 +8,12 @@ async function main(): Promise<void> {
 		// 6. LspManager Lifecycle & Status
 		const lspMgr = LspManager.getInstance();
 		const statusList = lspMgr.getStatus();
-		assertPass("LspManager status returns array", Array.isArray(statusList), { statusList });
-		logPass(`LspManager daemon lifecycle verified! (Active servers: ${statusList.length})`);
+		assertPass("LspManager status returns array", Array.isArray(statusList), {
+			statusList,
+		});
+		logPass(
+			`LspManager daemon lifecycle verified! (Active servers: ${statusList.length})`,
+		);
 
 		// 7. LspControlModal Rendering & Full-Viewport Scrim Backdrop
 		const mockLspTui = {
@@ -26,7 +30,11 @@ async function main(): Promise<void> {
 		});
 
 		const modalLines = lspModal.render(120);
-		assertPass("LspControlModal rendered non-empty lines", modalLines && modalLines.length > 0, { modalLines });
+		assertPass(
+			"LspControlModal rendered non-empty lines",
+			modalLines && modalLines.length > 0,
+			{ modalLines },
+		);
 
 		const fullModalText = modalLines.join("\n");
 		assertPass(
@@ -36,12 +44,12 @@ async function main(): Promise<void> {
 				fullModalText.includes("Available Server Binaries") &&
 				fullModalText.includes("░") &&
 				fullModalText.includes("─"),
-			{ modalText: fullModalText.slice(0, 200) }
+			{ modalText: fullModalText.slice(0, 200) },
 		);
 		assertPass(
 			"LspControlModal has [x] / [ ] selection boxes",
 			fullModalText.includes("[x]") || fullModalText.includes("[ ]"),
-			{ modalText: fullModalText.slice(0, 200) }
+			{ modalText: fullModalText.slice(0, 200) },
 		);
 
 		// Test Space key toggling
@@ -52,9 +60,11 @@ async function main(): Promise<void> {
 		assertPass(
 			"LspControlModal escape dismissal works",
 			!!modalDoneResult && modalDoneResult.action === "close",
-			{ modalDoneResult }
+			{ modalDoneResult },
 		);
-		logPass("LspControlModal selection box, download indicator & space-toggling verified!");
+		logPass(
+			"LspControlModal selection box, download indicator & space-toggling verified!",
+		);
 
 		// 7.1 LspDownloadModal ASCII Spinner & Progress Rendering
 		const downloadModal = new LspDownloadModal(
@@ -67,8 +77,10 @@ async function main(): Promise<void> {
 		const dlText = dlLines.join("\n");
 		assertPass(
 			"LspDownloadModal rendering",
-			dlText.includes("LSP Package Manager & Downloader") && dlText.includes("Rust") && dlText.includes("Python"),
-			{ dlText: dlText.slice(0, 200) }
+			dlText.includes("LSP Package Manager & Downloader") &&
+				dlText.includes("Rust") &&
+				dlText.includes("Python"),
+			{ dlText: dlText.slice(0, 200) },
 		);
 		// Handle key dismissal
 		await downloadModal.handleInput("\x1b");

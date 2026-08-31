@@ -10,6 +10,7 @@ import {
 } from "../editing/post_edit_verification";
 import { LspManager } from "../lsp";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
+import { loadKernelConfig } from "../config";
 import type { SessionDeps } from "./context";
 
 /** Extracted from index.ts — registers the `edit` tool. */
@@ -72,10 +73,13 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				: path.resolve(ctx.cwd, params.path);
 
 			// 1. Read-Before-Write Epistemic Guard Check
+			const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
 			const epistemicCheck = globalEpistemicGuard.checkReadPrecondition(
 				resolvedPath,
 				"edit",
 				deps.getSessionId(ctx),
+				ctx.cwd,
+				config.safety.enable_epistemic_guard,
 			);
 			if (!epistemicCheck.allowed) {
 				return {
@@ -154,7 +158,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			const statusText = renderPostEditVerification(verification);
 			return {
-				content: [{ type: "text", text: statusText }],
+				content: statusText ? [{ type: "text", text: statusText }] : [],
 				details: {
 					strategy: patchRes.strategy,
 					verification,
@@ -162,9 +166,9 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				},
 				isError:
 					verification.syntax.state === "failed" ||
-						verification.diagnostic.findings.some(
-							(finding) => finding.severity === "error" || !finding.severity,
-						),
+					verification.diagnostic.findings.some(
+						(finding) => finding.severity === "error" || !finding.severity,
+					),
 			};
 		},
 		renderCall(args: any, theme: any, context: any) {

@@ -698,15 +698,19 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 	lines.push("Repository Map (Tree-Sitter AST & PageRank Ranked):");
 
 	for (const item of rankedFiles) {
-		const relPath = path.relative(rootDir, item.file);
+		const relPath = path.relative(rootDir, item.file).replace(/\\/g, "/");
 		const fileHeader = `\n${relPath}:`;
 		if (currentChars + fileHeader.length > charBudget) break;
+
+		const defs = item.tags.definitions.filter((d) => d.kind !== "alias");
+		if (defs.length === 0) continue;
 
 		lines.push(fileHeader);
 		currentChars += fileHeader.length;
 
-		for (const def of item.tags.definitions) {
-			const sigLine = `  │ ${def.signature}`;
+		for (const def of defs) {
+			const cleanSig = def.signature.replace(/\s+/g, " ").trim();
+			const sigLine = `  ${cleanSig}`;
 			if (currentChars + sigLine.length > charBudget) {
 				break;
 			}

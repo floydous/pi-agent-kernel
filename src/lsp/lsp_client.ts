@@ -1,13 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import {
   type LspRequest,
-  LspResponse,
   type LspNotification,
   type LspClientState,
   type LspDiagnostic,
   type LspLocation,
-  LspLocationLink,
   type LspHover,
   type LspDocumentSymbol,
   type LspSymbolInformation,
@@ -222,9 +221,42 @@ export class StdioLspClient {
     }
 
     if (msg.method) {
-      // It's a notification from the server
-      this.handleNotification(msg);
+      // Servers may issue JSON-RPC requests of their own (most notably
+      // workspace/configuration). Replying is required or the server can stop
+      // processing subsequent document requests while waiting indefinitely.
+      if (msg.id !== undefined) {
+        this.handleServerRequest(msg);
+      } else {
+        this.handleNotification(msg);
+      }
     }
+  }
+
+  /** Reply to server-initiated JSON-RPC requests with minimal safe defaults. */
+  private handleServerRequest(request: { id: number | string; method: string; params?: any }): void {
+    let result: any = null;
+    switch (request.method) {
+      case "workspace/configuration":
+        result = Array.isArray(request.params?.items)
+          ? request.params.items.map(() => null)
+          : [];
+        break;
+      case "workspace/workspaceFolders":
+        result = [
+          {
+            uri: pathToUri(this.rootDir),
+            name: path.basename(this.rootDir),
+          },
+        ];
+        break;
+      case "workspace/applyEdit":
+        result = { applied: false };
+        break;
+      // Capability registration, progress creation, and unrecognised optional
+      // requests are acknowledged with JSON-RPC null so they cannot deadlock
+      // the server's request queue.
+    }
+    this.sendRaw({ jsonrpc: "2.0", id: request.id, result });
   }
 
   /**
@@ -369,7 +401,11 @@ export class StdioLspClient {
     const uri = pathToUri(filePath);
     await this.openDocument(filePath);
 
-    // Pull diagnostics provide an explicit empty result as well as findings.
+    // Pull diagnostics are optional in LSP 3.17. Older servers such as
+    // TypeScript language servers advertise push diagnostics only. The
+    // capability may be absent even though publishDiagnostics is supported,
+    // so always try the pull request only when advertised and otherwise wait
+    // for the push notification emitted by didOpen/didChange.
     if (this.serverCapabilities.diagnosticProvider) {
       try {
         const pullRes = await this.sendRequest<any>(
@@ -388,15 +424,24 @@ export class StdioLspClient {
         }
       } catch (e) {
         kernelDebug(e);
-        if (e instanceof Error && e.message.includes("timed out")) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (message.includes("timed out")) {
           return { status: "timeout", diagnostics: [] };
         }
-        return { status: "inconclusive", diagnostics: [] };
+        // Method-not-found / unsupported pull is not a failed diagnostic run;
+        // continue to the push-diagnostic cache below.
+        if (!message.includes("-32601") && !message.toLowerCase().includes("unhandled method")) {
+          return { status: "inconclusive", diagnostics: [] };
+        }
       }
     }
 
     // Push-only servers must publish a fresh result after didChange/didOpen.
-    await new Promise((r) => setTimeout(r, 200));
+    // Poll for up to 1000ms if not immediately in cache
+    for (let i = 0; i < 10; i++) {
+      if (this.diagnosticsCache.has(uri)) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
     if (!this.diagnosticsCache.has(uri)) {
       return { status: "inconclusive", diagnostics: [] };
     }

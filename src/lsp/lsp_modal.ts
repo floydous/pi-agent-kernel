@@ -9,6 +9,7 @@ import {
 	clearExecutableCache,
 } from "./lsp_registry";
 import { installLanguageServer } from "./lsp_installer";
+import { loadKernelConfig } from "../config";
 
 export interface LspModalResult {
 	action: "install" | "stop" | "close";
@@ -467,10 +468,11 @@ export class LspDownloadModal implements Focusable {
 
 	private startAnimation() {
 		if (this.spinnerTimer) return;
+		const intervalMs = loadKernelConfig().lsp.spinner_interval_ms;
 		this.spinnerTimer = setInterval(() => {
 			this.spinnerIndex = (this.spinnerIndex + 1) % LspDownloadModal.SPINNER_FRAMES.length;
 			this.tui?.requestRender?.();
-		}, 80);
+		}, intervalMs);
 		if (this.spinnerTimer.unref) {
 			this.spinnerTimer.unref();
 		}
@@ -565,7 +567,6 @@ export class LspDownloadModal implements Focusable {
 		cardLines.push(row(` ${fgTitle}LSP Package Manager & Downloader${reset}${bgCard}  ${fgDim}(Zero-Dependency Install)`));
 		cardLines.push(bgCard + fgBorder + `├${"─".repeat(innerW)}┤` + reset);
 
-		const activeCount = this.tasks.filter((t) => t.status === "downloading").length;
 		const doneCount = this.tasks.filter((t) => t.status === "done").length;
 
 		if (this.isFinished) {

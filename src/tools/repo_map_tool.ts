@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import { computeRepoMap } from "../retrieval/repomap";
+import { loadKernelConfig } from "../config";
 
 /** Extracted from index.ts — registers the `repo_map` tool. */
 export function registerRepoMapTool(pi: ExtensionAPI): void {
@@ -25,7 +26,8 @@ export function registerRepoMapTool(pi: ExtensionAPI): void {
 			_onUpdate: any,
 			ctx: any,
 		) {
-			const budget = params.budget_tokens || 1024;
+			const configuredBudget = loadKernelConfig(ctx.cwd).retrieval.repo_map_budget;
+			const budget = params.budget_tokens ?? configuredBudget;
 			const repoMap = computeRepoMap(ctx.cwd, budget);
 			return {
 				content: [{ type: "text", text: repoMap }],
@@ -34,7 +36,7 @@ export function registerRepoMapTool(pi: ExtensionAPI): void {
 		},
 		renderCall(args: any, theme: any, _context: any) {
 			return makeOutputText(
-				`${theme.fg("toolTitle", theme.bold("get_repo_map"))} (budget: ${args?.budget_tokens || 1024})`,
+				`${theme.fg("toolTitle", theme.bold("get_repo_map"))} (budget: ${args?.budget_tokens ?? 1024})`,
 			);
 		},
 		renderResult(result: any, options: any, theme: any, context: any) {

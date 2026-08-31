@@ -61,8 +61,12 @@ export function registerCodeSearchTool(
 			onUpdate?.({
 				content: [{ type: "text", text: `Searching code for "${query}"...` }],
 			});
-			const index = deps.getSearchIndex!(ctx.cwd);
-			const limit = Math.min(Math.max(params.limit || 5, 1), 15);
+			const index = deps.getSearchIndex(ctx.cwd);
+			const configuredLimit = deps.getConfig?.(ctx.cwd).retrieval.max_search_results ?? 5;
+			const limit = Math.min(
+				Math.max(params.limit ?? configuredLimit, 1),
+				15,
+			);
 
 			const hits = await index.search(query, {
 				limit,
@@ -72,7 +76,11 @@ export function registerCodeSearchTool(
 
 			const sessionId = deps.getSessionId(ctx);
 			for (const hit of hits) {
-				globalEpistemicGuard.recordFileSearched(hit.chunk.filePath, sessionId);
+				globalEpistemicGuard.recordFileSearched(
+					hit.chunk.absolutePath,
+					sessionId,
+					ctx.cwd,
+				);
 			}
 
 			if (hits.length === 0) {
@@ -87,24 +95,17 @@ export function registerCodeSearchTool(
 				};
 			}
 
-			const formatted = hits.map((hit, idx) => {
+			const formatted = hits.map((hit) => {
 				const chunk = hit.chunk;
-				let header = `[${idx + 1}] ${chunk.breadcrumb} (lines ${chunk.startLine}-${chunk.endLine})`;
-				header += `\n    Signal: ${hit.signal} | Relevance: RRF=${hit.rrfScore.toFixed(4)}`;
-				if (hit.bm25Score > 0) header += ` | BM25=${hit.bm25Score.toFixed(2)}`;
-				if (hit.vectorScore > 0)
-					header += ` | VecCos=${hit.vectorScore.toFixed(3)}`;
-				if (hit.matches.length > 0)
-					header += ` | Matches: [${hit.matches.join(", ")}]`;
-
-				return `${header}\n\n\`\`\`${path.extname(chunk.filePath).slice(1) || "text"}\n${chunk.content}\n\`\`\``;
+				const lang = path.extname(chunk.filePath).slice(1) || "text";
+				return `${chunk.filePath}:${chunk.startLine}-${chunk.endLine} (${chunk.breadcrumb}):\n\`\`\`${lang}\n${chunk.content}\n\`\`\``;
 			});
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: `Found ${hits.length} relevant code chunk(s) for "${query}":\n\n${formatted.join("\n\n---\n\n")}`,
+						text: formatted.join("\n\n"),
 					},
 				],
 				details: {

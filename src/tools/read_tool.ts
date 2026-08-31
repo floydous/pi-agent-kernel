@@ -72,9 +72,6 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-			// Record epistemic inspection
-			globalEpistemicGuard.recordFileRead(resolvedPath, deps.getSessionId(ctx));
-
 			// Mode 1: Targeted AST symbol extraction
 			if (params.symbol && params.symbol.trim()) {
 				const sym = params.symbol.trim();
@@ -104,12 +101,20 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					};
 				}
 
+				// The symbol reader completed a native read successfully. Record it
+				// only now; failed extraction must not authorize a later mutation.
+				globalEpistemicGuard.recordFileRead(
+					resolvedPath,
+					deps.getSessionId(ctx),
+					ctx.cwd,
+				);
+
 				const formatted = res.symbols
 					.map(
 						(s) =>
-							`[${s.kind.toUpperCase()}] ${s.name} in ${path.relative(ctx.cwd, s.filePath) || s.filePath} (lines ${s.startLine}-${s.endLine}):\n\n${s.content}`,
+							`// ${path.relative(ctx.cwd, s.filePath) || s.filePath}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}\n${s.content}`,
 					)
-					.join("\n\n---\n\n");
+					.join("\n\n");
 
 				return {
 					content: [{ type: "text", text: formatted }],
@@ -131,6 +136,21 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					ext,
 				);
 				if (isImage) {
+					const maxImageBytes =
+						deps.getConfig?.(ctx.cwd).safety.max_total_bytes ?? 20 * 1024;
+					const imageSize = fs.statSync(resolvedPath).size;
+					if (imageSize > maxImageBytes) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `[READ ERROR] Image is ${imageSize} bytes; maximum allowed is ${maxImageBytes} bytes.`,
+								},
+							],
+							details: { isImage: true, sizeBytes: imageSize, maxImageBytes },
+							isError: true,
+						};
+					}
 					const mimeMap: Record<string, string> = {
 						".png": "image/png",
 						".jpg": "image/jpeg",
@@ -140,6 +160,12 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						".bmp": "image/bmp",
 					};
 					const buffer = fs.readFileSync(resolvedPath);
+					globalEpistemicGuard.recordFileRead(
+						resolvedPath,
+						deps.getSessionId(ctx),
+						ctx.cwd,
+						buffer,
+					);
 					const base64 = buffer.toString("base64");
 					const mimeType = mimeMap[ext] || "image/png";
 					return {
@@ -219,8 +245,16 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 				let output = selectedLines.join("\n");
 				if (isTruncated) {
-					output += `\n\n[Lines ${offset}-${endIdx} of ${totalLines} shown. Use offset=${endIdx + 1} to continue.]`;
+					output += `\n\n[Lines ${offset}-${endIdx}/${totalLines}. Next: offset=${endIdx + 1}]`;
 				}
+
+				// Record only after all bounds and pagination checks have succeeded.
+				globalEpistemicGuard.recordFileRead(
+					resolvedPath,
+					deps.getSessionId(ctx),
+					ctx.cwd,
+					content,
+				);
 
 				return {
 					content: [{ type: "text", text: output }],

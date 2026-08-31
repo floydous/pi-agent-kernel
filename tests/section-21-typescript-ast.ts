@@ -2,7 +2,11 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractDocumentSymbols, findSymbolReferences, extractLocalSymbolHover } from "../src/retrieval/ast_search";
+import {
+	extractDocumentSymbols,
+	findSymbolReferences,
+	extractLocalSymbolHover,
+} from "../src/retrieval/ast_search";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
@@ -45,7 +49,7 @@ export const createRunner = (
     return new QueryRunner(url);
 };
 `,
-				"utf8"
+				"utf8",
 			);
 
 			// Verify Document Symbols on TypeScript
@@ -53,34 +57,43 @@ export const createRunner = (
 			const symNames = tsDocSyms.map((s) => s.name);
 			assertPass(
 				"TypeScript Document Symbols include QueryOptions, QueryRunner, createRunner",
-				symNames.includes("QueryOptions") && symNames.includes("QueryRunner") && symNames.includes("createRunner"),
-				{ tsDocSyms }
+				symNames.includes("QueryOptions") &&
+					symNames.includes("QueryRunner") &&
+					symNames.includes("createRunner"),
+				{ tsDocSyms },
 			);
 			// Ensure variable assignment pathDepth is NOT falsely recognized as a function
 			assertPass(
 				"TypeScript false-positive defense: pathDepth is not a function symbol",
 				!symNames.includes("pathDepth"),
-				{ symNames }
+				{ symNames },
 			);
-			logPass(`TypeScript document symbols verified (${tsDocSyms.length} symbol(s), zero false positives)!`);
+			logPass(
+				`TypeScript document symbols verified (${tsDocSyms.length} symbol(s), zero false positives)!`,
+			);
 
 			// Verify hover on multi-line TypeScript parameter
 			const tsParamHover = extractLocalSymbolHover(tsFilePath, 16, 12, "options");
 			assertPass(
 				"TypeScript multi-line parameter hover for 'options'",
-				!!tsParamHover && tsParamHover.includes("(parameter) options: QueryOptions"),
-				{ tsParamHover }
+				!!tsParamHover &&
+					tsParamHover.includes("(parameter) options: QueryOptions"),
+				{ tsParamHover },
 			);
-			logPass("TypeScript multi-line parameter hover verified ('options: QueryOptions')!");
+			logPass(
+				"TypeScript multi-line parameter hover verified ('options: QueryOptions')!",
+			);
 
 			// Verify references across TypeScript workspace
 			const tsRunnerRefs = findSymbolReferences(ws.tempDir, "QueryRunner");
 			assertPass(
 				"TypeScript symbol references for QueryRunner",
 				tsRunnerRefs.length >= 2,
-				{ tsRunnerRefs }
+				{ tsRunnerRefs },
 			);
-			logPass(`TypeScript workspace references verified (${tsRunnerRefs.length} match(es) for QueryRunner)!`);
+			logPass(
+				`TypeScript workspace references verified (${tsRunnerRefs.length} match(es) for QueryRunner)!`,
+			);
 		} finally {
 			ws.cleanup();
 		}

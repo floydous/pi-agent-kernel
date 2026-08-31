@@ -31,7 +31,7 @@ async function main(): Promise<void> {
 			);
 			assertPass(
 				"Rejection reason includes epistemic warning",
-				uninspectedCheck.reason?.includes("EPISTEMIC GUARD REJECTION") ?? false,
+				uninspectedCheck.reason?.includes("BLOCKED: Read before edit") ?? false,
 				{ reason: uninspectedCheck.reason },
 			);
 

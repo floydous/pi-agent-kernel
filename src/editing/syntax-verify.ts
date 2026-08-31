@@ -267,6 +267,12 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 				}
 				throw error;
 			}
+		} else {
+			return {
+				valid: false,
+				status: "unavailable",
+				error: `No syntax validator is available for '${ext || "this file type"}'.`,
+			};
 		}
 		return { valid: true, status: "clean" };
 	} catch (err: any) {
@@ -326,4 +332,3 @@ export function checkSyntaxContent(
 		}
 	}
 }
-

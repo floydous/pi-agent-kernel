@@ -19,6 +19,13 @@ export interface SafetyConfig {
 	exec_timeout_ms: number;
 }
 
+export interface KernelConfigOverrides {
+	retrieval?: Partial<RetrievalConfig>;
+	safety?: Partial<SafetyConfig>;
+	lsp?: Partial<LspConfig>;
+	ui?: Partial<UiConfig>;
+}
+
 export interface LspConfig {
 	idle_timeout_ms: number;
 	spinner_interval_ms: number;

@@ -19,11 +19,15 @@ class Calculator:
         return subtotal - discount
 `;
 		const tags = extractFileTags("calc.py", pyCode);
-		console.log("Found definitions:", tags.definitions.map((d) => `${d.kind}: ${d.name} (${d.signature})`));
+		console.log(
+			"Found definitions:",
+			tags.definitions.map((d) => `${d.kind}: ${d.name} (${d.signature})`),
+		);
 		assertPass(
 			"AST extraction test passed",
-			tags.definitions.length >= 3 && tags.definitions.some((d) => d.name === "Calculator"),
-			{ definitions: tags.definitions }
+			tags.definitions.length >= 3 &&
+				tags.definitions.some((d) => d.name === "Calculator"),
+			{ definitions: tags.definitions },
 		);
 		logPass("AST extraction test passed!");
 	});

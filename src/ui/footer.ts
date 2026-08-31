@@ -7,6 +7,7 @@
 
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { getSearchConfig } from "../retrieval/search_config";
+import { loadKernelConfig } from "../config";
 import { truncateToWidth, visibleWidth } from "./tui_utils";
 
 export { stripAnsi, truncateToWidth, visibleWidth } from "./tui_utils";
@@ -58,7 +59,6 @@ export const Pastel = {
 	thinkingOff: (s: string) => `\x1b[38;2;135;140;150m${s}${RESET}`, // Muted Dim (#878c96)
 };
 
-
 /**
  * Format numbers into compact token strings (e.g. 1.2k, 45k, 1.2M)
  */
@@ -74,14 +74,18 @@ export function formatTokens(count: number): string {
 /**
  * Format working directory path using `~` shorthand
  */
-export function formatCwd(cwd: string, home: string = process.env.HOME || process.env.USERPROFILE || ""): string {
+export function formatCwd(
+	cwd: string,
+	home: string = process.env.HOME || process.env.USERPROFILE || "",
+): string {
 	if (!home || !cwd) return cwd || ".";
 	try {
 		const resolvedCwd = resolve(cwd);
 		const resolvedHome = resolve(home);
 		const rel = relative(resolvedHome, resolvedCwd);
 		const isInsideHome =
-			rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+			rel === "" ||
+			(rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 		if (!isInsideHome) return cwd;
 		return rel === "" ? "~" : `~${sep}${rel}`.replace(/\\/g, "/");
 	} catch {
@@ -96,7 +100,10 @@ export function formatCwd(cwd: string, home: string = process.env.HOME || proces
  * - Full -> `retrieval:dense-768d`
  * - Off -> `retrieval:off`
  */
-export function formatSearchEngineTag(searchIndexOrProfile?: any, withColor = true): string {
+export function formatSearchEngineTag(
+	searchIndexOrProfile?: any,
+	withColor = true,
+): string {
 	let eff = "lean";
 	if (!searchIndexOrProfile) {
 		try {
@@ -137,12 +144,16 @@ export function renderFooter(
 	theme: FooterTheme,
 	footerData: FooterDataProvider,
 	width: number,
-	searchIndex?: any
+	searchIndex?: any,
 ): string[] {
 	const parts: string[] = [];
+	const rawCwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
+	const config = loadKernelConfig(rawCwd);
+	if (!config.ui.enable_pastel_footer) {
+		return [truncateToWidth(formatCwd(rawCwd), width, "...")];
+	}
 
 	// 1. Workspace & Branch
-	const rawCwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 	const pwdStr = formatCwd(rawCwd);
 	const branch = footerData?.getGitBranch?.();
 	let workspaceFormatted = Pastel.path(pwdStr);
@@ -165,7 +176,10 @@ export function renderFooter(
 	if (contextWindow > 0) {
 		let rawContextStr: string;
 		if (tokensValue !== null && tokensValue !== undefined) {
-			const pctStr = percentValue !== null && percentValue !== undefined ? ` (${percentValue.toFixed(0)}%)` : "";
+			const pctStr =
+				percentValue !== null && percentValue !== undefined
+					? ` (${percentValue.toFixed(0)}%)`
+					: "";
 			rawContextStr = `${formatTokens(tokensValue)}/${formatTokens(contextWindow)}${pctStr}`;
 		} else if (percentValue !== null && percentValue !== undefined) {
 			rawContextStr = `${percentValue.toFixed(1)}%/${formatTokens(contextWindow)}`;
@@ -195,7 +209,11 @@ export function renderFooter(
 	let totalCost = 0;
 	const entries = ctx.sessionManager?.getEntries?.() || [];
 	for (const entry of entries) {
-		if (entry.type === "message" && entry.message?.role === "assistant" && entry.message.usage) {
+		if (
+			entry.type === "message" &&
+			entry.message?.role === "assistant" &&
+			entry.message.usage
+		) {
 			totalIn += entry.message.usage.input || 0;
 			totalOut += entry.message.usage.output || 0;
 			totalCost += entry.message.usage.cost?.total || 0;
@@ -203,9 +221,11 @@ export function renderFooter(
 	}
 
 	if (totalIn > 0 || totalOut > 0) {
-		let ioFormatted = Pastel.tokenIO(`↑${formatTokens(totalIn)} ↓${formatTokens(totalOut)}`);
+		let ioFormatted = Pastel.tokenIO(
+			`↑${formatTokens(totalIn)} ↓${formatTokens(totalOut)}`,
+		);
 		if (totalCost > 0) {
-			const costStr = "$" + totalCost.toFixed(3);
+			const costStr = `$${totalCost.toFixed(3)}`;
 			ioFormatted += ` ${Pastel.tokenCost(costStr)}`;
 		}
 		parts.push(ioFormatted);
@@ -242,7 +262,9 @@ export function renderFooter(
 	} else if (leftWidth + minPadding <= width) {
 		const availForRight = width - leftWidth - minPadding;
 		const truncatedRight = truncateToWidth(rightFormatted, availForRight, "");
-		const pad = " ".repeat(Math.max(1, width - leftWidth - visibleWidth(truncatedRight)));
+		const pad = " ".repeat(
+			Math.max(1, width - leftWidth - visibleWidth(truncatedRight)),
+		);
 		mainLine = left + pad + truncatedRight;
 	} else {
 		mainLine = truncateToWidth(left, width, "...");
@@ -255,7 +277,9 @@ export function renderFooter(
 	if (extStatuses && extStatuses.size > 0) {
 		const statusTexts = Array.from(extStatuses.values()).filter(Boolean);
 		if (statusTexts.length > 0) {
-			lines.push(truncateToWidth(theme.fg("dim", statusTexts.join(" • ")), width, "..."));
+			lines.push(
+				truncateToWidth(theme.fg("dim", statusTexts.join(" • ")), width, "..."),
+			);
 		}
 	}
 

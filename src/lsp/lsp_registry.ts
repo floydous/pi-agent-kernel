@@ -15,33 +15,15 @@ export const PI_LSP_CONFIG_FILE = path.join(
   "config.json",
 );
 
-let cachedDisabledServers: Set<string> | null = null;
-
 /**
- * Load set of disabled server keys from config.toml and ~/.pi/lsp/config.json
+ * Load set of disabled server keys from hierarchical config.toml only.
+ * No arbitrary ~/.pi/lsp/config.json side-effects.
  */
 export function getDisabledServers(): Set<string> {
-  if (cachedDisabledServers) return cachedDisabledServers;
   const config = loadKernelConfig();
-  const set = new Set<string>(
+  return new Set<string>(
     (config.lsp.disabled_servers || []).map((s: string) => s.toLowerCase()),
   );
-
-  try {
-    if (fs.existsSync(PI_LSP_CONFIG_FILE)) {
-      const raw = fs.readFileSync(PI_LSP_CONFIG_FILE, "utf-8");
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.disabledServers)) {
-        for (const s of parsed.disabledServers) {
-          set.add(s.toLowerCase());
-        }
-      }
-    }
-  } catch (e) {
-    kernelDebug(e);
-  }
-  cachedDisabledServers = set;
-  return cachedDisabledServers;
 }
 
 /**
@@ -53,7 +35,7 @@ export function isServerDisabled(langKey: string): boolean {
 }
 
 /**
- * Enable or disable a server key and persist to ~/.pi/lsp/config.json
+ * Enable or disable a server key in memory / global config
  */
 export function setServerDisabled(langKey: string, disabled: boolean): void {
   const current = getDisabledServers();
@@ -63,15 +45,11 @@ export function setServerDisabled(langKey: string, disabled: boolean): void {
   } else {
     current.delete(norm);
   }
+  // Remove legacy config.json if it exists to avoid desync
   try {
-    const dir = path.dirname(PI_LSP_CONFIG_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    if (fs.existsSync(PI_LSP_CONFIG_FILE)) {
+      fs.unlinkSync(PI_LSP_CONFIG_FILE);
     }
-    writeFileSyncAtomic(
-      PI_LSP_CONFIG_FILE,
-      JSON.stringify({ disabledServers: Array.from(current) }, null, 2),
-    );
   } catch (e) {
     kernelDebug(e);
   }
@@ -92,12 +70,12 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
     markers: ["tsconfig.json", "jsconfig.json", "package.json"],
     commands: [
+      { bin: "typescript-language-server", args: ["--stdio"] },
       { bin: "vtsls", args: ["--stdio"] },
       { bin: "oxc_language_server", args: [] },
       { bin: "biome", args: ["lsp-proxy"] },
-      { bin: "typescript-language-server", args: ["--stdio"] },
     ],
-    installHint: "npm install -g @vtsls/language-server typescript",
+    installHint: "npm install -g typescript-language-server typescript",
   },
   python: {
     languageId: "python",

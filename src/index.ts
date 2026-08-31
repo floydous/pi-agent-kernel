@@ -7,6 +7,7 @@ import type { SearchProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
 import { checkSyntax } from "./editing/syntax-verify";
 import { globalEpistemicGuard } from "./safety/epistemic_guard";
+import { loadKernelConfig } from "./config";
 import { kernelDebug } from "./safety/kernel_debug";
 import { registerRepoMapTool } from "./tools/repo_map_tool";
 import { registerAstSearchTool } from "./tools/ast_search_tool";
@@ -38,10 +39,7 @@ function getSessionId(ctx: any): string {
 
 	return `__default__${process.pid}`;
 }
-import {
-	clampCommandOutput,
-	isDiscoveryCommand,
-} from "./safety/output_clamper";
+import { clampCommandOutput } from "./safety/output_clamper";
 import { runOracle } from "./safety/test_oracle";
 import { registerCustomCompaction } from "./context/compaction_enhanced";
 import { sanitizeSessionFiles } from "./context/session_repair";
@@ -69,12 +67,28 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// 3. Slash Commands: /repomap, /oracle, /search, /engine
 	let activeTui: any = null;
-	let searchIndex: HybridSearchIndex | null = null;
-	const getSearchIndex = (cwd: string) => {
-		if (!searchIndex) {
-			searchIndex = new HybridSearchIndex(cwd);
+	const configByWorkspace = new Map<
+		string,
+		ReturnType<typeof loadKernelConfig>
+	>();
+	const getConfig = (cwd: string) => {
+		const workspace = path.resolve(cwd);
+		let config = configByWorkspace.get(workspace);
+		if (!config) {
+			config = loadKernelConfig(workspace);
+			configByWorkspace.set(workspace, config);
 		}
-		return searchIndex;
+		return config;
+	};
+	const searchIndexes = new Map<string, HybridSearchIndex>();
+	const getSearchIndex = (cwd: string) => {
+		const workspace = path.resolve(cwd);
+		let index = searchIndexes.get(workspace);
+		if (!index) {
+			index = new HybridSearchIndex(workspace);
+			searchIndexes.set(workspace, index);
+		}
+		return index;
 	};
 
 	// Helper: Background index synchronization with TUI progress bar widget
@@ -180,7 +194,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		handler: async (args: string, ctx: any) => {
 			const cmd = args?.trim() || "npx tsx tests/run-all.ts";
 			ctx.ui?.notify?.(`Executing Test Oracle: '${cmd}'...`, "info");
-			const result = await runOracle(cmd, { cwd: ctx.cwd });
+			const result = await runOracle(cmd, {
+				cwd: ctx.cwd,
+				timeoutMs: getConfig(ctx.cwd).safety.exec_timeout_ms,
+			});
 			const notifyType = result.passed ? "info" : "error";
 			ctx.ui?.notify?.(result.summary, notifyType);
 			if (!ctx.hasUI) {
@@ -193,7 +210,12 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		description: "Display the Tree-Sitter AST & PageRank ranked repository map",
 		handler: async (args: string, ctx: any) => {
 			const budget = args ? parseInt(args, 10) : 1024;
-			const map = computeRepoMap(ctx.cwd, isNaN(budget) ? 1024 : budget);
+			const map = computeRepoMap(
+				ctx.cwd,
+				Number.isNaN(budget)
+					? getConfig(ctx.cwd).retrieval.repo_map_budget
+					: budget,
+			);
 			ctx.ui?.notify?.("Repository Map Generated", "info");
 			if (ctx.hasUI && ctx.ui?.setWidget) {
 				ctx.ui.setWidget("repomap-widget", map.split("\n").slice(0, 25));
@@ -547,30 +569,55 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// 4-8. Tools: repo map, AST search, code search, read, edit, LSP
 	registerRepoMapTool(pi);
-	registerAstSearchTool(pi, { getSessionId });
-	registerCodeSearchTool(pi, { getSessionId, getSearchIndex });
-	registerReadTool(pi, { getSessionId });
-	registerEditTool(pi, { getSessionId });
-	registerLspTool(pi);
+	registerAstSearchTool(pi, { getSessionId, getConfig });
+	registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
+	registerReadTool(pi, { getSessionId, getConfig });
+	registerEditTool(pi, { getSessionId, getConfig });
+	registerLspTool(pi, { getSessionId, getConfig });
 
-	// 9a-pre. Record file inspections from bash command during preflight.
-	// Must run in tool_call (not tool_result) so the file is recorded before
-	// the edit's execute runs its guard check. In pi's default parallel tool
-	// mode, tool_call hooks for sibling tools fire sequentially before any
-	// tool executes, so a bash `cat foo.ts` will be recorded before a sibling
-	// edit on the same file runs its guard.
+	// 9a. Block host writes before the host tool can create parent directories
+	// or overwrite the target. Bash read evidence is recorded after a successful
+	// command result below; preflight classification alone is not a read.
 	pi.on("tool_call", async (event: any, ctx: any) => {
-		if (event.toolName !== "bash") return;
-		const command = (event.input as any)?.command || "";
-		if (!command) return;
 		try {
-			globalEpistemicGuard.recordCommandExecution(
-				command,
-				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
-				getSessionId(ctx),
+			const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
+			const sessionId = getSessionId(ctx);
+			if (event.toolName !== "write") return;
+			const targetPath = (event.input as any)?.path;
+			if (typeof targetPath !== "string" || !targetPath.trim()) {
+				return {
+					block: true,
+					reason: "[WRITE ERROR] Missing target path.",
+					terminate: true,
+				};
+			}
+			const config = getConfig(cwd);
+			const resolvedPath = path.isAbsolute(targetPath)
+				? targetPath
+				: path.resolve(cwd, targetPath);
+			const check = globalEpistemicGuard.checkReadPrecondition(
+				resolvedPath,
+				"write",
+				sessionId,
+				cwd,
+				config.safety.enable_epistemic_guard,
 			);
+			if (!check.allowed) {
+				return {
+					block: true,
+					reason: check.reason,
+					terminate: true,
+				};
+			}
 		} catch (e) {
 			kernelDebug(e);
+			if (event.toolName === "write") {
+				return {
+					block: true,
+					reason: `[WRITE BLOCKED] Safety preflight failed closed: ${e instanceof Error ? e.message : String(e)}`,
+					terminate: true,
+				};
+			}
 		}
 	});
 
@@ -583,19 +630,16 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		// 9a. Intercept bash & terminal output to clamp minified lines & massive match floods
 		if (toolName === "bash") {
 			const command = (event.input as any)?.command || "";
-
-			// Note: file inspections from bash are now recorded in the tool_call
-			// preflight hook above, so the file is in the guard before any sibling
-			// edit's execute runs its check.
-
-			const isSearch = isDiscoveryCommand(command);
+			const outputConfig = getConfig(
+				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
+			);
 
 			const updatedContent = (event.content || []).map((c: any) => {
 				if (c.type === "text" && typeof c.text === "string") {
 					const clamped = clampCommandOutput(c.text, command, {
-						maxLineLength: 300,
-						maxLines: isSearch ? 40 : 100,
-						maxTotalBytes: isSearch ? 15 * 1024 : 30 * 1024,
+						maxLineLength: outputConfig.safety.max_line_length,
+						maxLines: outputConfig.safety.max_lines,
+						maxTotalBytes: outputConfig.safety.max_total_bytes,
 					});
 					if (clamped.truncated) {
 						return { ...c, text: clamped.text };
@@ -634,9 +678,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			}
 
 			if (targetPath) {
+				const resultCwd =
+					ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 				const resolvedPath = path.isAbsolute(targetPath)
 					? targetPath
-					: path.resolve(ctx.cwd, targetPath);
+					: path.resolve(resultCwd, targetPath);
 				const syntaxRes = checkSyntax(resolvedPath);
 
 				if (!syntaxRes.valid) {
@@ -653,17 +699,23 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				let lspNotice = "";
 				try {
 					const lspMgr = LspManager.getInstance();
-					const client = await lspMgr.getClientForFile(resolvedPath, ctx.cwd);
+					const client = lspMgr.getReadyClientForFile(resolvedPath, resultCwd);
 					if (client && client.getState() === "ready") {
 						const fileContent = fs.readFileSync(resolvedPath, "utf8");
 						await client.changeDocument(resolvedPath, fileContent);
 						await client.saveDocument(resolvedPath, fileContent);
 
 						// Allow LSP server brief window to compute diagnostics
-						const diags = await client.getDiagnostics(resolvedPath);
-						if (diags && diags.length > 0) {
-							const formattedDiags = formatDiagnostics(diags, resolvedPath, ctx.cwd);
+						const diagnostics = await client.getDiagnosticsResult(resolvedPath);
+						if (diagnostics.diagnostics.length > 0) {
+							const formattedDiags = formatDiagnostics(
+								diagnostics.diagnostics,
+								resolvedPath,
+								resultCwd,
+							);
 							lspNotice = `\n\n[LSP Diagnostics]\n${formattedDiags}`;
+						} else if (diagnostics.status !== "clean") {
+							lspNotice = `\n\n[LSP ${diagnostics.status.toUpperCase()}] No definitive diagnostics result.`;
 						}
 					}
 				} catch (e) {
@@ -686,7 +738,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// Notice: Custom user instructions (AGENT.md / prompt templates) are respected as the primary authority.
 	// Only runtime operational metadata (repo map) is dynamically attached.
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
-		const repoMap = computeRepoMap(ctx.cwd, 512);
+		const repoMap = computeRepoMap(
+			ctx.cwd,
+			getConfig(ctx.cwd).retrieval.repo_map_budget,
+		);
 
 		const runtimeContext = `
 ## Available Repository Context:

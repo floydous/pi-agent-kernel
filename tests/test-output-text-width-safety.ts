@@ -25,7 +25,12 @@
  *      produces a Text that, when rendered at the offending 207 width,
  *      still fits.
  */
-import { Text, makeOutputText, getSafeLineWidth, visibleWidth } from "../ui/tui_utils";
+import {
+	Text,
+	makeOutputText,
+	getSafeLineWidth,
+	visibleWidth,
+} from "../ui/tui_utils";
 
 let passed = 0;
 let failed = 0;
@@ -49,7 +54,10 @@ function main(): void {
 		const t = makeOutputText(longLine);
 		const lines = t.render(204);
 		const maxW = Math.max(...lines.map(visibleWidth));
-		expect(`500-char input is truncated: max rendered line width (${maxW}) <= safe width`, maxW <= getSafeLineWidth());
+		expect(
+			`500-char input is truncated: max rendered line width (${maxW}) <= safe width`,
+			maxW <= getSafeLineWidth(),
+		);
 	}
 
 	// --- Test 2: helper does not widen short lines ---
@@ -59,16 +67,24 @@ function main(): void {
 		const lines = t.render(204);
 		const totalTextWidth = lines.map(visibleWidth).reduce((a, b) => a + b, 0);
 		// The short text should still appear in the output (only one non-empty line expected).
-		expect(`short input is preserved: rendered output contains "hello world"`,
-			lines.some((l) => l.includes("hello world")));
-		expect(`short input produces a single non-empty line: total width ${totalTextWidth} <= 20`, totalTextWidth <= 20);
+		expect(
+			`short input is preserved: rendered output contains "hello world"`,
+			lines.some((l) => l.includes("hello world")),
+		);
+		expect(
+			`short input produces a single non-empty line: total width ${totalTextWidth} <= 20`,
+			totalTextWidth <= 20,
+		);
 	}
 
 	// --- Test 3: helper returns a fresh Text (not from lastComponent) ---
 	{
 		const t1 = makeOutputText("foo");
 		const t2 = makeOutputText("foo");
-		expect(`makeOutputText returns a fresh Text instance (not reused)`, t1 !== t2);
+		expect(
+			`makeOutputText returns a fresh Text instance (not reused)`,
+			t1 !== t2,
+		);
 		expect(`returned Text has paddingX=0`, t1.paddingX === 0);
 	}
 
@@ -83,19 +99,28 @@ function main(): void {
 		for (const w of [200, 202, 204, 206, 207, 208, 250, 500]) {
 			const lines = t.render(w);
 			const maxW = Math.max(...lines.map(visibleWidth));
-			expect(`224-char source line, render(${w}): max w=${maxW} <= ${w}`, maxW <= w);
+			expect(
+				`224-char source line, render(${w}): max w=${maxW} <= ${w}`,
+				maxW <= w,
+			);
 		}
 	}
 
 	// --- Test 5: multi-line input ---
 	{
-		const multiLine = "short line 1\nshort line 2\n" + "x".repeat(500) + "\nshort line 4";
+		const multiLine =
+			"short line 1\nshort line 2\n" + "x".repeat(500) + "\nshort line 4";
 		const t = makeOutputText(multiLine);
 		const lines = t.render(204);
 		const maxW = Math.max(...lines.map(visibleWidth));
-		expect(`multi-line input: each line truncated, max w=${maxW} <= ${getSafeLineWidth()}`, maxW <= getSafeLineWidth());
-		expect(`multi-line input: line count preserved (4 input lines + 1 truncated = 4 rendered)`,
-			lines.filter((l) => l.length > 0).length >= 4);
+		expect(
+			`multi-line input: each line truncated, max w=${maxW} <= ${getSafeLineWidth()}`,
+			maxW <= getSafeLineWidth(),
+		);
+		expect(
+			`multi-line input: line count preserved (4 input lines + 1 truncated = 4 rendered)`,
+			lines.filter((l) => l.length > 0).length >= 4,
+		);
 	}
 
 	// --- Test 6: when the safe width is wider than the input, no truncation marker ---
@@ -109,7 +134,10 @@ function main(): void {
 	{
 		const t = makeOutputText("");
 		const lines = t.render(204);
-		expect(`empty input produces no visible lines`, lines.length === 0 || lines.every((l) => l.length === 0));
+		expect(
+			`empty input produces no visible lines`,
+			lines.length === 0 || lines.every((l) => l.length === 0),
+		);
 	}
 
 	// --- Test 8: getSafeLineWidth is bounded ---

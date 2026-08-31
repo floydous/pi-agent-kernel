@@ -63,7 +63,7 @@ export function formatDiagnostics(
   cwd?: string
 ): string {
   if (!diagnostics || diagnostics.length === 0) {
-    return filePath ? `No diagnostics reported for ${filePath}.` : "No diagnostics reported.";
+    return "";
   }
 
   const lines: string[] = [];
@@ -125,7 +125,7 @@ export function formatDefinitions(
     return `${displayPath}:${line}:${col}`;
   });
 
-  return `Found ${locations.length} definition(s):\n` + lines.map((l) => `  → ${l}`).join("\n");
+  return lines.join("\n");
 }
 
 /**
@@ -147,7 +147,7 @@ export function formatReferences(
     return `${displayPath}:${line}:${col}`;
   });
 
-  return `Found ${references.length} reference(s):\n` + lines.map((l) => `  • ${l}`).join("\n");
+  return lines.join("\n");
 }
 
 /**
@@ -189,7 +189,7 @@ export function formatDocumentSymbols(
     const range = s.range || s.location?.range;
     const line = range ? range.start.line + 1 : 1;
     const detail = s.detail ? ` (${s.detail})` : "";
-    lines.push(`${indent}• [${kind}] ${s.name}${detail} (line ${line})`);
+    lines.push(`${indent}${line}: [${kind}] ${s.name}${detail}`);
 
     if (s.children && Array.isArray(s.children)) {
       for (const child of s.children) {

@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { StdioLspClient } from "./lsp_client";
-import { resolveLspServer, LSP_SERVERS } from "./lsp_registry";
+import { resolveLspServer } from "./lsp_registry";
 import { detectLanguageFromPath, findWorkspaceRoot } from "./lsp_detector";
+import { loadKernelConfig } from "../config";
 
 const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -27,7 +28,7 @@ export class LspManager {
   private startReaper(): void {
     if (this.reaperTimer) return;
     this.reaperTimer = setInterval(() => {
-      this.reapIdleClients();
+      this.reapIdleClients(loadKernelConfig().lsp.idle_timeout_ms);
     }, 60 * 1000);
     if (this.reaperTimer.unref) {
       this.reaperTimer.unref();
@@ -47,10 +48,12 @@ export class LspManager {
   /**
    * Reap clients that have been idle past DEFAULT_IDLE_TIMEOUT_MS
    */
-  public async reapIdleClients(): Promise<void> {
+  public async reapIdleClients(
+    idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
+  ): Promise<void> {
     const now = Date.now();
     for (const [id, client] of this.clients.entries()) {
-      if (now - client.getLastActivity() > DEFAULT_IDLE_TIMEOUT_MS) {
+      if (now - client.getLastActivity() > idleTimeoutMs) {
         await client.stop();
         this.clients.delete(id);
       }
@@ -61,8 +64,13 @@ export class LspManager {
    * Return a ready client without spawning a language server.
    * Used by bounded verification paths where startup latency is undesirable.
    */
-  public getReadyClientForFile(filePath: string, cwd: string): StdioLspClient | null {
-    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
+  public getReadyClientForFile(
+    filePath: string,
+    cwd: string,
+  ): StdioLspClient | null {
+    const absPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(cwd, filePath);
     const langKey = detectLanguageFromPath(absPath);
     if (!langKey) return null;
 
@@ -76,8 +84,13 @@ export class LspManager {
   /**
    * Get or spawn an active LSP client for a target file
    */
-  public async getClientForFile(filePath: string, cwd: string): Promise<StdioLspClient | null> {
-    const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
+  public async getClientForFile(
+    filePath: string,
+    cwd: string,
+  ): Promise<StdioLspClient | null> {
+    const absPath = path.isAbsolute(filePath)
+      ? filePath
+      : path.resolve(cwd, filePath);
     const langKey = detectLanguageFromPath(absPath);
     if (!langKey) return null;
 
@@ -118,9 +131,21 @@ export class LspManager {
   /**
    * Get all active clients status
    */
-  public getStatus(): Array<{ id: string; languageId: string; rootDir: string; state: string; idleSeconds: number }> {
+  public getStatus(): Array<{
+    id: string;
+    languageId: string;
+    rootDir: string;
+    state: string;
+    idleSeconds: number;
+  }> {
     const now = Date.now();
-    const list: Array<{ id: string; languageId: string; rootDir: string; state: string; idleSeconds: number }> = [];
+    const list: Array<{
+      id: string;
+      languageId: string;
+      rootDir: string;
+      state: string;
+      idleSeconds: number;
+    }> = [];
     for (const [id, client] of this.clients.entries()) {
       list.push({
         id,
@@ -139,7 +164,10 @@ export class LspManager {
   public async stopLanguage(languageOrKey: string): Promise<void> {
     const norm = languageOrKey.toLowerCase();
     for (const [id, client] of this.clients.entries()) {
-      if (client.languageId.toLowerCase() === norm || id.startsWith(norm + ":")) {
+      if (
+        client.languageId.toLowerCase() === norm ||
+        id.startsWith(norm + ":")
+      ) {
         await client.stop();
         this.clients.delete(id);
       }

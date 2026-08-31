@@ -30,7 +30,7 @@ idle_timeout_ms = 120000
 					parsedConfig.safety?.enable_epistemic_guard === false &&
 					parsedConfig.safety?.max_line_length === 450 &&
 					parsedConfig.lsp?.idle_timeout_ms === 120000,
-				{ parsedConfig }
+				{ parsedConfig },
 			);
 			logPass("Zero-dependency TOML parser verified!");
 
@@ -38,16 +38,20 @@ idle_timeout_ms = 120000
 			const roundtripped = parseToml(serialized) as any;
 			assertPass(
 				"TOML serializer roundtrip",
-				roundtripped.retrieval?.default_profile === "full" && roundtripped.retrieval?.repo_map_budget === 2048,
-				{ roundtripped }
+				roundtripped.retrieval?.default_profile === "full" &&
+					roundtripped.retrieval?.repo_map_budget === 2048,
+				{ roundtripped },
 			);
 			logPass("Zero-dependency TOML serializer roundtrip verified!");
 
 			const kernelCfg = loadKernelConfig(ws.tempDir);
 			assertPass(
 				"loadKernelConfig structure is valid",
-				!!kernelCfg.retrieval && !!kernelCfg.safety && !!kernelCfg.lsp && !!kernelCfg.ui,
-				{ kernelCfg }
+				!!kernelCfg.retrieval &&
+					!!kernelCfg.safety &&
+					!!kernelCfg.lsp &&
+					!!kernelCfg.ui,
+				{ kernelCfg },
 			);
 			logPass("Hierarchical kernel configuration loader verified!");
 		} finally {

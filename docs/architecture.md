@@ -40,5 +40,3 @@ src/
 5. Edits are verified locally and return compact structured status text.
 6. Compaction uses deterministic workspace state and recent trajectory data to
    build a grounded summary prompt.
-
-

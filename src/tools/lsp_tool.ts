@@ -19,9 +19,11 @@ import {
 } from "../retrieval/ast_search";
 import { checkSyntax } from "../editing/syntax-verify";
 import { kernelDebug } from "../safety/kernel_debug";
+import { globalEpistemicGuard } from "../safety/epistemic_guard";
+import type { SessionDeps } from "./context";
 
 /** Extracted from index.ts — registers the `lsp` tool. */
-export function registerLspTool(pi: ExtensionAPI): void {
+export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 	// 8. Tool: `lsp` (Language Server Protocol Symbol Resolution, Definitions, References, & Diagnostics)
 	pi.registerTool({
 		name: "lsp",
@@ -77,6 +79,26 @@ export function registerLspTool(pi: ExtensionAPI): void {
 					isError: true,
 				};
 			}
+
+			// Establish read evidence only after a real native read succeeds. The
+			// buffer is the exact version used for this operation's preflight.
+			let observedContent: Buffer;
+			try {
+				observedContent = fs.readFileSync(absPath);
+			} catch (error: any) {
+				return {
+					content: [
+						{ type: "text", text: `[LSP ERROR] Unable to read ${targetPath}: ${error.message}` },
+					],
+					isError: true,
+				};
+			}
+			globalEpistemicGuard.recordFileRead(
+				absPath,
+				deps?.getSessionId?.(ctx) || "__default__",
+				ctx.cwd,
+				observedContent,
+			);
 
 			const line0 = Math.max(0, (params.line || 1) - 1);
 			const col0 = Math.max(0, (params.character || 1) - 1);
@@ -147,13 +169,13 @@ export function registerLspTool(pi: ExtensionAPI): void {
 					const docSyms = extractDocumentSymbols(absPath);
 					if (docSyms.length > 0) {
 						const formatted = docSyms
-							.map((s) => `• [${s.kind}] ${s.name} (line ${s.line}) - ${s.signature}`)
+							.map((s) => `${s.line}: [${s.kind}] ${s.name} - ${s.signature}`)
 							.join("\n");
 						return {
 							content: [
 								{
 									type: "text",
-									text: `[Tree-sitter AST Document Symbols - ${docSyms.length} symbol(s)]\n${formatted}`,
+									text: formatted,
 								},
 							],
 						};
@@ -162,7 +184,7 @@ export function registerLspTool(pi: ExtensionAPI): void {
 						content: [
 							{
 								type: "text",
-								text: `[Tree-sitter AST] No symbols found in ${path.basename(absPath)}.`,
+								text: `No symbols found in ${path.basename(absPath)}.`,
 							},
 						],
 					};
@@ -175,13 +197,13 @@ export function registerLspTool(pi: ExtensionAPI): void {
 						const refs = findSymbolReferences(ctx.cwd, targetSym);
 						if (refs.length > 0) {
 							const formatted = refs
-								.map((r) => `  • ${r.filePath}:${r.line}:${r.column}  ${r.lineText}`)
+								.map((r) => `${r.filePath}:${r.line}:${r.column}`)
 								.join("\n");
 							return {
 								content: [
 									{
 										type: "text",
-										text: `[Tree-sitter AST References - ${refs.length} match(es) for '${targetSym}']\n${formatted}`,
+										text: formatted,
 									},
 								],
 							};
@@ -316,22 +338,18 @@ export function registerLspTool(pi: ExtensionAPI): void {
 				if (action === "diagnostics") {
 					const syn = checkSyntax(absPath);
 					if (!syn.valid) {
+						const status = syn.status || "failed";
 						return {
 							content: [
 								{
 									type: "text",
-									text: `Diagnostics for ${path.relative(ctx.cwd, absPath)}:\n  1:1 [ERROR] Syntax Error: ${syn.error}`,
+									text: `Diagnostics for ${path.relative(ctx.cwd, absPath)}:\n  1:1 [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
 								},
 							],
 						};
 					}
 					return {
-						content: [
-							{
-								type: "text",
-								text: `No diagnostics reported for ${path.relative(ctx.cwd, absPath)}.`,
-							},
-						],
+						content: [],
 					};
 				}
 
@@ -511,37 +529,41 @@ export function registerLspTool(pi: ExtensionAPI): void {
 				}
 
 				if (action === "diagnostics") {
-					const diags = await client.getDiagnostics(absPath);
-					if (diags.length > 0) {
+					const diagnosticResult = await client.getDiagnosticsResult(absPath);
+					if (diagnosticResult.diagnostics.length > 0) {
 						return {
 							content: [
-								{ type: "text", text: formatDiagnostics(diags, absPath, ctx.cwd) },
+								{ type: "text", text: formatDiagnostics(diagnosticResult.diagnostics, absPath, ctx.cwd) },
 							],
 						};
 					}
 
-					// Empty from the server is NOT proof the file is clean — freshly
-					// spawned servers often have not analyzed a just-opened document
-					// yet (race). Run the cheap structural gate before declaring the
-					// file healthy so broken files are never reported as clean.
 					const syn = checkSyntax(absPath);
 					if (!syn.valid) {
+						const status = syn.status || "failed";
 						return {
 							content: [
 								{
 									type: "text",
-									text: `Diagnostics for ${path.relative(ctx.cwd, absPath)}:\n  1:1 [ERROR] Syntax Error: ${syn.error}`,
+									text: `Diagnostics for ${path.relative(ctx.cwd, absPath)}:\n  1:1 [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
 								},
 							],
 						};
 					}
+
+					if (diagnosticResult.status !== "clean") {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `[LSP ${diagnosticResult.status.toUpperCase()}] No definitive diagnostics result for ${path.relative(ctx.cwd, absPath)} (syntax validation passed).`,
+								},
+							],
+						};
+					}
+
 					return {
-						content: [
-							{
-								type: "text",
-								text: `No diagnostics reported for ${path.relative(ctx.cwd, absPath)}.`,
-							},
-						],
+						content: [],
 					};
 				}
 

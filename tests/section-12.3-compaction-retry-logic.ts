@@ -12,22 +12,32 @@ async function main(): Promise<void> {
 		// exercise buildChronologicalCompactionPrompt and assert that a
 		// truncated conversation produces a smaller prompt (which would
 		// have less chance of exceeding the model's context window).
-		const { buildChronologicalCompactionPrompt } = require("../src/context/compaction_enhanced");
+		const {
+			buildChronologicalCompactionPrompt,
+		} = require("../src/context/compaction_enhanced");
 
 		// Build a "conversation" that's >32K characters of filler. This
 		// simulates the kind of large input that triggers the
 		// finishReason: "length" empty response.
-		const largeConversation = Array.from({ length: 1000 }, (_, i) => `[User]: question ${i}\n[Assistant]: answer ${i} with lots of text to make it long`).join("\n\n");
+		const largeConversation = Array.from(
+			{ length: 1000 },
+			(_, i) =>
+				`[User]: question ${i}\n[Assistant]: answer ${i} with lots of text to make it long`,
+		).join("\n\n");
 
 		// Truncated to a much smaller fraction to ensure the
 		// truncated prompt is well under the 32K threshold (which the
 		// retry logic uses to decide whether to retry).
-		const smallConversation = Array.from({ length: 50 }, (_, i) => `[User]: q ${i}\n[Assistant]: a ${i}`).join("\n\n");
+		const smallConversation = Array.from(
+			{ length: 50 },
+			(_, i) => `[User]: q ${i}\n[Assistant]: a ${i}`,
+		).join("\n\n");
 
 		const fullPrompt = buildChronologicalCompactionPrompt({
 			previousSummary: "## Previous summary\n...",
 			discardedConversationText: largeConversation,
-			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
+			recentTrajectoryDigest:
+				"<recent-turn-actions-digest>test</recent-turn-actions-digest>",
 			workspaceState: "<workspace-state>clean</workspace-state>",
 			customInstructions: "preserve",
 		});
@@ -35,7 +45,8 @@ async function main(): Promise<void> {
 		const halfPrompt = buildChronologicalCompactionPrompt({
 			previousSummary: "## Previous summary\n...",
 			discardedConversationText: smallConversation,
-			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
+			recentTrajectoryDigest:
+				"<recent-turn-actions-digest>test</recent-turn-actions-digest>",
 			workspaceState: "<workspace-state>clean</workspace-state>",
 			customInstructions: "preserve",
 		});
@@ -43,25 +54,29 @@ async function main(): Promise<void> {
 		assertPass(
 			"Full prompt is over 32K chars (triggers retry threshold)",
 			fullPrompt.length > 32_000,
-			{ fullPromptLen: fullPrompt.length }
+			{ fullPromptLen: fullPrompt.length },
 		);
 		assertPass(
 			"Truncated prompt is under 32K chars (would pass retry threshold check)",
 			halfPrompt.length < 32_000,
-			{ halfPromptLen: halfPrompt.length }
+			{ halfPromptLen: halfPrompt.length },
 		);
-		logPass(`Full prompt ${fullPrompt.length} chars > 32K threshold; truncated ${halfPrompt.length} chars < 32K threshold`);
+		logPass(
+			`Full prompt ${fullPrompt.length} chars > 32K threshold; truncated ${halfPrompt.length} chars < 32K threshold`,
+		);
 
 		// Verify the prompt contains the conversation
 		assertPass(
 			"Full prompt contains the conversation",
-			fullPrompt.includes("[User]: question 0") && fullPrompt.includes("[Assistant]: answer 999"),
-			{ preview: fullPrompt.slice(0, 200) }
+			fullPrompt.includes("[User]: question 0") &&
+				fullPrompt.includes("[Assistant]: answer 999"),
+			{ preview: fullPrompt.slice(0, 200) },
 		);
 		assertPass(
 			"Truncated prompt contains the most recent entries",
-			halfPrompt.includes("[User]: q 0") && halfPrompt.includes("[Assistant]: a 49"),
-			{ preview: halfPrompt.slice(0, 200) }
+			halfPrompt.includes("[User]: q 0") &&
+				halfPrompt.includes("[Assistant]: a 49"),
+			{ preview: halfPrompt.slice(0, 200) },
 		);
 	});
 }

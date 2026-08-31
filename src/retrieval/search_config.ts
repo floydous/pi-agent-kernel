@@ -33,8 +33,10 @@ const SETTINGS_FILE = path.join(
  * Strictly defaults to "lean" (AST-aware BM25) for ultra-fast, zero-overhead lexical search.
  */
 export function detectBestProfile(): "lean" | "hybrid" | "full" {
-	const kernelCfg = loadKernelConfig();
-	return kernelCfg.retrieval.default_profile || "lean";
+	const cpuCount = os.cpus().length;
+	if (cpuCount >= 8) return "full";
+	if (cpuCount >= 4) return "hybrid";
+	return "lean";
 }
 
 /**

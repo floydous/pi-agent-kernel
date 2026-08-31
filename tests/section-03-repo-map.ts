@@ -1,7 +1,6 @@
 // Section 3: Repository Map & PageRank
 // Tests computeRepoMap on a temporary workspace containing a real Python file.
 
-import * as path from "node:path";
 import { computeRepoMap } from "../src/retrieval/repomap";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
@@ -14,7 +13,7 @@ async function main(): Promise<void> {
 			assertPass(
 				"Repo map generation test passed",
 				repoMap.includes("calculator.py") && repoMap.includes("def calculate_tax"),
-				{ repoMap: repoMap.slice(0, 200) }
+				{ repoMap: repoMap.slice(0, 200) },
 			);
 			logPass("Repo map generation test passed!");
 		} finally {

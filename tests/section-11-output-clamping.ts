@@ -49,7 +49,7 @@ async function main(): Promise<void> {
 			"Match flood vertical capping works",
 			clamped2.truncated &&
 				clamped2.shownLines === 40 &&
-				clamped2.text.includes("Showing 40 of 150 line(s)"),
+				clamped2.text.includes("Truncated: 40/150 lines"),
 			{ clamped2 }
 		);
 		logPass("Match flood vertical capping verified (150 lines capped to 40 lines with footer)!");

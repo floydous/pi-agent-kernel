@@ -80,18 +80,22 @@ export function renderPostEditVerification(
 	reason?: string,
 ): string {
 	const hasSyntaxFailure = result.syntax.state === "failed";
-	const hasSyntaxUncertainty = ["unavailable", "inconclusive", "timeout"].includes(
-		result.syntax.state,
-	);
+	const hasSyntaxUncertainty = [
+		"unavailable",
+		"inconclusive",
+		"timeout",
+	].includes(result.syntax.state);
 	const hasDiagnosticError = result.diagnostic.findings.some(
 		(finding) => finding.severity === "error" || !finding.severity,
 	);
 	const hasDiagnosticWarning = result.diagnostic.findings.some(
 		(finding) => finding.severity === "warning" || finding.severity === "info",
 	);
-	const hasDiagnosticUncertainty = ["unavailable", "inconclusive", "timeout"].includes(
-		result.diagnostic.state,
-	);
+	const hasDiagnosticUncertainty = [
+		"unavailable",
+		"inconclusive",
+		"timeout",
+	].includes(result.diagnostic.state);
 	const overall =
 		result.edit === "not applied" ||
 		hasSyntaxFailure ||
@@ -101,6 +105,11 @@ export function renderPostEditVerification(
 			: hasSyntaxUncertainty || hasDiagnosticUncertainty || hasDiagnosticWarning
 				? "WARN!"
 				: "OK!";
+
+	// Token density: return empty string on completely clean verification
+	if (overall === "OK!") {
+		return "";
+	}
 
 	const groups = new Map<string, string[]>();
 	for (const [label, value] of verificationEntries(result)) {
