@@ -3,7 +3,11 @@
 // prompt now (so provider prompt caches can reuse them) and not in the
 // user message.
 
-import { buildCompactionSystemPrompt, buildChronologicalCompactionPrompt, ENHANCED_SUMMARIZATION_PROMPT } from "../src/context/compaction_enhanced";
+import {
+	buildCompactionSystemPrompt,
+	buildChronologicalCompactionPrompt,
+	ENHANCED_SUMMARIZATION_PROMPT,
+} from "../src/context/compaction_enhanced";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
