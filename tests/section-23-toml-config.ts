@@ -1,7 +1,7 @@
 // Section 23: Hierarchical TOML Configuration Loader
 // Tests parseToml, stringifyToml, and loadKernelConfig.
 
-import { parseToml, stringifyToml, loadKernelConfig } from "../config";
+import { parseToml, stringifyToml, loadKernelConfig } from "../src/config";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
