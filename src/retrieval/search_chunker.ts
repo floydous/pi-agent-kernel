@@ -38,7 +38,7 @@ export function computeHash(content: string): string {
  */
 export function chunkFile(rootDir: string, filePath: string, content?: string): CodeChunk[] {
 	const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath);
-	const relPath = path.relative(rootDir, absPath);
+	const relPath = path.relative(rootDir, absPath).replace(/\\/g, "/");
 
 	let fileContent = content;
 	if (fileContent === undefined) {

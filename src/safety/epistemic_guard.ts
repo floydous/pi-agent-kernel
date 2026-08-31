@@ -349,7 +349,7 @@ export class EpistemicGuard {
 
 		const normalized = this.normalize(resolvedPath, workspace);
 		const evidence = this.getSessionEvidence(sessionId).get(normalized);
-		const relPath = path.relative(workspace, resolvedPath) || filePath;
+		const relPath = (path.relative(workspace, resolvedPath) || filePath).replace(/\\/g, "/");
 		if (!evidence || evidence.kind !== "read") {
 			return {
 				allowed: false,

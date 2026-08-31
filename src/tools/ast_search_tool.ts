@@ -79,7 +79,8 @@ export function registerAstSearchTool(
 			}
 
 			const formatted = results.slice(0, 30).map((r) => {
-				let str = `${r.filePath}:${r.line} [${r.kind}] ${r.signature || r.name}`;
+				const normPath = r.filePath.replace(/\\/g, "/");
+				let str = `${normPath}:${r.line} [${r.kind}] ${r.signature || r.name}`;
 				if (r.codeBlock) {
 					str += `\n${r.codeBlock}`;
 				}
