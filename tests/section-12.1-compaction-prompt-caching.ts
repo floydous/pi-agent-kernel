@@ -51,8 +51,8 @@ async function main(): Promise<void> {
 			{ userMessage: userMessage.slice(0, 300) }
 		);
 		assertPass(
-			"User message contains the Git ground truth",
-			userMessage.includes("<git-workspace-ground-truth>") && userMessage.includes("clean"),
+			"User message contains the workspace state",
+			userMessage.includes("<workspace-state>") && userMessage.includes("clean"),
 			{ userMessage: userMessage.slice(0, 300) }
 		);
 		assertPass(
