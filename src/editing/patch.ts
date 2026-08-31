@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as diff from "diff";
-import { checkSyntaxContent } from "./git-verify";
+import { checkSyntaxContent } from "./syntax-verify"
 
 /**
  * Result of composing and validating a surgical patch.
