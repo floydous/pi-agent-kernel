@@ -32,7 +32,7 @@ export const Pastel = {
 	reset: RESET,
 	bullet: "\x1b[38;2;95;105;120m•\x1b[0m", // Muted slate delimiter (#5f6978)
 
-	// Workspace & Git Branch
+	// Workspace & Branch
 	path: (s: string) => `\x1b[38;2;140;185;215m${s}${RESET}`, // Soft Ice Cyan (#8cb9d7)
 	branch: (s: string) => `\x1b[38;2;185;165;225m${s}${RESET}`, // Soft Lavender (#b9a5e1)
 
@@ -141,7 +141,7 @@ export function renderFooter(
 ): string[] {
 	const parts: string[] = [];
 
-	// 1. Workspace & Git Branch
+	// 1. Workspace & Branch
 	const rawCwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 	const pwdStr = formatCwd(rawCwd);
 	const branch = footerData?.getGitBranch?.();
