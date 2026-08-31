@@ -32,7 +32,7 @@ These states must not be collapsed into `clean`.
 ## Git behavior
 
 The extension does not automatically stage, commit, reset, or otherwise alter
-a repository's Git history. Edits only modify the requested file after the
+a repository. Edits only modify the requested file after the
 candidate passes the local syntax gate.
 
 The edit result reports verification in `details`, while the visible message
