@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 				registerCommand(name: string, def: any) {
 					registeredCommands.push({ name, def });
 				},
-				registerProvider(name: string, def: any) {},
+				registerProvider(_name: string, _def: any) {},
 				on(event: string, handler: Function) {
 					if (!eventHandlers[event]) eventHandlers[event] = [];
 					eventHandlers[event].push(handler);
