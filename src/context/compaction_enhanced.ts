@@ -167,7 +167,7 @@ export function buildChronologicalCompactionPrompt(options: {
 	previousSummary?: string;
 	discardedConversationText: string;
 	recentTrajectoryDigest?: string;
-			workspaceState?: string;
+	workspaceState?: string;
 	customInstructions?: string;
 }): string {
 	let prompt = "";
@@ -186,9 +186,9 @@ export function buildChronologicalCompactionPrompt(options: {
 	}
 
 	// 4. Deterministic workspace state
-			if (options.workspaceState) {
-				prompt += `${options.workspaceState}\n\n`;
-			}
+	if (options.workspaceState) {
+		prompt += `${options.workspaceState}\n\n`;
+	}
 
 	// Note: The static summarization instructions (`ENHANCED_SUMMARIZATION_PROMPT`)
 	// are intentionally NOT included in the user message. They live in the system
