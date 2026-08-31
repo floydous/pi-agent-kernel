@@ -7,7 +7,7 @@
 
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { getSearchConfig } from "../retrieval/search_config";
-import { stripAnsi, truncateToWidth, visibleWidth } from "./tui_utils";
+import { truncateToWidth, visibleWidth } from "./tui_utils";
 
 export { stripAnsi, truncateToWidth, visibleWidth } from "./tui_utils";
 
