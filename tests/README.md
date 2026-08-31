@@ -33,8 +33,6 @@ npx tsx tests/section-13-epistemic-guard.ts
 | `section-05-single-block-patch.ts` | `applySurgicalPatch` with path-agnostic search/replace |
 | `section-06-multi-block-patch.ts` | `applyMultiBlockPatch` with disjoint edit blocks |
 | `section-07-syntax-verification.ts` | `checkSyntax` detects valid and broken Python |
-| `section-08-git-autocommit-undo.ts` | `autoCommitFile` and `undoLastCommit` work end-to-end |
-| `section-08.1-undo-preserves-working-tree.ts` | `undoLastCommit` uses `--mixed` (preserves working tree) and reports `dirtyWorkingTree` |
 | `section-09-session-repair.ts` | `sanitizeSessionFiles` heals missing `usage.cost.total` |
 | `section-10-hybrid-search.ts` | `HybridSearchIndex` chunking, search, and indexing fallback |
 | `section-11-output-clamping.ts` | `clampCommandOutput` and `isDiscoveryCommand` |
@@ -55,5 +53,5 @@ npx tsx tests/section-13-epistemic-guard.ts
 
 ## Notes
 
-- Each test file creates its own temp git workspace. Tests are fully independent — you can run them in any order, in parallel, or skip individual ones.
+- Each test file creates its own isolated temporary workspace where needed. Tests are fully independent — you can run them in any order, in parallel, or skip individual ones.
 - `assertPass` throws on failure (rather than calling `process.exit`) so the runner can catch and continue with the next section.
