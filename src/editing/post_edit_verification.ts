@@ -1,4 +1,4 @@
-import { checkSyntax } from "./git-verify";
+import { checkSyntax } from "./syntax-verify";
 
 export type VerificationState =
 	| "clean"
