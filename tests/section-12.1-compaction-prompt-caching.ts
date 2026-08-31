@@ -26,7 +26,7 @@ async function main(): Promise<void> {
 			previousSummary: "## Progress",
 			discardedConversationText: "User: hi\nAssistant: hello",
 			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
-			workspaceState: "<workspace-state>clean</workspace-state>",
+			gitGroundTruth: "<git-workspace-ground-truth>clean</git-workspace-ground-truth>",
 			customInstructions: "preserve this",
 		});
 		assertPass(
@@ -51,8 +51,8 @@ async function main(): Promise<void> {
 			{ userMessage: userMessage.slice(0, 300) }
 		);
 		assertPass(
-			"User message contains the workspace state",
-			userMessage.includes("<workspace-state>") && userMessage.includes("clean"),
+			"User message contains the Git ground truth",
+			userMessage.includes("<git-workspace-ground-truth>") && userMessage.includes("clean"),
 			{ userMessage: userMessage.slice(0, 300) }
 		);
 		assertPass(
