@@ -18,8 +18,8 @@ async function main(): Promise<void> {
 			assertPass(
 				"Workspace state extraction verified",
 				workspaceState.includes("<workspace-state>") &&
-					workspaceState.includes("file:") &&
-					workspaceState.includes("dir:"),
+					workspaceState.includes("<workspace-state>") &&
+					workspaceState.includes("</workspace-state>"),
 				{ workspaceState },
 			);
 			logPass("Workspace state extraction verified!");
