@@ -16,7 +16,6 @@ async function main(): Promise<void> {
 			// Test 1: Git Ground Truth Extraction
 			const gitGroundTruth = extractGitGroundTruth(process.cwd());
 			assertPass(
-				"Workspace state extraction verified",
 				"Git workspace ground truth extraction verified",
 				gitGroundTruth.includes("<git-workspace-ground-truth>") &&
 					gitGroundTruth.includes("[Status]:") &&
@@ -123,7 +122,7 @@ async function main(): Promise<void> {
 				idxBaseline !== -1 &&
 					idxDiscarded !== -1 &&
 					idxTrajectory !== -1 &&
-				idxGit !== -1 &&
+					idxGit !== -1 &&
 				idxBaseline < idxDiscarded &&
 				idxDiscarded < idxTrajectory &&
 				idxTrajectory < idxGit,
