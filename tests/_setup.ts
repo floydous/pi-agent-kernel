@@ -1,5 +1,5 @@
 // Shared test setup utilities.
-// Provides a temporary git workspace and assertion helpers used by all
+// Provides a temporary workspace and assertion helpers used by all
 // section-XX-*.ts files in this directory.
 
 import * as fs from "node:fs";
@@ -39,15 +39,14 @@ def main():
 `;
 
 /**
- * Create a fresh temporary git workspace populated with the standard test
+ * Create a fresh temporary workspace populated with the standard test
  * files. Each test that needs a workspace should call this at the top of
  * its `run()` function, so tests are fully independent.
  */
-export function createTestWorkspace(prefix: string = "pi_kernel_test_"): TestWorkspace {
+export function createTestWorkspace(
+	prefix: string = "pi_kernel_test_",
+): TestWorkspace {
 	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-	execSync("git init -b main", { cwd: tempDir });
-	execSync('git -c user.name="Test" -c user.email="[email protected]" commit --allow-empty -m "init"', { cwd: tempDir });
-
 	const calculatorPath = path.join(tempDir, "calculator.py");
 	const mainPath = path.join(tempDir, "main.py");
 	fs.writeFileSync(calculatorPath, PY_CODE, "utf8");
@@ -93,7 +92,11 @@ export class AssertionError extends Error {
  * an AssertionError. Throwing (instead of process.exit) lets the test runner
  * catch the failure and continue with other sections.
  */
-export function assertPass(label: string, cond: boolean, details?: unknown): void {
+export function assertPass(
+	label: string,
+	cond: boolean,
+	details?: unknown,
+): void {
 	if (!cond) {
 		console.error(`✗ ${label}`, details ?? "");
 		throw new AssertionError(label, details);
@@ -111,7 +114,10 @@ export function logPass(label: string): void {
  * Run a section function with consistent error handling.
  * If the section throws, the error is printed and the process exits 1.
  */
-export async function runSection(name: string, fn: () => void | Promise<void>): Promise<void> {
+export async function runSection(
+	name: string,
+	fn: () => void | Promise<void>,
+): Promise<void> {
 	logSection(name);
 	try {
 		await fn();
