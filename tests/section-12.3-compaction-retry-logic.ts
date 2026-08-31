@@ -28,7 +28,7 @@ async function main(): Promise<void> {
 			previousSummary: "## Previous summary\n...",
 			discardedConversationText: largeConversation,
 			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
-			gitGroundTruth: "<git-workspace-ground-truth>clean</git-workspace-ground-truth>",
+			workspaceState: "<workspace-state>clean</workspace-state>",
 			customInstructions: "preserve",
 		});
 
@@ -36,7 +36,7 @@ async function main(): Promise<void> {
 			previousSummary: "## Previous summary\n...",
 			discardedConversationText: smallConversation,
 			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
-			gitGroundTruth: "<git-workspace-ground-truth>clean</git-workspace-ground-truth>",
+			workspaceState: "<workspace-state>clean</workspace-state>",
 			customInstructions: "preserve",
 		});
 
