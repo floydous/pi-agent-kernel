@@ -167,7 +167,7 @@ export function buildChronologicalCompactionPrompt(options: {
 	previousSummary?: string;
 	discardedConversationText: string;
 	recentTrajectoryDigest?: string;
-	gitGroundTruth?: string;
+	workspaceState?: string;
 	customInstructions?: string;
 }): string {
 	let prompt = "";
@@ -186,8 +186,8 @@ export function buildChronologicalCompactionPrompt(options: {
 	}
 
 	// 4. Deterministic workspace state
-	if (options.gitGroundTruth) {
-		prompt += `${options.gitGroundTruth}\n\n`;
+	if (options.workspaceState) {
+		prompt += `${options.workspaceState}\n\n`;
 	}
 
 	// Note: The static summarization instructions (`ENHANCED_SUMMARIZATION_PROMPT`)
@@ -321,7 +321,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				previousSummary: preparation.previousSummary,
 				discardedConversationText: conversationText,
 				recentTrajectoryDigest,
-				gitGroundTruth: workspaceState,
+				workspaceState,
 				customInstructions,
 			});
 
@@ -525,7 +525,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 						previousSummary: preparation.previousSummary,
 						discardedConversationText: conversationText,
 						recentTrajectoryDigest,
-						gitGroundTruth: workspaceState,
+						workspaceState,
 						customInstructions,
 					});
 					// Reset state for retry
