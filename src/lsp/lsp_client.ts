@@ -13,6 +13,7 @@ import {
 } from "./lsp_types";
 import { pathToUri, normalizeLocations } from "./lsp_formatter";
 import { kernelDebug } from "../safety/kernel_debug";
+import { loadKernelConfig } from "../config";
 
 export interface StdioLspClientOptions {
   command: string;
@@ -42,6 +43,7 @@ export class StdioLspClient {
   >();
   private buffer = Buffer.alloc(0);
   private diagnosticsCache = new Map<string, LspDiagnostic[]>();
+  private diagnosticListeners = new Map<string, Array<(diags: LspDiagnostic[]) => void>>();
   private openDocuments = new Map<string, { version: number; text: string }>();
   private lastActivityTime = Date.now();
   private serverCapabilities: any = {};
@@ -268,6 +270,17 @@ export class StdioLspClient {
       const diagnostics = notif.params?.diagnostics || [];
       if (uri) {
         this.diagnosticsCache.set(uri, diagnostics);
+        const listeners = this.diagnosticListeners.get(uri);
+        if (listeners && listeners.length > 0) {
+          this.diagnosticListeners.delete(uri);
+          for (const listener of listeners) {
+            try {
+              listener(diagnostics);
+            } catch (e) {
+              kernelDebug(e);
+            }
+          }
+        }
       }
     }
   }
@@ -391,10 +404,39 @@ export class StdioLspClient {
   }
 
   /**
+   * Wait for a push diagnostic notification event for a specific document URI.
+   */
+  private waitForPushDiagnostics(uri: string, timeoutMs: number): Promise<LspDiagnostic[] | null> {
+    return new Promise((resolve) => {
+      let timer: NodeJS.Timeout | null = null;
+
+      const onArrived = (diags: LspDiagnostic[]) => {
+        if (timer) clearTimeout(timer);
+        resolve(diags);
+      };
+
+      timer = setTimeout(() => {
+        const listeners = this.diagnosticListeners.get(uri) || [];
+        const filtered = listeners.filter((l) => l !== onArrived);
+        if (filtered.length > 0) {
+          this.diagnosticListeners.set(uri, filtered);
+        } else {
+          this.diagnosticListeners.delete(uri);
+        }
+        resolve(null);
+      }, timeoutMs);
+
+      const listeners = this.diagnosticListeners.get(uri) || [];
+      listeners.push(onArrived);
+      this.diagnosticListeners.set(uri, listeners);
+    });
+  }
+
+  /**
    * Get diagnostics with an explicit uncertainty status.
    * An empty result is only clean when the server positively reported it.
    */
-  public async getDiagnosticsResult(filePath: string): Promise<{
+  public async getDiagnosticsResult(filePath: string, timeoutMsOverride?: number): Promise<{
     status: "clean" | "findings" | "timeout" | "inconclusive";
     diagnostics: LspDiagnostic[];
   }> {
@@ -410,6 +452,9 @@ export class StdioLspClient {
       };
     }
 
+    const config = loadKernelConfig();
+    const timeoutMs = timeoutMsOverride ?? config.lsp.diagnostic_timeout_ms ?? 4000;
+
     // Pull diagnostics are optional in LSP 3.17.
     if (this.serverCapabilities.diagnosticProvider) {
       try {
@@ -418,7 +463,7 @@ export class StdioLspClient {
           {
             textDocument: { uri },
           },
-          2500,
+          timeoutMs,
         );
         if (pullRes?.items && Array.isArray(pullRes.items)) {
           this.diagnosticsCache.set(uri, pullRes.items);
@@ -431,7 +476,7 @@ export class StdioLspClient {
         kernelDebug(e);
         const message = e instanceof Error ? e.message : String(e);
         // Method-not-found / unsupported pull is not a failed diagnostic run;
-        // continue to the push-diagnostic cache below.
+        // continue to the push-diagnostic event wait below.
         if (message.includes("timed out")) {
           // If pull timed out but push cache arrived, prefer cache
           if (this.diagnosticsCache.has(uri)) {
@@ -446,19 +491,15 @@ export class StdioLspClient {
       }
     }
 
-    // Push-only servers must publish a fresh result after didChange/didOpen.
-    // Poll for up to 1500ms if not immediately in cache
-    for (let i = 0; i < 15; i++) {
-      if (this.diagnosticsCache.has(uri)) break;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    if (!this.diagnosticsCache.has(uri)) {
+    // Push-only servers emit textDocument/publishDiagnostics after didOpen/didChange.
+    // Event-driven wait: resolves as soon as the server publishes without sleep polling.
+    const pushResult = await this.waitForPushDiagnostics(uri, timeoutMs);
+    if (pushResult === null) {
       return { status: "inconclusive", diagnostics: [] };
     }
-    const diagnostics = this.diagnosticsCache.get(uri) || [];
     return {
-      status: diagnostics.length > 0 ? "findings" : "clean",
-      diagnostics,
+      status: pushResult.length > 0 ? "findings" : "clean",
+      diagnostics: pushResult,
     };
   }
 
