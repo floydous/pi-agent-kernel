@@ -28,7 +28,7 @@ async function main(): Promise<void> {
 			previousSummary: "## Previous summary\n...",
 			discardedConversationText: largeConversation,
 			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
-			workspaceState: "<workspace-state>clean</workspace-state>",
+			gitGroundTruth: "<git-workspace-ground-truth>clean</git-workspace-ground-truth>",
 			customInstructions: "preserve",
 		});
 
