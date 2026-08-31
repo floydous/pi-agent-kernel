@@ -17,7 +17,7 @@ import {
 	extractLocalSymbolHover,
 	searchAstSymbols,
 } from "../retrieval/ast_search";
-import { checkSyntax } from "../editing/git-verify";
+import { checkSyntax } from "../editing/syntax-verify";
 import { kernelDebug } from "../safety/kernel_debug";
 
 /** Extracted from index.ts — registers the `lsp` tool. */
