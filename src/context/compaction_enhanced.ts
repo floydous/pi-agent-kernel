@@ -185,7 +185,7 @@ export function buildChronologicalCompactionPrompt(options: {
 	previousSummary?: string;
 	discardedConversationText: string;
 	recentTrajectoryDigest?: string;
-	gitGroundTruth?: string;
+			workspaceState?: string;
 	customInstructions?: string;
 }): string {
 	let prompt = "";
@@ -204,9 +204,9 @@ export function buildChronologicalCompactionPrompt(options: {
 	}
 
 	// 4. Deterministic workspace state
-	if (options.gitGroundTruth) {
-		prompt += `${options.gitGroundTruth}\n\n`;
-	}
+			if (options.workspaceState) {
+				prompt += `${options.workspaceState}\n\n`;
+			}
 
 	// Note: The static summarization instructions (`ENHANCED_SUMMARIZATION_PROMPT`)
 	// are intentionally NOT included in the user message. They live in the system
@@ -324,7 +324,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 
 			// Extract deterministic workspace state
 			const workspaceDir = ctx.cwd || process.cwd();
-			const gitGroundTruth = extractGitGroundTruth(workspaceDir);
+			const workspaceState = extractWorkspaceState(workspaceDir);
 			const recentTrajectoryDigest = extractTrajectoryDigest(branchEntries, 40);
 
 			// Build strictly chronological, grounded prompt.
@@ -339,7 +339,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				previousSummary: preparation.previousSummary,
 				discardedConversationText: conversationText,
 				recentTrajectoryDigest,
-				gitGroundTruth,
+				workspaceState,
 				customInstructions,
 			});
 
@@ -543,7 +543,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 						previousSummary: preparation.previousSummary,
 						discardedConversationText: conversationText,
 						recentTrajectoryDigest,
-						gitGroundTruth,
+						workspaceState,
 						customInstructions,
 					});
 					// Reset state for retry
@@ -695,8 +695,8 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 			}
 
 			// Append deterministic Git workspace state
-			if (gitGroundTruth) {
-				summaryText += `\n\n${gitGroundTruth}`;
+			if (workspaceState) {
+				summaryText += `\n\n${workspaceState}`;
 			}
 
 			// Compute read/modified files
