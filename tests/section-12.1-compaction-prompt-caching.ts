@@ -3,7 +3,7 @@
 // prompt now (so provider prompt caches can reuse them) and not in the
 // user message.
 
-import { buildCompactionSystemPrompt, buildChronologicalCompactionPrompt, ENHANCED_SUMMARIZATION_PROMPT } from "../context/compaction_enhanced";
+import { buildCompactionSystemPrompt, buildChronologicalCompactionPrompt, ENHANCED_SUMMARIZATION_PROMPT } from "../src/context/compaction_enhanced";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
 			previousSummary: "## Progress",
 			discardedConversationText: "User: hi\nAssistant: hello",
 			recentTrajectoryDigest: "<recent-turn-actions-digest>test</recent-turn-actions-digest>",
-			gitGroundTruth: "<git-workspace-ground-truth>clean</git-workspace-ground-truth>",
+			workspaceState: "<workspace-state>clean</workspace-state>",
 			customInstructions: "preserve this",
 		});
 		assertPass(
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
 		);
 		assertPass(
 			"User message contains the git ground truth",
-			userMessage.includes("<git-workspace-ground-truth>") && userMessage.includes("clean"),
+			userMessage.includes("<workspace-state>") && userMessage.includes("clean"),
 			{ userMessage: userMessage.slice(0, 300) }
 		);
 		assertPass(
