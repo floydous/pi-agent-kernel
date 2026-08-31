@@ -51,7 +51,7 @@ async function main(): Promise<void> {
 			{ userMessage: userMessage.slice(0, 300) }
 		);
 		assertPass(
-			"User message contains the git ground truth",
+			"User message contains the workspace state",
 			userMessage.includes("<workspace-state>") && userMessage.includes("clean"),
 			{ userMessage: userMessage.slice(0, 300) }
 		);
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 		// 5. The static prompt is the bulk of the system prompt.
 		//    The `ENHANCED_SUMMARIZATION_PROMPT` is ~776 tokens (measured).
 		//    The system prompt should be: 776 (static) + ~30 (role prefix) = ~806.
-		const roleOnly = "You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against git ground truth and recent tool outputs. Do NOT continue the conversation.\n\n";
+		const roleOnly = "You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against workspace state and recent tool outputs. Do NOT continue the conversation.\n\n";
 		assertPass(
 			"System prompt is the static instructions plus a short role prefix",
 			systemPrompt === roleOnly + ENHANCED_SUMMARIZATION_PROMPT,
