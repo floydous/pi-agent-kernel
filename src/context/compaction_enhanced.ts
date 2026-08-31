@@ -306,7 +306,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 
 			// Extract deterministic ground truths
 			const workspaceDir = ctx.cwd || process.cwd();
-			const gitGroundTruth = extractGitGroundTruth(workspaceDir);
+			const workspaceState = extractWorkspaceState(workspaceDir);
 			const recentTrajectoryDigest = extractTrajectoryDigest(branchEntries, 40);
 
 			// Build strictly chronological, grounded prompt.
@@ -321,7 +321,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				previousSummary: preparation.previousSummary,
 				discardedConversationText: conversationText,
 				recentTrajectoryDigest,
-				gitGroundTruth,
+				gitGroundTruth: workspaceState,
 				customInstructions,
 			});
 
@@ -676,9 +676,9 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 				}
 			}
 
-			// Append deterministic git workspace state
-			if (gitGroundTruth) {
-				summaryText += `\n\n${gitGroundTruth}`;
+			// Append deterministic workspace state
+			if (workspaceState) {
+				summaryText += `\n\n${workspaceState}`;
 			}
 
 			// Compute read/modified files
