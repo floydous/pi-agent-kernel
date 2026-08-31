@@ -208,12 +208,12 @@ export function buildChronologicalCompactionPrompt(options: {
  * so that providers' prompt caches can reuse the static portion across calls.
  *
  * The user message built by `buildChronologicalCompactionPrompt` contains only
- * varying data (conversation, git state, trajectory digest). The system prompt
+ * varying data (conversation, workspace state, trajectory digest). The system prompt
  * here is the stable, cacheable half.
  */
 export function buildCompactionSystemPrompt(): string {
 	return (
-		"You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against git ground truth and recent tool outputs. Do NOT continue the conversation.\n\n" +
+		"You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against workspace state and recent tool outputs. Do NOT continue the conversation.\n\n" +
 		ENHANCED_SUMMARIZATION_PROMPT
 	);
 }
