@@ -58,7 +58,7 @@ Enumerate key ground truths established by real tool executions:
 
 Keep the summary dense, grounded, and actionable. Do NOT lose critical negative constraints or verified errors.`;
 
-export function extractGitGroundTruth(cwd: string): string {
+export function extractWorkspaceState(cwd: string): string {
 	try {
 		// Keep Git subprocess output captured so warnings do not leak into the TUI.
 		const commonOpts = {
@@ -80,10 +80,10 @@ export function extractGitGroundTruth(cwd: string): string {
 			.toString()
 			.trim();
 
-		let out = `<git-workspace-ground-truth>\n[Status]:\n${gitStatus || "clean (working tree clean)"}`;
-		if (gitLog) out += `\n\n[Recent Commits]:\n${gitLog}`;
-		if (gitDiffStat) out += `\n\n[Uncommitted Diff Stat]:\n${gitDiffStat}`;
-		out += `\n</git-workspace-ground-truth>`;
+		let out = `<workspace-state>\n[Status]:\n${gitStatus || "clean (workspace clean)"}`;
+		if (gitLog) out += `\n\n[Recent Entries]:\n${gitLog}`;
+		if (gitDiffStat) out += `\n\n[Uncommitted Changes]:\n${gitDiffStat}`;
+		out += `\n</workspace-state>`;
 		return out;
 	} catch {
 		return "";
@@ -231,7 +231,7 @@ export function buildChronologicalCompactionPrompt(options: {
  */
 export function buildCompactionSystemPrompt(): string {
 	return (
-		"You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against git ground truth and recent tool outputs. Do NOT continue the conversation.\n\n" +
+		"You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against workspace state and recent tool outputs. Do NOT continue the conversation.\n\n" +
 		ENHANCED_SUMMARIZATION_PROMPT
 	);
 }
