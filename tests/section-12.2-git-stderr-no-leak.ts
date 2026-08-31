@@ -1,6 +1,4 @@
-// Section 12.2: extractWorkspaceState does not leak filesystem errors to the parent TUI
-// Verifies that the function captures stderr (e.g. CRLF warnings) instead of
-// inheriting the parent's stderr stream.
+// Section 12.2: bounded workspace-state extraction.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -10,7 +8,7 @@ import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
 	await runSection(
-		"12.2. extractWorkspaceState does not leak filesystem errors to TUI",
+		"12.2. Bounded workspace-state extraction",
 		() => {
 			// Set up a workspace with a regular file and a nested directory.
 			const tmpDir = fs.mkdtempSync(
