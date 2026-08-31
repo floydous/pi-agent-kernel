@@ -5,7 +5,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { execSync } from "node:child_process";
 
 export interface TestWorkspace {
 	tempDir: string;
