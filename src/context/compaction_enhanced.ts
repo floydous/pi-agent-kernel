@@ -92,7 +92,7 @@ export function extractGitGroundTruth(cwd: string): string {
 		}
 		out += `\n</git-workspace-ground-truth>`;
 		return out;
-	} catch (e) {
+	} catch {
 		return "";
 	}
 }
