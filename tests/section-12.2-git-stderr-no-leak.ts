@@ -1,4 +1,4 @@
-// Section 12.2: bounded workspace-state extraction.
+// Compatibility wrapper for the renamed workspace-state test.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
