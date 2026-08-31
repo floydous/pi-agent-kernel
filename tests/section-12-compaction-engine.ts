@@ -18,7 +18,6 @@ async function main(): Promise<void> {
 			assertPass(
 				"Workspace state extraction verified",
 				workspaceState.includes("<workspace-state>") &&
-					workspaceState.includes("<workspace-state>") &&
 					workspaceState.includes("</workspace-state>"),
 				{ workspaceState },
 			);
@@ -123,9 +122,9 @@ async function main(): Promise<void> {
 					idxDiscarded !== -1 &&
 					idxTrajectory !== -1 &&
 					idxWorkspace !== -1 &&
-				idxBaseline < idxDiscarded &&
-				idxDiscarded < idxTrajectory &&
-				idxTrajectory < idxWorkspace,
+					idxBaseline < idxDiscarded &&
+					idxDiscarded < idxTrajectory &&
+					idxTrajectory < idxWorkspace,
 				{ idxBaseline, idxDiscarded, idxTrajectory, idxWorkspace },
 			);
 			assertPass(
