@@ -610,17 +610,17 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 
 		// 9b. Preserve the host write-tool compatibility path. The custom edit
-		// tool owns its complete verification and commit lifecycle; intercepting
-		// edit results here would duplicate syntax/LSP/commit work.
+		// tool owns its complete verification lifecycle; intercepting edit results
+		// here would duplicate syntax/LSP work.
 		if (toolName === "write") {
 			const input = event.input as any;
 			const targetPath = input?.path;
 
 			// The harness does not reliably propagate result-level isError to this
 			// hook, so a FAILED edit can still reach here. Committing then would
-			// stage untracked files wholesale under a misleading "pi: edit <file>"
-			// message even though nothing was applied. Detect the edit tool's
-			// failure markers in the result text and bail out before committing.
+				// stage untracked files wholesale under a misleading message even though
+				// nothing was applied. Detect the edit tool's failure markers in the
+				// result text and bail out before post-write checks.
 			const resultText = (event.content || [])
 				.map((c: any) =>
 					c.type === "text" && typeof c.text === "string" ? c.text : "",
