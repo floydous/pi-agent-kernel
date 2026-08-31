@@ -1,5 +1,5 @@
 // Section 3: Repository Map & PageRank
-// Tests computeRepoMap on a git workspace containing a real Python file.
+// Tests computeRepoMap on a temporary workspace containing a real Python file.
 
 import * as path from "node:path";
 import { computeRepoMap } from "../src/retrieval/repomap";
