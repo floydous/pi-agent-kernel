@@ -270,7 +270,7 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 		} else {
 			return {
 				valid: true,
-				status: "clean",
+				status: "not run",
 			};
 		}
 		return { valid: true, status: "clean" };

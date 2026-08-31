@@ -193,7 +193,7 @@ export async function verifyEditedFile(
 
 	return {
 		edit: "applied",
-		syntax: { state: "clean" },
+		syntax: { state: syntax.status || "clean" },
 		diagnostic,
 		tests: "not run",
 	};
