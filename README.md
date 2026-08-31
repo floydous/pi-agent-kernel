@@ -54,5 +54,5 @@ entry is `src/index.ts`.
 4. **Epistemic Read-Before-Write (`src/safety/`)**: Blocks hallucinated file mutations on uninspected files.
 5. **Deterministic Test Oracle (`src/safety/`)**: Evaluates real binary exit codes (`/oracle [cmd]`).
    > ⚠️ `/oracle <command>` executes the given command through the system shell with your user privileges — by design, as an explicitly user-invoked verification escape hatch. Only pass commands you trust.
-6. **Chronological Compaction (`src/context/`)**: Reconciles task progress against deterministic Git state.
+6. **Chronological Compaction (`src/context/`)**: Reconciles task progress against deterministic workspace state.
 7. **Semantic Pastel Footer (`src/ui/`)**: 24-bit TrueColor ANSI statusline with live token usage and context percentage gauge.
