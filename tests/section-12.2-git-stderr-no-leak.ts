@@ -7,40 +7,32 @@ import { extractWorkspaceState } from "../src/context/compaction_enhanced";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
-	await runSection(
-		"12.2. Bounded workspace-state extraction",
-		() => {
-			// Set up a workspace with a regular file and a nested directory.
-			const tmpDir = fs.mkdtempSync(
-				path.join(os.tmpdir(), "epistemic-workspace-state-"),
+	await runSection("12.2. Bounded workspace-state extraction", () => {
+		const tmpDir = fs.mkdtempSync(
+			path.join(os.tmpdir(), "epistemic-workspace-state-"),
+		);
+		try {
+			fs.mkdirSync(path.join(tmpDir, "nested"));
+			fs.writeFileSync(path.join(tmpDir, "workspace.txt"), "// regular file\n", "utf8");
+
+			const out = extractWorkspaceState(tmpDir);
+			assertPass(
+				"extractWorkspaceState returns workspace entries",
+				typeof out === "string" &&
+					out.includes("<workspace-state>") &&
+					out.includes("file: workspace.txt") &&
+					out.includes("dir: nested"),
+				{ outPreview: out.slice(0, 300) },
 			);
+			logPass("extractWorkspaceState returns bounded workspace entries");
+		} finally {
 			try {
-				fs.mkdirSync(path.join(tmpDir, "nested"));
-
-				// Write a regular file and leave the nested directory visible.
-				const target = path.join(tmpDir, "workspace.txt");
-				fs.writeFileSync(target, "// regular file\n", "utf8");
-
-				// Now run extractWorkspaceState.
-				const out = extractWorkspaceState(tmpDir);
-				assertPass(
-					"extractWorkspaceState returns workspace entries",
-					typeof out === "string" &&
-						out.includes("<workspace-state>") &&
-						out.includes("file: workspace.txt") &&
-						out.includes("dir: nested"),
-					{ outPreview: out.slice(0, 300) },
-				);
-				logPass("extractWorkspaceState returns bounded workspace entries");
-			} finally {
-				try {
-					fs.rmSync(tmpDir, { recursive: true, force: true });
-				} catch (cleanupError) {
-					console.warn("Temporary test workspace cleanup failed:", cleanupError);
-				}
+				fs.rmSync(tmpDir, { recursive: true, force: true });
+			} catch (cleanupError) {
+				console.warn("Temporary test workspace cleanup failed:", cleanupError);
 			}
-		},
-	);
+		}
+	});
 }
 
 main().catch((err) => {
