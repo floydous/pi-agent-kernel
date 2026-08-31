@@ -75,7 +75,7 @@ function main(): void {
 	// --- Test 4: the original crash reproduction ---
 	// The actual line that crashed the TUI at 204-wide.
 	{
-		const sourceLine = `      "You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against git ground truth and recent tool outputs. Do NOT continue the conversation.\n\n`;
+		const sourceLine = `      "You are a context summarization assistant. Produce the structured summary following the exact format specified. Reconcile all tasks against workspace state and recent tool outputs. Do NOT continue the conversation.\n\n`;
 		const themedOutput = `\n${sourceLine}`;
 		const t = makeOutputText(themedOutput);
 		// Render at the original 204 width AND at the wider 207 width that the
