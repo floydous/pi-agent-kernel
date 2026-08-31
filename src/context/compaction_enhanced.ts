@@ -525,7 +525,7 @@ export function registerCustomCompaction(pi: ExtensionAPI) {
 						previousSummary: preparation.previousSummary,
 						discardedConversationText: conversationText,
 						recentTrajectoryDigest,
-						gitGroundTruth,
+						gitGroundTruth: workspaceState,
 						customInstructions,
 					});
 					// Reset state for retry
