@@ -4,7 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { extractFileTags } from "../retrieval/repomap";
 import { kernelDebug } from "../safety/kernel_debug";
 
-export const ENHANCED_SUMMARIZATION_PROMPT = `The messages and ground truth above represent an evolving agent trajectory. Create a structured context checkpoint summary that another LLM will use to continue the work seamlessly.
+export const ENHANCED_SUMMARIZATION_PROMPT = `The messages and workspace state above represent an evolving agent trajectory. Create a structured context checkpoint summary that another LLM will use to continue the work seamlessly.
 
 CRITICAL INSTRUCTIONS FOR CHRONOLOGICAL RECONCILIATION & EPISTEMIC GROUNDING:
 1. STRICT MONOTONIC TASK RECONCILIATION:
