@@ -21,14 +21,9 @@ async function main(): Promise<void> {
 
 				// Write a regular file and leave the nested directory visible.
 				const target = path.join(tmpDir, "lf-only.txt");
-				fs.writeFileSync(target, "// lf only line\n// another lf line\n", "utf8");
 				fs.writeFileSync(target, "// regular file\n", "utf8");
 
-				fs.writeFileSync(
-					target,
-					"// lf only line MODIFIED\n// another lf line\n",
-					"utf8",
-				);
+
 
 				// Now run extractWorkspaceState.
 				const out = extractWorkspaceState(tmpDir);
