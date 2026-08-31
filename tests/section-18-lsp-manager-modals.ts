@@ -1,6 +1,6 @@
 // Section 18: LSP - LspManager lifecycle, LspControlModal, LspDownloadModal
 
-import { LspManager, LspControlModal, LspDownloadModal } from "../lsp";
+import { LspManager, LspControlModal, LspDownloadModal } from "../src/lsp";
 import { runSection, assertPass, logPass } from "./_setup";
 
 async function main(): Promise<void> {
