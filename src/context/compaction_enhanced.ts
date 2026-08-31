@@ -58,15 +58,41 @@ Enumerate key ground truths established by real tool executions:
 
 Keep the summary dense, grounded, and actionable. Do NOT lose critical negative constraints, verified errors, or git state.`;
 
-export function extractWorkspaceState(cwd: string): string {
+export function extractGitGroundTruth(cwd: string): string {
 	try {
-		const files = fs
-			.readdirSync(cwd, { withFileTypes: true })
-			.filter((entry) => !entry.name.startsWith("."))
-			.slice(0, 100)
-			.map((entry) => `${entry.isDirectory() ? "dir" : "file"}: ${entry.name}`);
-		return `<workspace-state>\n${files.join("\n")}\n</workspace-state>`;
-	} catch {
+		// Use `stdio: "pipe"` to ensure stderr (e.g. CRLF warnings from git) does
+		// not leak to the parent process's TUI. Without this, `git diff --stat`
+		// in particular emits "LF will be replaced by CRLF" warnings that get
+		// captured into the visible UI when this function runs during compaction.
+		const commonOpts = {
+			cwd,
+			encoding: "utf8" as const,
+			timeout: 5000,
+			stdio: "pipe" as const,
+		};
+		const gitStatus = child_process
+			.execFileSync("git", ["status", "-s"], commonOpts)
+			.toString()
+			.trim();
+		const gitLog = child_process
+			.execFileSync("git", ["log", "-n", "5", "--oneline"], commonOpts)
+			.toString()
+			.trim();
+		const gitDiffStat = child_process
+			.execFileSync("git", ["diff", "--stat"], commonOpts)
+			.toString()
+			.trim();
+
+		let out = `<git-workspace-ground-truth>\n[Status]:\n${gitStatus || "clean (working tree clean)"}`;
+		if (gitLog) {
+			out += `\n\n[Recent Commits]:\n${gitLog}`;
+		}
+		if (gitDiffStat) {
+			out += `\n\n[Uncommitted Diff Stat]:\n${gitDiffStat}`;
+		}
+		out += `\n</git-workspace-ground-truth>`;
+		return out;
+	} catch (e) {
 		return "";
 	}
 }
