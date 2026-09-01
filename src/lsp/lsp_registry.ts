@@ -70,12 +70,12 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
     markers: ["tsconfig.json", "jsconfig.json", "package.json"],
     commands: [
-      { bin: "typescript-language-server", args: ["--stdio"] },
       { bin: "vtsls", args: ["--stdio"] },
+      { bin: "typescript-language-server", args: ["--stdio"] },
       { bin: "oxc_language_server", args: [] },
       { bin: "biome", args: ["lsp-proxy"] },
     ],
-    installHint: "npm install -g typescript-language-server typescript",
+    installHint: "npm install -g @vtsls/language-server typescript",
   },
   python: {
     languageId: "python",
@@ -354,7 +354,7 @@ export function findExecutable(
   for (const dir of searchDirs) {
     if (!dir || !fs.existsSync(dir)) continue;
     const candidates = isWindows
-      ? [binName, `${binName}.exe`, `${binName}.cmd`, `${binName}.bat`]
+      ? [`${binName}.cmd`, `${binName}.exe`, `${binName}.bat`, binName]
       : [binName];
 
     for (const cand of candidates) {

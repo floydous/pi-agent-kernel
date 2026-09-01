@@ -11,11 +11,25 @@ import {
   LspSymbolKind,
 } from "./lsp_types";
 
+export function normalizeUri(uri: string): string {
+  try {
+    let p = fileURLToPath(uri);
+    if (process.platform === "win32" && /^[a-zA-Z]:/.test(p)) {
+      p = p[0].toLowerCase() + p.slice(1);
+    }
+    const u = pathToFileURL(p).href;
+    return u.replace(/^file:\/\/\/([a-zA-Z]):/, (_, letter) => "file:///" + letter.toLowerCase() + ":");
+  } catch {
+    return uri;
+  }
+}
+
 /**
  * Robust cross-platform path to file:// URI conversion
  */
 export function pathToUri(filePath: string): string {
-  return pathToFileURL(filePath).href;
+  const abs = path.resolve(filePath);
+  return normalizeUri(pathToFileURL(abs).href);
 }
 
 /**
@@ -23,7 +37,11 @@ export function pathToUri(filePath: string): string {
  */
 export function uriToPath(uri: string): string {
   try {
-    return fileURLToPath(uri);
+    const raw = fileURLToPath(uri);
+    if (process.platform === "win32" && /^[a-z]:/i.test(raw)) {
+      return raw[0].toUpperCase() + raw.slice(1);
+    }
+    return raw;
   } catch {
     return uri.replace(/^file:\/\/\/?/, "");
   }

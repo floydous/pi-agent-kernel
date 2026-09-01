@@ -59,7 +59,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 	},
 	lsp: {
 		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes
-		diagnostic_timeout_ms: 4000,
+		diagnostic_timeout_ms: 8000,
 		spinner_interval_ms: 80,
 		disabled_servers: [],
 	},

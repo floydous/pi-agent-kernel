@@ -11,7 +11,7 @@ import {
   type LspDocumentSymbol,
   type LspSymbolInformation,
 } from "./lsp_types";
-import { pathToUri, normalizeLocations } from "./lsp_formatter";
+import { pathToUri, normalizeUri, normalizeLocations } from "./lsp_formatter";
 import { kernelDebug } from "../safety/kernel_debug";
 import { loadKernelConfig } from "../config";
 
@@ -266,9 +266,10 @@ export class StdioLspClient {
    */
   private handleNotification(notif: LspNotification): void {
     if (notif.method === "textDocument/publishDiagnostics") {
-      const uri = notif.params?.uri;
+      const rawUri = notif.params?.uri;
       const diagnostics = notif.params?.diagnostics || [];
-      if (uri) {
+      if (rawUri) {
+        const uri = normalizeUri(rawUri);
         this.diagnosticsCache.set(uri, diagnostics);
         const listeners = this.diagnosticListeners.get(uri);
         if (listeners && listeners.length > 0) {
@@ -357,6 +358,10 @@ export class StdioLspClient {
         : content;
 
     if (this.openDocuments.has(uri)) {
+      const existing = this.openDocuments.get(uri);
+      if (existing && existing.text === text) {
+        return;
+      }
       await this.changeDocument(filePath, text);
       return;
     }
