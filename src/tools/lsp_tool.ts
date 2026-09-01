@@ -371,6 +371,15 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							content: [{ type: "text", text: formatDefinitions(defs, ctx.cwd) }],
 						};
 					}
+					// Only fallback to Tree-sitter AST for programming languages when LSP is unavailable or errored
+					const ext = path.extname(absPath).toLowerCase();
+					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
+					if (nonCodeExts.includes(ext)) {
+						return {
+							content: [{ type: "text", text: formatDefinitions(defs, ctx.cwd) }],
+						};
+					}
+
 					// Tree-sitter fallback with exact symbol ranking
 					const sym = getSymbolUnderCursor();
 					const targetSym = sym.leaf || sym.full;
@@ -430,6 +439,14 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
 						};
 					}
+					const ext = path.extname(absPath).toLowerCase();
+					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
+					if (nonCodeExts.includes(ext)) {
+						return {
+							content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
+						};
+					}
+
 					// Workspace-wide symbol reference search fallback
 					const sym = getSymbolUnderCursor();
 					const targetSym = sym.leaf || sym.full;
@@ -462,6 +479,14 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							content: [{ type: "text", text: hoverText }],
 						};
 					}
+					const ext = path.extname(absPath).toLowerCase();
+					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
+					if (nonCodeExts.includes(ext)) {
+						return {
+							content: [{ type: "text", text: hoverText }],
+						};
+					}
+
 					// Tree-sitter local variable / parameter / symbol hover fallback
 					const sym = getSymbolUnderCursor();
 					const targetSym = sym.leaf || sym.full;
@@ -500,6 +525,13 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				if (action === "document_symbols") {
 					const syms = await client.documentSymbol(absPath);
 					if (syms.length > 0) {
+						return {
+							content: [{ type: "text", text: formatDocumentSymbols(syms) }],
+						};
+					}
+					const ext = path.extname(absPath).toLowerCase();
+					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
+					if (nonCodeExts.includes(ext)) {
 						return {
 							content: [{ type: "text", text: formatDocumentSymbols(syms) }],
 						};
