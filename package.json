@@ -2,27 +2,31 @@
   "name": "pi-agent-kernel",
   "version": "1.0.0",
   "description": "Unified Hybrid Kernel and tooling extensions for Pi",
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "npx tsx tests/run-all.ts",
-    "test:focused": "npx tsx tests/run-all.ts"
-  },
-  "keywords": ["pi-package"],
-  "pi": {
-    "extensions": ["./src/index.ts"]
-  },
-  "author": "",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "ISC",
-	"dependencies": {
-		"@huggingface/transformers": "^4.2.0",
-		"diff": "^9.0.0",
-		"typebox": "^1.3.16"
-	},
+  "author": "",
+  "scripts": {
+    "test": "npx tsx tests/run-all.ts",
+    "test:focused": "npx tsx tests/run-all.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "diff": "^9.0.0",
+    "typebox": "^1.3.16"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.3"
+  },
   "overrides": {
     "adm-zip": "^0.6.0",
     "sharp": "^0.35.3"
   },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.3"
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
   }
 }

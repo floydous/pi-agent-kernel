@@ -110,11 +110,17 @@ const sections: TestEntry[] = [
 	},
 	{
 		name: "26. Cache & KV Retention Optimization",
-		loader: () => import("./intensive_cache_test"),
+		loader: async () => {
+			const mod: any = await import("./intensive_cache_test");
+			if (mod.runPromise) await mod.runPromise;
+		},
 	},
 	{
 		name: "27. End-to-End Enhancement Verification",
-		loader: () => import("./end_to_end_enhancements_test"),
+		loader: async () => {
+			const mod: any = await import("./end_to_end_enhancements_test");
+			if (mod.runPromise) await mod.runPromise;
+		},
 	},
 ];
 

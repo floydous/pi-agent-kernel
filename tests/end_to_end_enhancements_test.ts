@@ -159,7 +159,7 @@ function renderTemplate(id: number): string {
 	console.log("=================================================");
 }
 
-runEndToEndTests().catch((err) => {
+export const runPromise = runEndToEndTests().catch((err) => {
 	console.error("\n❌ End-to-End Test Failed:", err);
 	process.exit(1);
 });
