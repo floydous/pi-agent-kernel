@@ -108,6 +108,10 @@ const sections: TestEntry[] = [
 		name: "25. Compact Post-Edit Verification",
 		loader: () => import("./section-25-post-edit-verification"),
 	},
+	{
+		name: "26. Cache & KV Retention Optimization",
+		loader: () => import("./intensive_cache_test"),
+	},
 ];
 
 async function main(): Promise<void> {
