@@ -220,5 +220,10 @@ export function formatDocumentSymbols(
     renderSymbol(s, 0);
   }
 
+  // Bounded output to prevent blowing context window on monolithic files
+  if (lines.length > 100) {
+    return lines.slice(0, 100).join("\n") + `\n\n[Truncated: 100/${lines.length} symbols shown]`;
+  }
+
   return lines.join("\n");
 }

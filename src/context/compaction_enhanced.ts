@@ -185,15 +185,10 @@ export function buildChronologicalCompactionPrompt(options: {
 		prompt += `${options.recentTrajectoryDigest}\n\n`;
 	}
 
-	// 4. Deterministic workspace state
+	// 4. Deterministic workspace state (placed at tail to maximize recency attention and preserve upstream prefix stability)
 	if (options.workspaceState) {
 		prompt += `${options.workspaceState}\n\n`;
 	}
-
-	// Note: The static summarization instructions (`ENHANCED_SUMMARIZATION_PROMPT`)
-	// are intentionally NOT included in the user message. They live in the system
-	// prompt now so that providers' prompt caches can reuse them across compactions.
-	// `buildCompactionSystemPrompt` below composes the full system prompt.
 
 	if (options.customInstructions) {
 		prompt += `\n\nAdditional focus: ${options.customInstructions}`;
