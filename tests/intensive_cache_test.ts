@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { HybridSearchIndex } from "../src/retrieval/search_index";
 import { LocalEmbedder } from "../src/retrieval/search_embedder";
 import { getSearchConfig } from "../src/retrieval/search_config";
 import { formatDocumentSymbols } from "../src/lsp/lsp_formatter";
@@ -64,6 +67,38 @@ async function runIntensiveTests() {
   // Test dispose clears cache
   await embedder.dispose();
   assert((embedder as any).queryLruCache.size === 0, "dispose clears query cache map");
+
+  // 1.1 TEST INCREMENTAL HYBRIDSEARCHINDEX STARTUP DISK CACHE REUSE
+  console.log("\n[1.1 Testing HybridSearchIndex Startup Disk Cache Reuse]");
+  const testWorkspaceDir = path.resolve(__dirname, "temp_search_cache_test");
+  if (fs.existsSync(testWorkspaceDir)) {
+    fs.rmSync(testWorkspaceDir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(testWorkspaceDir, { recursive: true });
+  fs.writeFileSync(path.join(testWorkspaceDir, "sample.ts"), "export function helloWorld(): string { return 'hi'; }\n", "utf8");
+
+  try {
+    const idx1 = new HybridSearchIndex(testWorkspaceDir, "lean");
+    const res1 = await idx1.syncWorkspace(false);
+    assert(res1.chunkCount > 0, "Initial sync workspace creates chunks in cache");
+    assert(fs.existsSync(path.join(testWorkspaceDir, ".pi", "cache", "search", "index.json")), "index.json written to disk");
+
+    // Startup scenario: instantiate new HybridSearchIndex on existing cached directory without force reindex
+    const idx2 = new HybridSearchIndex(testWorkspaceDir, "lean");
+    let batchEmbedCalled = false;
+    (idx2 as any).embedder.embedBatch = async () => {
+      batchEmbedCalled = true;
+      return [];
+    };
+
+    const res2 = await idx2.syncWorkspace(false);
+    assert(res2.chunkCount === res1.chunkCount, "Incremental sync reuses disk chunks");
+    assert(!batchEmbedCalled, "Unchanged files bypass embedding batch execution on startup");
+  } finally {
+    if (fs.existsSync(testWorkspaceDir)) {
+      fs.rmSync(testWorkspaceDir, { recursive: true, force: true });
+    }
+  }
 
   // 2. TEST BOUNDED DOCUMENT SYMBOLS FORMATTER
   console.log("\n[2. Testing Bounded Document Symbols Formatter]");
@@ -132,4 +167,3 @@ async function runIntensiveTests() {
 }
 
 export const runPromise = runIntensiveTests();
-

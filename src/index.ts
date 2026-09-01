@@ -128,7 +128,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				});
 			}
 			return await index.syncWorkspace(
-				isFullSync || isVectorProfile,
+				isFullSync,
 				(msg: string) => {
 					const pctMatch = msg.match(/(\d+)%/);
 					if (pctMatch) {
