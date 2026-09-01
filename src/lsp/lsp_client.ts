@@ -12,6 +12,7 @@ import {
   type LspSymbolInformation,
 } from "./lsp_types";
 import { pathToUri, normalizeUri, normalizeLocations } from "./lsp_formatter";
+import { getLspAdapter, type LspAdapter } from "./adapters";
 import { kernelDebug } from "../safety/kernel_debug";
 import { loadKernelConfig } from "../config";
 
@@ -20,6 +21,7 @@ export interface StdioLspClientOptions {
   args: string[];
   cwd: string;
   languageId: string;
+  adapter?: LspAdapter;
   env?: Record<string, string>;
   idleTimeoutMs?: number;
 }
@@ -29,6 +31,7 @@ export class StdioLspClient {
   public readonly languageId: string;
   public readonly rootDir: string;
   private options: StdioLspClientOptions;
+  private adapter: LspAdapter;
 
   private process: ChildProcess | null = null;
   private state: LspClientState = "stopped";
@@ -53,6 +56,7 @@ export class StdioLspClient {
     this.languageId = options.languageId;
     this.rootDir = options.cwd;
     this.options = options;
+    this.adapter = options.adapter || getLspAdapter(options.languageId);
   }
 
   public getState(): LspClientState {
@@ -103,6 +107,9 @@ export class StdioLspClient {
 
       // Handshake Phase 1: initialize
       const rootUri = pathToUri(this.rootDir);
+      const customInitOpts = this.adapter.getInitializationOptions?.(this.rootDir) || {};
+      const customCaps = this.adapter.getClientCapabilities?.() || {};
+
       const initResult = await this.sendRequest<any>(
         "initialize",
         {
@@ -140,8 +147,11 @@ export class StdioLspClient {
                 dynamicRegistration: false,
               },
             },
+            ...customCaps,
           },
-          initializationOptions: {},
+          initializationOptions: {
+            ...customInitOpts,
+          },
         },
         5000,
       );
@@ -236,27 +246,31 @@ export class StdioLspClient {
 
   /** Reply to server-initiated JSON-RPC requests with minimal safe defaults. */
   private handleServerRequest(request: { id: number | string; method: string; params?: any }): void {
-    let result: any = null;
-    switch (request.method) {
-      case "workspace/configuration":
-        result = Array.isArray(request.params?.items)
-          ? request.params.items.map(() => null)
-          : [];
-        break;
-      case "workspace/workspaceFolders":
-        result = [
-          {
-            uri: pathToUri(this.rootDir),
-            name: path.basename(this.rootDir),
-          },
-        ];
-        break;
-      case "workspace/applyEdit":
-        result = { applied: false };
-        break;
-      // Capability registration, progress creation, and unrecognised optional
-      // requests are acknowledged with JSON-RPC null so they cannot deadlock
-      // the server's request queue.
+    let result: any = this.adapter.handleServerRequest?.(
+      request.method,
+      request.params,
+      this.rootDir,
+    );
+
+    if (result === undefined || result === null) {
+      switch (request.method) {
+        case "workspace/configuration":
+          result = Array.isArray(request.params?.items)
+            ? request.params.items.map(() => null)
+            : [];
+          break;
+        case "workspace/workspaceFolders":
+          result = [
+            {
+              uri: pathToUri(this.rootDir),
+              name: path.basename(this.rootDir),
+            },
+          ];
+          break;
+        case "workspace/applyEdit":
+          result = { applied: false };
+          break;
+      }
     }
     this.sendRaw({ jsonrpc: "2.0", id: request.id, result });
   }
@@ -267,9 +281,12 @@ export class StdioLspClient {
   private handleNotification(notif: LspNotification): void {
     if (notif.method === "textDocument/publishDiagnostics") {
       const rawUri = notif.params?.uri;
-      const diagnostics = notif.params?.diagnostics || [];
+      let diagnostics = notif.params?.diagnostics || [];
       if (rawUri) {
         const uri = normalizeUri(rawUri);
+        if (this.adapter.transformDiagnostics) {
+          diagnostics = this.adapter.transformDiagnostics(uri, diagnostics);
+        }
         this.diagnosticsCache.set(uri, diagnostics);
         const listeners = this.diagnosticListeners.get(uri);
         if (listeners && listeners.length > 0) {

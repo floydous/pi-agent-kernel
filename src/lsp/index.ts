@@ -3,6 +3,7 @@
  */
 
 export * from "./lsp_types";
+export * from "./adapters";
 export * from "./lsp_registry";
 export * from "./lsp_detector";
 export * from "./lsp_formatter";
