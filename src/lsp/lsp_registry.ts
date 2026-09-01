@@ -347,8 +347,42 @@ export function findExecutable(
     path.join(home, "go", "bin"),
     path.join(home, "AppData", "Roaming", "npm"),
     path.join(home, ".npm-global", "bin"),
+    path.join(home, "AppData", "Local", "Microsoft", "WinGet", "Links"),
     ...extraDirs,
   ];
+
+  // On Windows, also include user WinGet Package directories if present
+  if (isWindows) {
+    const wingetPackages = path.join(home, "AppData", "Local", "Microsoft", "WinGet", "Packages");
+    if (fs.existsSync(wingetPackages)) {
+      try {
+        const pkgDirs = fs.readdirSync(wingetPackages, { withFileTypes: true });
+        for (const pkg of pkgDirs) {
+          if (pkg.isDirectory()) {
+            const pkgPath = path.join(wingetPackages, pkg.name);
+            searchDirs.push(pkgPath);
+            // Search immediate subdirectories (e.g. clangd_22.1.6/bin or bin/)
+            try {
+              const subDirs = fs.readdirSync(pkgPath, { withFileTypes: true });
+              for (const sub of subDirs) {
+                if (sub.isDirectory()) {
+                  searchDirs.push(path.join(pkgPath, sub.name));
+                  const nestedBin = path.join(pkgPath, sub.name, "bin");
+                  if (fs.existsSync(nestedBin)) {
+                    searchDirs.push(nestedBin);
+                  }
+                }
+              }
+            } catch (e) {
+              kernelDebug(e);
+            }
+          }
+        }
+      } catch (e) {
+        kernelDebug(e);
+      }
+    }
+  }
 
   // 1. Direct path check in extraDirs and ~/.pi/lsp/bin
   for (const dir of searchDirs) {
