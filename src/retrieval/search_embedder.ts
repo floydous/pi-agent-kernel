@@ -15,6 +15,8 @@ export class LocalEmbedder {
 	private config: SearchConfig;
 	private isInitializing = false;
 	private initPromise: Promise<void> | null = null;
+	private queryLruCache = new Map<string, Float32Array>();
+	private static readonly MAX_QUERY_CACHE_ENTRIES = 128;
 
 	constructor(config?: SearchConfig) {
 		this.config = config || getSearchConfig();
@@ -22,6 +24,7 @@ export class LocalEmbedder {
 
 	public updateConfig(config: SearchConfig): void {
 		this.config = config;
+		this.queryLruCache.clear();
 	}
 
 	public isLoaded(): boolean {
@@ -207,8 +210,30 @@ export class LocalEmbedder {
 		isQuery = false,
 		onProgress?: (msg: string) => void,
 	): Promise<Float32Array | null> {
+		if (isQuery) {
+			const cached = this.queryLruCache.get(text);
+			if (cached) {
+				// Refresh MRU order
+				this.queryLruCache.delete(text);
+				this.queryLruCache.set(text, cached);
+				return cached;
+			}
+		}
+
 		const results = await this.embedBatch([text], isQuery, onProgress);
-		return results.length > 0 ? results[0] : null;
+		if (results.length > 0) {
+			if (isQuery) {
+				if (this.queryLruCache.size >= LocalEmbedder.MAX_QUERY_CACHE_ENTRIES) {
+					const firstKey = this.queryLruCache.keys().next().value;
+					if (firstKey !== undefined) {
+						this.queryLruCache.delete(firstKey);
+					}
+				}
+				this.queryLruCache.set(text, results[0]);
+			}
+			return results[0];
+		}
+		return null;
 	}
 
 	/**
@@ -324,6 +349,7 @@ export class LocalEmbedder {
 		this.extractor = null;
 		this.layerNormFn = null;
 		this.initPromise = null;
+		this.queryLruCache.clear();
 
 		try {
 			if (typeof (global as any).gc === "function") {
