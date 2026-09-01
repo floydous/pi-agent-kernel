@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Unified Hybrid Kernel and tooling extensions for Pi",
   "scripts": {
+    "typecheck": "tsc --noEmit",
     "test": "npx tsx tests/run-all.ts",
     "test:focused": "npx tsx tests/run-all.ts"
   },

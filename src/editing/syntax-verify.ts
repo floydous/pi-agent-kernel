@@ -4,7 +4,7 @@ import { execFileSync } from "child_process";
 
 export interface VerificationResult {
 	valid: boolean;
-	status?: "clean" | "failed" | "unavailable" | "inconclusive";
+	status?: "clean" | "failed" | "unavailable" | "inconclusive" | "not run";
 	error?: string;
 }
 
@@ -241,6 +241,7 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 				"--noCheck",
 				"--noResolve",
 				"--skipLibCheck",
+				"--ignoreConfig",
 				"--pretty",
 				"false",
 				"--target",
