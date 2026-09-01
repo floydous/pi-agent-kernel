@@ -111,10 +111,33 @@ export function clampCommandOutput(
 		};
 	}
 
-	// Save complete raw output to temporary spillover file
+	// Save complete raw output to temporary spillover file (with bounded rotation by mtime to prevent unbounded tmp growth)
 	let spilloverPath: string | undefined;
 	try {
 		const tempDir = os.tmpdir();
+		// Prune older spillover logs (> 20 files, oldest first by mtime)
+		try {
+			const files = fs
+				.readdirSync(tempDir)
+				.filter((f) => f.startsWith("pi_bash_spillover_"))
+				.map((name) => {
+					const full = path.join(tempDir, name);
+					try {
+						return { name, full, mtime: fs.statSync(full).mtimeMs };
+					} catch {
+						return { name, full, mtime: 0 };
+					}
+				})
+				.sort((a, b) => a.mtime - b.mtime);
+
+			if (files.length > 20) {
+				const toDelete = files.slice(0, files.length - 20);
+				for (const item of toDelete) {
+					try { fs.unlinkSync(item.full); } catch {}
+				}
+			}
+		} catch {}
+
 		const hash = crypto.randomBytes(4).toString("hex");
 		spilloverPath = path.join(tempDir, `pi_bash_spillover_${hash}.log`);
 		fs.writeFileSync(spilloverPath, rawText, "utf8");

@@ -194,9 +194,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		handler: async (args: string, ctx: any) => {
 			const cmd = args?.trim() || "npx tsx tests/run-all.ts";
 			ctx.ui?.notify?.(`Executing Test Oracle: '${cmd}'...`, "info");
+			// Verification oracle commands need sufficient headroom beyond interactive bash (60s floor)
+			const oracleTimeout = Math.max(60000, getConfig(ctx.cwd).safety.exec_timeout_ms || 5000);
 			const result = await runOracle(cmd, {
 				cwd: ctx.cwd,
-				timeoutMs: getConfig(ctx.cwd).safety.exec_timeout_ms,
+				timeoutMs: oracleTimeout,
 			});
 			const notifyType = result.passed ? "info" : "error";
 			ctx.ui?.notify?.(result.summary, notifyType);
@@ -734,18 +736,30 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 10. Dynamic Runtime Context Injection (Repo Map)
+	// 10. Dynamic Runtime Context Injection (Repo Map with in-memory caching)
 	// Notice: Custom user instructions (AGENT.md / prompt templates) are respected as the primary authority.
-	// Only runtime operational metadata (repo map) is dynamically attached.
+	// Only runtime operational metadata (repo map) is dynamically attached and cached per session/cwd.
+	let cachedRepoMap = "";
+	let cachedRepoMapCwd = "";
+	let lastRepoMapCheck = 0;
+
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
-		const repoMap = computeRepoMap(
-			ctx.cwd,
-			getConfig(ctx.cwd).retrieval.repo_map_budget,
-		);
+		const now = Date.now();
+		const currentCwd = ctx.cwd || process.cwd();
+
+		// Cache repo-map across turns with a 15-second TTL to avoid scanning/PageRanking entire repo on every turn
+		if (!cachedRepoMap || cachedRepoMapCwd !== currentCwd || now - lastRepoMapCheck > 15000) {
+			cachedRepoMap = computeRepoMap(
+				currentCwd,
+				getConfig(currentCwd).retrieval.repo_map_budget,
+			);
+			cachedRepoMapCwd = currentCwd;
+			lastRepoMapCheck = now;
+		}
 
 		const runtimeContext = `
 ## Available Repository Context:
-${repoMap}
+${cachedRepoMap}
 `;
 		return {
 			systemPrompt: event.systemPrompt

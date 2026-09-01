@@ -48,7 +48,7 @@ export function loadPersistedProfile(): SearchProfile {
 			const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
 			if (
 				data.profile &&
-				["lean", "hybrid", "full", "off"].includes(data.profile)
+				["lean", "hybrid", "full", "off", "auto"].includes(data.profile)
 			) {
 				return data.profile as SearchProfile;
 			}
@@ -87,7 +87,7 @@ export function getSearchConfig(
 ): SearchConfig {
 	const profile = requestedProfile || loadPersistedProfile();
 	const effectiveProfile: "lean" | "hybrid" | "full" | "off" =
-		profile === "auto" ? "lean" : profile || "lean";
+		profile === "auto" ? detectBestProfile() : profile || "lean";
 
 	const globalCacheDir = path.join(os.homedir(), ".pi", "cache", "search");
 

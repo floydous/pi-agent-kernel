@@ -45,7 +45,7 @@ export function extractSymbolContent(
 	);
 
 	if (matchingDefs.length === 0) {
-		// Fallback: search for symbol with regex if tags missed it
+		// Fallback: search for symbol with regex across all occurrences if tags missed it
 		const escaped = targetSymbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		const regex = new RegExp(`(?:def|class|function|async function|const|let|var|type|interface)\\s+${escaped}\\b`, "i");
 		for (let i = 0; i < lines.length; i++) {
@@ -56,7 +56,6 @@ export function extractSymbolContent(
 					signature: lines[i].trim(),
 					line: i + 1,
 				});
-				break;
 			}
 		}
 	}

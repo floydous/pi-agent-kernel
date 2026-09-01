@@ -53,6 +53,8 @@ export class BM25Engine {
 	private docLengths: Map<string, number> = new Map();
 	// term -> document frequency (number of docs containing term)
 	private termDocFreqs: Map<string, number> = new Map();
+	// term -> Set of chunkIds (Inverted index for O(Σ matches) query scanning)
+	private postings: Map<string, Set<string>> = new Map();
 
 	private totalDocs = 0;
 	private avgDocLength = 0;
@@ -61,6 +63,7 @@ export class BM25Engine {
 		this.docTermFreqs.clear();
 		this.docLengths.clear();
 		this.termDocFreqs.clear();
+		this.postings.clear();
 		this.totalDocs = 0;
 		this.avgDocLength = 0;
 	}
@@ -90,6 +93,12 @@ export class BM25Engine {
 
 		for (const term of tfMap.keys()) {
 			this.termDocFreqs.set(term, (this.termDocFreqs.get(term) || 0) + 1);
+			let chunkSet = this.postings.get(term);
+			if (!chunkSet) {
+				chunkSet = new Set();
+				this.postings.set(term, chunkSet);
+			}
+			chunkSet.add(chunk.id);
 		}
 
 		this.totalDocs++;
@@ -110,6 +119,13 @@ export class BM25Engine {
 							this.termDocFreqs.delete(term);
 						} else {
 							this.termDocFreqs.set(term, count);
+						}
+						const chunkSet = this.postings.get(term);
+						if (chunkSet) {
+							chunkSet.delete(chunkId);
+							if (chunkSet.size === 0) {
+								this.postings.delete(term);
+							}
 						}
 					}
 				}
@@ -146,8 +162,12 @@ export class BM25Engine {
 
 			// Okapi BM25 Inverse Document Frequency
 			const idf = Math.log(1 + (this.totalDocs - n + 0.5) / (n + 0.5));
+			const matchingChunkIds = this.postings.get(term);
+			if (!matchingChunkIds) continue;
 
-			for (const [chunkId, tfMap] of this.docTermFreqs.entries()) {
+			for (const chunkId of matchingChunkIds) {
+				const tfMap = this.docTermFreqs.get(chunkId);
+				if (!tfMap) continue;
 				const tf = tfMap.get(term) || 0;
 				if (tf === 0) continue;
 

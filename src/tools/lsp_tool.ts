@@ -110,7 +110,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				isModule: boolean;
 			} => {
 				try {
-					const fileContent = fs.readFileSync(absPath, "utf8");
+					const fileContent = observedContent.toString("utf8");
 					const lines = fileContent.split("\n");
 					const lineText = lines[line0] || "";
 					const qualifiedWords = Array.from(
