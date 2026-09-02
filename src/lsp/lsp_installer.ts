@@ -188,72 +188,41 @@ export async function installLanguageServer(
     }
   }
 
-  // HTML: superhtml (Zig native) or vscode-html-language-server
+  // HTML: superhtml or vscode-html-language-server
   if (norm === "html" || norm === "htm") {
-    onProgress?.("Installing superhtml...");
+    onProgress?.("Installing superhtml via package manager...");
     const isWindows = process.platform === "win32";
-    const binDir = ensureLspBinDir();
-
-    // Try direct GitHub binary download of superhtml (Zig)
     try {
-      onProgress?.("Downloading superhtml native binary (Zig)...");
-      let assetArch = "x86_64-windows.zip";
-      if (process.platform === "darwin") {
-        assetArch = "x86_64-macos.zip";
-      } else if (process.platform === "linux") {
-        assetArch = "x86_64-linux-musl.tar.xz";
-      }
-
-      const downloadUrl = `https://github.com/kristoff-it/superhtml/releases/latest/download/${assetArch}`;
-      const tempArchive = path.join(
-        binDir,
-        `superhtml_archive${path.extname(assetArch)}`,
-      );
-      execSync(`curl -sL "${downloadUrl}" -o "${tempArchive}"`, {
-        stdio: "pipe",
-      });
-
-      if (assetArch.endsWith(".zip")) {
-        if (isWindows) {
-          execSync(`tar -xf "${tempArchive}" -C "${binDir}"`, {
-            stdio: "pipe",
-          });
-        } else {
-          execSync(`unzip -o "${tempArchive}" -d "${binDir}"`, {
-            stdio: "pipe",
-          });
-        }
-      } else {
-        execSync(`tar -xf "${tempArchive}" -C "${binDir}"`, { stdio: "pipe" });
-      }
-
-      try {
-        fs.unlinkSync(tempArchive);
-      } catch (e) {
-        kernelDebug(e);
-      }
-
-      clearExecutableCache();
-      const bin = findExecutable("superhtml");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully installed superhtml (${bin})`,
-          binPath: bin,
-        };
+      if (isWindows) {
+        execSync(
+          `winget install kristoff-it.superhtml --accept-source-agreements --accept-package-agreements --silent`,
+          { stdio: "pipe" },
+        );
+      } else if (process.platform === "darwin") {
+        execSync(`brew install superhtml`, { stdio: "pipe" });
       }
     } catch (e) {
       kernelDebug(e);
     }
 
-    // Fallback to vscode-langservers-extracted
+    clearExecutableCache();
+    let bin = findExecutable("superhtml");
+    if (bin) {
+      return {
+        success: true,
+        message: `Successfully installed superhtml (${bin})`,
+        binPath: bin,
+      };
+    }
+
+    // Fallback to vscode-langservers-extracted via npm
     onProgress?.("Installing vscode-langservers-extracted via npm...");
     try {
       execSync(`npm install -g vscode-langservers-extracted`, {
         stdio: "pipe",
       });
       clearExecutableCache();
-      const bin = findExecutable("vscode-html-language-server");
+      bin = findExecutable("vscode-html-language-server");
       return {
         success: true,
         message: `Successfully installed vscode-html-language-server (${bin || "vscode-html-language-server"})`,
@@ -373,7 +342,7 @@ export async function installLanguageServer(
     const isWindows = process.platform === "win32";
     const binDir = ensureLspBinDir();
 
-    // 1. Try winget / brew first
+    // 1. Try winget / brew / package manager first
     try {
       if (isWindows) {
         execSync(
@@ -397,42 +366,11 @@ export async function installLanguageServer(
       };
     }
 
-    // 2. Direct GitHub binary download fallback to ~/.pi/lsp/bin/
-    try {
-      onProgress?.("Downloading marksman binary from GitHub releases...");
-      const targetBinName = isWindows ? "marksman.exe" : "marksman";
-      const targetFile = path.join(binDir, targetBinName);
-      let assetName = "marksman.exe";
-      if (process.platform === "darwin") {
-        assetName = "marksman-macos";
-      } else if (process.platform === "linux") {
-        assetName = "marksman-linux-x64";
-      }
-
-      const downloadUrl = `https://github.com/artempyanykh/marksman/releases/latest/download/${assetName}`;
-      execSync(`curl -sL "${downloadUrl}" -o "${targetFile}"`, {
-        stdio: "pipe",
-      });
-
-      if (!isWindows && fs.existsSync(targetFile)) {
-        fs.chmodSync(targetFile, 0o755);
-      }
-
-      clearExecutableCache();
-      bin = findExecutable("marksman");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully downloaded marksman to ${bin}`,
-          binPath: bin,
-        };
-      }
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install marksman: ${e.message}`,
-      };
-    }
+    return {
+      success: false,
+      message:
+        "Please install marksman using your system package manager (e.g. winget, brew, or cargo install marksman).",
+    };
   }
 
   // C / C++: clangd

@@ -6,7 +6,7 @@
     "pi-package"
   ],
   "license": "ISC",
-  "author": "",
+  "author": "floydous https://github.com/floydous",
   "scripts": {
     "test": "npx tsx tests/run-all.ts",
     "test:focused": "npx tsx tests/run-all.ts",
@@ -14,11 +14,16 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
-    "diff": "^9.0.0",
+    "diff": "^9.0.0"
+  },
+  "peerDependencies": {
     "typebox": "^1.3.16"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.3"
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "tsx": "^4.23.13",
+    "typebox": "^1.3.16",
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "adm-zip": "^0.6.0",
@@ -28,5 +33,16 @@
     "extensions": [
       "./src/index.ts"
     ]
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/floydous/pi-agent-kernel.git"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "docs",
+    "LICENSE",
+    "config.toml"
+  ]
 }

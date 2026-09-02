@@ -559,14 +559,18 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 2. Per-session cleanup of the epistemic guard's inspection state.
+	// 2. Per-session cleanup of the epistemic guard's inspection state and LSP processes.
 	// Without this, Map<sessionId, Set<filePath>> grows unbounded over a
 	// long-lived process hosting many sessions (e.g. RPC mode). On session
-	// shutdown we drop only this session's entry; all other sessions keep
-	// their state intact.
+	// shutdown we drop only this session's entry and stop running LSP daemons.
 	pi.on("session_shutdown", async (_event: any, ctx: any) => {
 		const sessionId = getSessionId(ctx);
 		globalEpistemicGuard.resetSession(sessionId);
+		try {
+			await LspManager.getInstance().stopAll();
+		} catch (e) {
+			kernelDebug(e);
+		}
 	});
 
 	// 4-8. Tools: repo map, AST search, code search, read, edit, LSP

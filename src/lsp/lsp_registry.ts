@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execSync } from "node:child_process";
 import type { LspServerConfig } from "./lsp_types";
-import { getPiHomeDir, loadKernelConfig } from "../config";
+import { getPiHomeDir, loadKernelConfig, saveGlobalKernelConfig } from "../config";
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 
@@ -44,6 +44,15 @@ export function setServerDisabled(langKey: string, disabled: boolean): void {
     current.add(norm);
   } else {
     current.delete(norm);
+  }
+  try {
+    saveGlobalKernelConfig({
+      lsp: {
+        disabled_servers: Array.from(current),
+      },
+    });
+  } catch (e) {
+    kernelDebug(e);
   }
   // Remove legacy config.json if it exists to avoid desync
   try {

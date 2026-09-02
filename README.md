@@ -50,3 +50,47 @@ pi-agent-kernel/
 - **Epistemic Guard**: Enforces inspection-before-mutation (`read` required before `edit`). Rejects ungrounded edits with copy-pasteable minimal instructions.
 - **Output Clamping**: Prevents context-window blowouts by clamping stdout/stderr and persisting full dumps to disk.
 - **Bounded Syntax Verification**: Fast local verification on mutations before committing changes to disk.
+
+## Installation
+
+`pi-agent-kernel` is consumed by Pi as a packaged extension. Install globally or in your project:
+
+```bash
+pi install npm:pi-agent-kernel
+```
+
+Or install in your project locally:
+
+```bash
+pi install -l npm:pi-agent-kernel
+```
+
+The entry point is declared in `package.json` under `pi.extensions` (`./src/index.ts`); Pi loads it on session start.
+
+## Slash Commands
+
+| Command | Args | Purpose |
+|---|---|---|
+| `/oracle` | `[test-command]` | Run a verification command (e.g. `/oracle npm test`) and report pass/fail with bounded output and execution safety floor. |
+| `/repomap` | `[budget]` | Render the AST + PageRank-ranked repo map. Default budget 1024 tokens. |
+| `/engine` | `auto\|lean\|hybrid\|full\|off\|status\|reindex` | Switch retrieval profile or inspect engine state. `hybrid` is default out-of-the-box (fast BM25 + ONNX embeddings), `lean` is BM25 only. |
+| `/lsp` | `[install <lang>]` | Inspect active language servers / daemons, or install a server (`/lsp install python`). |
+
+## Configuration
+
+Configuration is resolved hierarchically per workspace, looking for `agent-kernel/config.toml` (or `config.toml`) in the workspace root and walking upward. The shipped defaults are defined in [`src/config/kernel_config.ts`](src/config/kernel_config.ts) and the example config lives at [`config.toml`](config.toml). Full schema and override semantics are in [`docs/configuration.md`](docs/configuration.md).
+
+Top-level keys: `[retrieval]`, `[safety]`, `[lsp]`, `[ui]`.
+
+## Documentation
+
+- [`docs/architecture.md`](docs/architecture.md) — module map and request flow
+- [`docs/retrieval.md`](docs/retrieval.md) — search profile semantics
+- [`docs/editing-and-verification.md`](docs/editing-and-verification.md) — patch + verify pipeline
+- [`docs/lsp.md`](docs/lsp.md) — LSP integration & registry
+- [`docs/configuration.md`](docs/configuration.md) — TOML schema and precedence
+- [`docs/testing.md`](docs/testing.md) — section-based test layout
+
+## License
+
+ISC — see [`LICENSE`](LICENSE).

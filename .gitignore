@@ -17,6 +17,5 @@ coverage/
 _tool_test_temp.ts
 temp_lsp_test/
 .ruff_cache/
-config.toml
 
 

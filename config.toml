@@ -1,0 +1,22 @@
+# Agent Kernel Project Configuration
+# Location: agent-kernel/config.toml
+
+[retrieval]
+default_profile = "lean"
+repo_map_budget = 1024
+max_search_results = 5
+
+[safety]
+enable_epistemic_guard = true
+max_line_length = 300
+max_lines = 40
+max_total_bytes = 20480
+exec_timeout_ms = 5000
+
+[lsp]
+idle_timeout_ms = 300000
+spinner_interval_ms = 80
+disabled_servers = []
+
+[ui]
+enable_pastel_footer = true

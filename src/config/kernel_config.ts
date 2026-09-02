@@ -88,6 +88,11 @@ export function getGlobalConfigPath(): string {
 	const rootPath = path.join(piDir, "config.toml");
 	if (fs.existsSync(rootPath)) return rootPath;
 
+	// If PI_CODING_AGENT_DIR was set directly to ~/.pi/agent, check for config.toml right in piDir
+	if (path.basename(piDir) === "agent") {
+		return rootPath;
+	}
+
 	return agentPath;
 }
 
@@ -168,7 +173,7 @@ export function loadKernelConfig(cwd = process.cwd()): KernelConfig {
 /**
  * Save user overrides to global configuration file (~/.pi/agent/config.toml)
  */
-export function saveGlobalKernelConfig(updates: Partial<KernelConfig>): void {
+export function saveGlobalKernelConfig(updates: KernelConfigOverrides): void {
 	const globalPath = getGlobalConfigPath();
 	const parentDir = path.dirname(globalPath);
 	if (!fs.existsSync(parentDir)) {
