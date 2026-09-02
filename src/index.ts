@@ -40,7 +40,6 @@ function getSessionId(ctx: any): string {
 	return `__default__${process.pid}`;
 }
 import { clampCommandOutput } from "./safety/output_clamper";
-import { runOracle } from "./safety/test_oracle";
 import { registerCustomCompaction } from "./context/compaction_enhanced";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { renderFooter } from "./ui/footer";
@@ -65,7 +64,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// 1. Enhanced Compaction Hook (session_before_compact)
 	registerCustomCompaction(pi);
 
-	// 3. Slash Commands: /repomap, /oracle, /search, /engine
+	// 3. Slash Commands: /repomap, /engine, /lsp
 	let activeTui: any = null;
 	const configByWorkspace = new Map<
 		string,
@@ -187,26 +186,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			});
 		}
 	};
-
-	pi.registerCommand("oracle", {
-		description:
-			"Run deterministic test/type-check verification oracle (/oracle [test-command])",
-		handler: async (args: string, ctx: any) => {
-			const cmd = args?.trim() || "npx tsx tests/run-all.ts";
-			ctx.ui?.notify?.(`Executing Test Oracle: '${cmd}'...`, "info");
-			// Verification oracle commands need sufficient headroom beyond interactive bash (60s floor)
-			const oracleTimeout = Math.max(60000, getConfig(ctx.cwd).safety.exec_timeout_ms || 5000);
-			const result = await runOracle(cmd, {
-				cwd: ctx.cwd,
-				timeoutMs: oracleTimeout,
-			});
-			const notifyType = result.passed ? "info" : "error";
-			ctx.ui?.notify?.(result.summary, notifyType);
-			if (!ctx.hasUI) {
-				console.log(`\n${result.summary}\n${result.output}\n`);
-			}
-		},
-	});
 
 	pi.registerCommand("repomap", {
 		description: "Display the Tree-Sitter AST & PageRank ranked repository map",

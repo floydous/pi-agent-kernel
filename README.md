@@ -71,7 +71,6 @@ The entry point is declared in `package.json` under `pi.extensions` (`./src/inde
 
 | Command | Args | Purpose |
 |---|---|---|
-| `/oracle` | `[test-command]` | Run a verification command (e.g. `/oracle npm test`) and report pass/fail with bounded output and execution safety floor. |
 | `/repomap` | `[budget]` | Render the AST + PageRank-ranked repo map. Default budget 1024 tokens. |
 | `/engine` | `auto\|lean\|hybrid\|full\|off\|status\|reindex` | Switch retrieval profile or inspect engine state. `hybrid` is default out-of-the-box (fast BM25 + ONNX embeddings), `lean` is BM25 only. |
 | `/lsp` | `[install <lang>]` | Inspect active language servers / daemons, or install a server (`/lsp install python`). |

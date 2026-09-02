@@ -66,7 +66,6 @@ const sections: TestEntry[] = [
 		name: "13. Epistemic Guard",
 		loader: () => import("./section-13-epistemic-guard"),
 	},
-	{ name: "14. Test Oracle", loader: () => import("./section-14-test-oracle") },
 	{
 		name: "15. Unified Footer",
 		loader: () => import("./section-15-unified-footer"),

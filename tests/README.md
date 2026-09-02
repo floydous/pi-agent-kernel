@@ -39,7 +39,6 @@ npx tsx tests/section-13-epistemic-guard.ts
 | `section-12-compaction-engine.ts` | workspace status extraction, `extractTrajectoryDigest`, `buildChronologicalCompactionPrompt` |
 | `section-12.1-compaction-prompt-caching.ts` | `buildCompactionSystemPrompt` keeps static instructions in the system prompt for caching |
 | `section-13-epistemic-guard.ts` | `EpistemicGuard` blocking, per-session scope, case-sensitivity |
-| `section-14-test-oracle.ts` | `runOracle` correctly reports pass/fail based on exit code |
 | `section-15-unified-footer.ts` | `renderFooter` produces a properly formatted line with TrueColor codes |
 | `section-16-lsp-uri-and-detection.ts` | LSP URI/Path roundtrip, language detection, workspace root |
 | `section-17-lsp-formatters.ts` | LSP diagnostics, definitions, references, hover, document symbols |

@@ -12,7 +12,6 @@ import {
 import { extractSymbolContent } from "../src/retrieval/symbol_reader";
 import { clampCommandOutput } from "../src/safety/output_clamper";
 import { computeRepoMap } from "../src/retrieval/repomap";
-import { runOracle } from "../src/safety/test_oracle";
 
 async function runEndToEndTests() {
 	console.log("=== END-TO-END VERIFICATION OF APPLIED ENHANCEMENTS ===\n");
@@ -135,18 +134,8 @@ function renderTemplate(id: number): string {
 	}
 	console.log("✓ Spillover file generation and mtime-sorted bounded rotation verified!");
 
-	// Test 5: Oracle Execution Timeout
-	console.log("\n[5. Verifying Test Oracle Execution]");
-	const oracleResult = await runOracle("node -e \"console.log('oracle-ok'); process.exit(0);\"", {
-		cwd: process.cwd(),
-		timeoutMs: 30000,
-	});
-	assert.strictEqual(oracleResult.passed, true, "Oracle execution should pass on exit code 0");
-	assert.ok(oracleResult.summary.includes("GREEN [VERIFIED]"), "Summary should reflect verified state");
-	console.log("✓ Test Oracle execution verified!");
-
-	// Test 6: Repo-Map Generation & Caching Behavior
-	console.log("\n[6. Verifying Repo-Map AST Generation]");
+	// Test 5: Repo-Map Generation & Caching Behavior
+	console.log("\n[5. Verifying Repo-Map AST Generation]");
 	const t0 = performance.now();
 	const repoMap1 = computeRepoMap(process.cwd(), 1024);
 	const dur1 = performance.now() - t0;
@@ -155,7 +144,7 @@ function renderTemplate(id: number): string {
 	console.log(`✓ Repo-map generated in ${dur1.toFixed(1)}ms!`);
 
 	console.log("\n=================================================");
-	console.log("ALL END-TO-END ENHANCEMENT TESTS PASSED (6/6)");
+	console.log("ALL END-TO-END ENHANCEMENT TESTS PASSED (5/5)");
 	console.log("=================================================");
 }
 
