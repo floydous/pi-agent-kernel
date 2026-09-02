@@ -1,6 +1,6 @@
-// Section 29b: Recall Tool
-// Dereferences a [=rN,sizeB] dedup notice back to the full original
-// tool-result text. No preamble, no formatting — bare bytes only.
+// Recall Tool
+// Dereferences a [=rN,sizeB,tool,paramsKey] dedup notice back to the full
+// original tool-result text. No preamble, no formatting — bare bytes only.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -12,19 +12,30 @@ export interface RecallDeps extends SessionDeps {
 	getDedupStore: () => DedupStore;
 }
 
+export interface RecallEntry {
+	fullText: string;
+	sizeBytes: number;
+	toolName: string;
+	paramsKey: string;
+}
+
 /**
  * Pure decision logic. Extracted from the tool so it can be unit-tested
  * without the Pi extension harness.
  *
  * Returns one of:
- *  - { kind: "ok", fullText, sizeBytes }
+ *  - { kind: "ok", fullText, sizeBytes, toolName, paramsKey }
  *  - { kind: "error", message }  (validation failure or unknown ref)
  */
 export function decideRecall(
 	ref: unknown,
-	store: { get: (sessionId: string, ref: string) => { fullText: string; sizeBytes: number } | null },
+	store: {
+		get: (sessionId: string, ref: string) => RecallEntry | null;
+	},
 	sessionId: string,
-): { kind: "ok"; fullText: string; sizeBytes: number } | { kind: "error"; message: string } {
+):
+	| { kind: "ok"; fullText: string; sizeBytes: number; toolName: string; paramsKey: string }
+	| { kind: "error"; message: string } {
 	const refStr = typeof ref === "string" ? ref.trim() : "";
 	if (!refStr) {
 		return { kind: "error", message: "[recall] ref is required (e.g. 'r1')." };
@@ -42,7 +53,13 @@ export function decideRecall(
 			message: `[recall] no content stored at ref '${refStr}' in this session.`,
 		};
 	}
-	return { kind: "ok", fullText: got.fullText, sizeBytes: got.sizeBytes };
+	return {
+		kind: "ok",
+		fullText: got.fullText,
+		sizeBytes: got.sizeBytes,
+		toolName: got.toolName,
+		paramsKey: got.paramsKey,
+	};
 }
 
 /** Extracted pattern: registers the `recall` tool. */
@@ -51,14 +68,14 @@ export function registerRecallTool(pi: ExtensionAPI, deps: RecallDeps): void {
 		name: "recall",
 		label: "Recall Dedup'd Result",
 		description:
-			"Retrieve the full text of a tool result that was replaced by a dedup reference like [=rN,sizeB]. The `ref` is the rN identifier from a prior tool result. Returns the bare original text.",
+			"Retrieve the full text of a tool result that was replaced by a dedup reference like [=rN,sizeB,tool,paramsKey]. The `ref` is the rN identifier from a prior tool result. Returns the bare original text and the tool name and paramsKey so the caller can decide what to do next.",
 		promptSnippet:
 			"Recover the full text of a tool result that was dedup'd, by its rN reference",
 		renderShell: "default",
 		parameters: Type.Object({
 			ref: Type.String({
 				description:
-					"The reference identifier, e.g. 'r1', 'r2'. Comes from a [=rN,sizeB] dedup notice in a prior tool result.",
+					"The reference identifier, e.g. 'r1', 'r2'. Comes from a [=rN,sizeB,tool,paramsKey] dedup notice in a prior tool result.",
 			}),
 		}),
 		async execute(
@@ -77,7 +94,6 @@ export function registerRecallTool(pi: ExtensionAPI, deps: RecallDeps): void {
 					isError: true,
 				};
 			}
-			// Sanity-check the format. Reject anything that doesn't look like rN.
 			if (!/^r\d+$/.test(ref)) {
 				return {
 					content: [
@@ -106,9 +122,16 @@ export function registerRecallTool(pi: ExtensionAPI, deps: RecallDeps): void {
 			}
 
 			// Bare text. No preamble, no formatting. The LLM knows what rN is.
+			// Include toolName and paramsKey in the `details` so the host
+			// TUI can show provenance but the LLM-context output stays bare.
 			return {
 				content: [{ type: "text", text: got.fullText }],
-				details: { ref, sizeBytes: got.sizeBytes },
+				details: {
+					ref,
+					sizeBytes: got.sizeBytes,
+					toolName: got.toolName,
+					paramsKey: got.paramsKey,
+				},
 			};
 		},
 		renderCall(args: any, theme: any, _context: any) {

@@ -33,7 +33,7 @@ async function main(): Promise<void> {
 
 			// Simulate the first read tool result.
 			const text1 = renderReadResult(filePath, fileContent);
-			const r1 = store.record(sessionId, "call_a", text1, false, 0);
+			const r1 = store.record(sessionId, "call_a", "read", {}, text1, false, 0);
 			assertPass("e2e read 1: not a duplicate", r1.isDuplicate === false);
 			assertPass("e2e read 1: shortRef is r1", r1.shortRef === "r1");
 			// LLM sees the full text on the first call (Pi doesn't return
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
 			// Simulate the second read tool result with the same content.
 			const text2 = renderReadResult(filePath, fileContent);
 			assertPass("e2e read 2: byte-equal to text1", text1 === text2);
-			const r2 = store.record(sessionId, "call_b", text2, false, 0);
+			const r2 = store.record(sessionId, "call_b", "read", {}, text2, false, 0);
 			assertPass("e2e read 2: is duplicate", r2.isDuplicate === true);
 			assertPass("e2e read 2: shortRef is r1", r2.shortRef === "r1");
 
@@ -65,20 +65,20 @@ async function main(): Promise<void> {
 			const after = `function foo() {\n  return 2;  // updated\n}\n`.repeat(10);
 
 			// Read 1: pre-edit content. Stored as r1.
-			const r1 = store.record(sessionId, "c1", before, false, 0);
+			const r1 = store.record(sessionId, "c1", "read", {}, before, false, 0);
 			assertPass("e2e edit 1: pre-edit stored as r1", r1.shortRef === "r1");
 			// Read 2: pre-edit again. Duplicate of r1.
-			const r2 = store.record(sessionId, "c2", before, false, 0);
+			const r2 = store.record(sessionId, "c2", "read", {}, before, false, 0);
 			assertPass("e2e edit 2: pre-edit duplicate refs r1", r2.isDuplicate && r2.shortRef === "r1");
 			// Edit happens (we don't model the empty-on-clean here, that's
 			// the tool's responsibility). After the edit, the file content
 			// is different.
 			// Read 3: post-edit content. Different bytes, new entry.
-			const r3 = store.record(sessionId, "c3", after, false, 0);
+			const r3 = store.record(sessionId, "c3", "read", {}, after, false, 0);
 			assertPass("e2e edit 3: post-edit is new (different bytes)", r3.isDuplicate === false);
 			assertPass("e2e edit 3: shortRef is r2 (next free)", r3.shortRef === "r2");
 			// Read 4: post-edit again. Duplicate of r2.
-			const r4 = store.record(sessionId, "c4", after, false, 0);
+			const r4 = store.record(sessionId, "c4", "read", {}, after, false, 0);
 			assertPass("e2e edit 4: post-edit duplicate refs r2", r4.isDuplicate && r4.shortRef === "r2");
 
 			// Verify recall distinguishes the two versions.
@@ -116,16 +116,16 @@ async function main(): Promise<void> {
 			const v3 = "version three content here, also over threshold, third value".repeat(2);
 
 			// Sequence: v1, v1, v1, v2, v2, v2, compact, v2, v2, v2, v3, v3, v3
-			const t1 = store.record(sessionId, "t1", v1, false, 0);
-			const t2 = store.record(sessionId, "t2", v1, false, 0);
-			const t3 = store.record(sessionId, "t3", v1, false, 0);
+			const t1 = store.record(sessionId, "t1", "read", {}, v1, false, 0);
+			const t2 = store.record(sessionId, "t2", "read", {}, v1, false, 0);
+			const t3 = store.record(sessionId, "t3", "read", {}, v1, false, 0);
 			assertPass("compact 1: t1 new (r1)", t1.shortRef === "r1");
 			assertPass("compact 2: t2 dup of r1", t2.isDuplicate && t2.shortRef === "r1");
 			assertPass("compact 3: t3 dup of r1", t3.isDuplicate && t3.shortRef === "r1");
 
-			const t4 = store.record(sessionId, "t4", v2, false, 0);
-			const t5 = store.record(sessionId, "t5", v2, false, 0);
-			const t6 = store.record(sessionId, "t6", v2, false, 0);
+			const t4 = store.record(sessionId, "t4", "read", {}, v2, false, 0);
+			const t5 = store.record(sessionId, "t5", "read", {}, v2, false, 0);
+			const t6 = store.record(sessionId, "t6", "read", {}, v2, false, 0);
 			assertPass("compact 4: t4 new (v2 is different bytes)", t4.isDuplicate === false);
 			assertPass("compact 5: t5 dup of t4's ref", t5.isDuplicate);
 			assertPass("compact 6: t6 dup of t4's ref", t6.isDuplicate);
@@ -135,17 +135,17 @@ async function main(): Promise<void> {
 			assertPass("compact: counter at 1", store.getCompactionCounter(sessionId) === 1);
 
 			// After compaction, the next duplicate of v2 is a new first occurrence.
-			const t7 = store.record(sessionId, "t7", v2, false, 1);
+			const t7 = store.record(sessionId, "t7", "read", {}, v2, false, 1);
 			assertPass("compact 7: post-compact v2 -> new (not dup)", t7.isDuplicate === false);
 			// Subsequent duplicates of v2 dedup to t7's ref.
-			const t8 = store.record(sessionId, "t8", v2, false, 1);
+			const t8 = store.record(sessionId, "t8", "read", {}, v2, false, 1);
 			assertPass("compact 8: post-compact v2 again -> dup of t7", t8.isDuplicate);
 			assertPass("compact 8: t7 and t8 share a ref", t7.shortRef === t8.shortRef);
 
 			// v3 is new bytes; always a first occurrence.
-			const t9 = store.record(sessionId, "t9", v3, false, 1);
+			const t9 = store.record(sessionId, "t9", "read", {}, v3, false, 1);
 			assertPass("compact 9: v3 is new", t9.isDuplicate === false);
-			const t10 = store.record(sessionId, "t10", v3, false, 1);
+			const t10 = store.record(sessionId, "t10", "read", {}, v3, false, 1);
 			assertPass("compact 10: v3 dup of t9", t10.isDuplicate && t10.shortRef === t9.shortRef);
 			logPass("e2e compaction: 12 calls, 2 compactions, all dedup state correct");
 		}
@@ -163,8 +163,8 @@ async function main(): Promise<void> {
 			// Verify the rendered-text shape that the hook would produce.
 			const store = new DedupStore();
 			const text = "x".repeat(500);
-			const r1 = store.record("s", "c1", text, false, 0);
-			const r2 = store.record("s", "c2", text, false, 0);
+			const r1 = store.record("s", "c1", "read", {}, text, false, 0);
+			const r2 = store.record("s", "c2", "read", {}, text, false, 0);
 
 			// What the LLM sees for the second call:
 			const dedupNotice = `[=${r2.shortRef},${text.length}B]`;
@@ -206,7 +206,7 @@ async function main(): Promise<void> {
 
 			let compactions = 0;
 			for (const c of calls) {
-				const r = store.record(sessionId, c.label, c.content, false, compactions);
+				const r = store.record(sessionId, c.label, "read", {}, c.content, false, compactions);
 				assertPass(
 					`intensive: ${c.label} expectDup=${c.expectDup}, got isDuplicate=${r.isDuplicate}`,
 					r.isDuplicate === c.expectDup,
@@ -228,7 +228,7 @@ async function main(): Promise<void> {
 			calls.push({ content: B, expectDup: false, label: "post-compact B #1" });
 			calls.push({ content: B, expectDup: true, label: "post-compact B #2" });
 			for (const c of calls) {
-				const r = store.record(sessionId, c.label, c.content, false, compactions);
+				const r = store.record(sessionId, c.label, "read", {}, c.content, false, compactions);
 				assertPass(
 					`intensive: ${c.label} expectDup=${c.expectDup}, got isDuplicate=${r.isDuplicate}`,
 					r.isDuplicate === c.expectDup,
@@ -259,8 +259,8 @@ async function main(): Promise<void> {
 			// happens in real usage. To model the limitation directly:
 			// we use the spillover path with a random hex to show why
 			// clamped bash output doesn't dedup.
-			const r1 = store.record(sessionId, "bash1", fullBash1, false, 0);
-			const r2 = store.record(sessionId, "bash2", fullBash2, false, 0);
+			const r1 = store.record(sessionId, "bash1", "read", {}, fullBash1, false, 0);
+			const r2 = store.record(sessionId, "bash2", "read", {}, fullBash2, false, 0);
 			assertPass(
 				"limitation: clamped bash output with random spillover path -> NOT a duplicate",
 				r2.isDuplicate === false,
@@ -269,8 +269,8 @@ async function main(): Promise<void> {
 			// The same command output without the random hex (or under
 			// the 80-byte threshold entirely) does dedup correctly.
 			const small = "a".repeat(200);
-			const small1 = store.record(sessionId, "s1", small, false, 0);
-			const small2 = store.record(sessionId, "s2", small, false, 0);
+			const small1 = store.record(sessionId, "s1", "read", {}, small, false, 0);
+			const small2 = store.record(sessionId, "s2", "read", {}, small, false, 0);
 			assertPass(
 				"limitation context: small bash output (no clamping) -> dedup fires",
 				small2.isDuplicate === true,

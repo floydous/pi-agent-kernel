@@ -729,9 +729,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		// 9c. Dedup pass: hash the rendered text the LLM will see; if it's a
-		// byte-equal duplicate of one already in this session's current
-		// (uncompacted) context, replace with a [=rN,sizeB] reference. Bail
+		// 9c. Dedup pass: hash the rendered text + tool name + input params;
+		// if it's a byte-equal duplicate (same tool, same params, same text)
+		// of one already in this session's current (uncompacted) context,
+		// replace with a [=rN,sizeB,tool,paramsKey] reference. Bail
 		// branches (didBail) skip dedup; errors are filtered at the top.
 		// The `recall` tool is exempt: its entire purpose is to break the
 		// dedup chain by emitting the original bytes; if we dedup'd its
@@ -745,15 +746,29 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			if (finalText.length > 0) {
 				const sessionId = getSessionId(ctx);
 				const compactionCounter = dedupStore.getCompactionCounter(sessionId);
+				const inputParams = event.input || {};
 				const decision = dedupStore.record(
 					sessionId,
 					event.toolCallId || "",
+					toolName,
+					inputParams,
 					finalText,
 					false,
 					compactionCounter,
 				);
 				if (decision.isDuplicate) {
-					resultContent = [{ type: "text", text: `[=${decision.shortRef},${finalText.length}B]` }];
+					// Recall the prior entry's metadata so the notice names
+					// the tool and paramsKey. The LLM can use this to
+					// decide whether to recall or run a fresh tool call.
+					const prior = dedupStore.get(sessionId, decision.shortRef);
+					const priorTool = prior?.toolName ?? toolName;
+					const priorParamsKey = prior?.paramsKey ?? "";
+					resultContent = [
+						{
+							type: "text",
+							text: `[=${decision.shortRef},${finalText.length}B,${priorTool},${priorParamsKey}]`,
+						},
+					];
 				}
 				// For first occurrence, the dedup store has the entry, but we
 				// don't need to return anything; Pi will use event.content as-is.
@@ -787,7 +802,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			lastRepoMapCheck = now;
 		}
 
-		const dedupNote = `\nTool results may be replaced with a short reference like [=rN,sizeB] when the same content was already shown earlier in this session. Call recall({ ref: "rN" }) to retrieve the full original content if you need to quote or re-read it.\n`;
+		const dedupNote = `\nTool results may be replaced with a short reference like [=rN,sizeB,tool,paramsKey] when the same content was already shown earlier in this session. The reference includes the tool name and a 4-hex digest of the input parameters. Call recall({ ref: "rN" }) to retrieve the full original content. If you need a different section, line range, or symbol, run a fresh read or search instead of recalling — the recall output is byte-equal to the prior result and will not contain a different range.\n`;
 
 		const runtimeContext = `
 ## Available Repository Context:

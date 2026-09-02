@@ -12,7 +12,7 @@ async function main(): Promise<void> {
 		{
 			const store = new DedupStore();
 			const content = "line 1\nline 2\nline 3\n".repeat(20); // >80B
-			const r = store.record("s1", "c1", content, false, 0);
+			const r = store.record("s1", "c1", "read", {}, content, false, 0);
 			const decision = decideRecall(r.shortRef, store, "s1");
 			assertPass("valid ref: kind is ok", decision.kind === "ok", { decision });
 			if (decision.kind === "ok") {
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
 		// ---- Test 4: unknown ref -> error ----
 		{
 			const store = new DedupStore();
-			store.record("s1", "c1", "x".repeat(200), false, 0);
+			store.record("s1", "c1", "read", {}, "x".repeat(200), false, 0);
 			const d = decideRecall("r99", store, "s1");
 			assertPass("unknown ref: kind is error", d.kind === "error");
 			if (d.kind === "error") {
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 		// ---- Test 5: session isolation ----
 		{
 			const store = new DedupStore();
-			store.record("sA", "c1", "alpha content here yes".repeat(10), false, 0);
+			store.record("sA", "c1", "read", {}, "alpha content here yes".repeat(10), false, 0);
 			// sA has r1. sB has no entries.
 			const inA = decideRecall("r1", store, "sA");
 			assertPass("sA: r1 is retrievable", inA.kind === "ok");
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
 		{
 			const store = new DedupStore();
 			const content = "the quick brown fox jumps over the lazy dog ".repeat(5);
-			const r = store.record("s1", "c1", content, false, 0);
+			const r = store.record("s1", "c1", "read", {}, content, false, 0);
 			const d = decideRecall(r.shortRef, store, "s1");
 			if (d.kind !== "ok") {
 				assertPass("expected ok result", false, { d });
@@ -143,9 +143,9 @@ async function main(): Promise<void> {
 			const c1 = "alpha ".repeat(30);
 			const c2 = "beta ".repeat(30);
 			const c3 = "gamma ".repeat(30);
-			const r1 = store.record("s1", "x", c1, false, 0);
-			store.record("s1", "y", c2, false, 0);
-			store.record("s1", "z", c3, false, 0);
+			const r1 = store.record("s1", "x", "read", {}, c1, false, 0);
+			store.record("s1", "y", "read", {}, c2, false, 0);
+			store.record("s1", "z", "read", {}, c3, false, 0);
 			assertPass("intensive: 3 entries stored", store.size("s1") === 3);
 			const d1 = decideRecall(r1.shortRef, store, "s1");
 			assertPass("intensive: r1 retrievable", d1.kind === "ok");
@@ -166,8 +166,8 @@ async function main(): Promise<void> {
 			const fileContent = JSON.stringify({
 				users: Array.from({ length: 30 }, (_, i) => ({ id: i, name: `user_${i}` })),
 			});
-			const r1 = store.record("s1", "read_x", fileContent, false, 0);
-			const r2 = store.record("s1", "bash_cat_x", fileContent, false, 0);
+			const r1 = store.record("s1", "read_x", "read", {}, fileContent, false, 0);
+			const r2 = store.record("s1", "bash_cat_x", "read", {}, fileContent, false, 0);
 			assertPass("e2e: first record is not duplicate", r1.isDuplicate === false);
 			assertPass("e2e: second record IS duplicate", r2.isDuplicate === true);
 			assertPass("e2e: dedup refs the prior", r2.shortRef === r1.shortRef);

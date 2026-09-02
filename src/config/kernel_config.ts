@@ -61,7 +61,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 		max_total_bytes: 20 * 1024,
 		exec_timeout_ms: 5000,
 		dedup_min_bytes: 80,
-		dedup_max_entries_per_session: 256,
+		dedup_max_entries_per_session: 1024,
 	},
 	lsp: {
 		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes
