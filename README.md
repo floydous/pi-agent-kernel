@@ -9,6 +9,21 @@ performance and reliability across agent work. It favors focused retrieval,
 bounded output, deterministic checks, and grounded edits over unnecessary
 context, background processing, or speculative automation.
 
+## Empirical Performance & Token Efficiency
+
+Compared to unconstrained agent harnesses (which dump full files, perform raw directory walks, rewrite entire source files on every edit, and stream unbounded terminal stdout directly into context), `pi-agent-kernel` optimizes token consumption and execution latency across every interaction turn:
+
+| Capability / Interaction | Unconstrained Harness | `pi-agent-kernel` | Token / Overhead Delta | Latency |
+|---|---|---|---|---|
+| **Context Ingestion** (Workspace map) | Raw recursive tree / full dump (~92.8k tokens) | PageRank AST Repo Map (~1.0k tokens) | **-98.9%** context tokens | ~40 ms |
+| **Code Inspection** (Targeted function read) | Whole file read (~1.4k tokens) | AST Symbol Extraction (`read(symbol=...)`) (~428 tokens) | **-68.5%** prompt tokens | <1 ms |
+| **Code Mutation** (Surgical function patch) | Full file rewrite (~1.4k tokens in tool payload) | Surgical search/replace (`edit`) (~58 tokens) | **-95.7%** output tokens | <5 ms |
+| **Command Execution** (Large test/build output) | Unbounded stream (~27.5k tokens) | Bounded Clamp + Disk Spillover (~1.1k tokens) | **-95.9%** flood tokens prevented | Instant |
+| **Codebase Search** (Lexical / BM25 Query) | Linear `grep`/`find` disk scan | Inverted In-Memory BM25 Index | **0 MB** background RAM (Lean) | ~0.03 ms / query |
+| **Pre-Commit Safety** (Broken syntax gate) | Allowed to commit broken code | Local Fast AST Delimiter Gate | **Deterministic** failure block | Instant |
+
+*Empirical metrics measured against this codebase (45 source files, ~92.8k raw tokens) using `tests/benchmark_metrics.ts`.*
+
 ## Architecture & Directory Layout
 
 Authored runtime code lives under `src/`; tests, documentation, and example
