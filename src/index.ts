@@ -45,6 +45,8 @@ function getSessionId(ctx: any): string {
 import { clampCommandOutput } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { renderFooter } from "./ui/footer";
+import { DedupStore } from "./dedup/content_store";
+import { registerRecallTool } from "./dedup/recall_tool";
 import {
 	LspManager,
 	LspControlModal,
@@ -62,6 +64,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	} catch (e) {
 		kernelDebug(e);
 	}
+
+	// 0b. Dedup store: shared across all sessions in this process. Per-session
+	// state is keyed by sessionId. A single instance lets the dedup store
+	// benefit from cross-session LRU and lets the recall tool look up refs
+	// from any active session.
+	const dedupStore = new DedupStore();
+	const getDedupStore = () => dedupStore;
 
 	// 3. Slash Commands: /repomap, /engine, /lsp
 	let activeTui: any = null;
@@ -544,11 +553,24 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event: any, ctx: any) => {
 		const sessionId = getSessionId(ctx);
 		globalEpistemicGuard.resetSession(sessionId);
+		dedupStore.clearSession(sessionId);
 		try {
 			await LspManager.getInstance().stopAll();
 		} catch (e) {
 			kernelDebug(e);
 		}
+	});
+
+	// 2b. Compaction hooks: bump the dedup store's per-session counter so
+	// the next duplicate of any prior content is treated as a new first
+	// occurrence. This applies to both auto-triggered and manual compactions.
+	pi.on("session_before_compact", async (_event: any, ctx: any) => {
+		const sessionId = getSessionId(ctx);
+		dedupStore.onCompaction(sessionId);
+	});
+	pi.on("session_compact", async (_event: any, ctx: any) => {
+		const sessionId = getSessionId(ctx);
+		dedupStore.onCompaction(sessionId);
 	});
 
 	// 4-8. Tools: repo map, AST search, code search, read, edit, LSP
@@ -558,6 +580,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	registerReadTool(pi, { getSessionId, getConfig });
 	registerEditTool(pi, { getSessionId, getConfig });
 	registerLspTool(pi, { getSessionId, getConfig });
+	registerRecallTool(pi, { getSessionId, getDedupStore });
 
 	// 9a. Block host writes before the host tool can create parent directories
 	// or overwrite the target. Bash read evidence is recorded after a successful
@@ -608,6 +631,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		if (event.isError) return;
 
 		const toolName = event.toolName;
+		// resultContent === undefined means "no transformation, return event.content as-is".
+		// A non-undefined value is the content the LLM will see; the dedup check
+		// at the end runs on whichever form is set.
+		let resultContent: any = undefined;
+		let didBail = false;
 
 		// 9a. Intercept bash & terminal output to clamp minified lines & massive match floods
 		if (toolName === "bash") {
@@ -616,7 +644,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
 			);
 
-			const updatedContent = (event.content || []).map((c: any) => {
+			resultContent = (event.content || []).map((c: any) => {
 				if (c.type === "text" && typeof c.text === "string") {
 					const clamped = clampCommandOutput(c.text, command, {
 						maxLineLength: outputConfig.safety.max_line_length,
@@ -629,10 +657,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				}
 				return c;
 			});
-
-			return {
-				content: updatedContent,
-			};
 		}
 
 		// 9b. Preserve the host write-tool compatibility path. The custom edit
@@ -656,10 +680,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				resultText.includes("[EPISTEMIC GUARD REJECTION]") ||
 				resultText.includes("[READ ERROR]")
 			) {
-				return;
-			}
-
-			if (targetPath) {
+				didBail = true;
+			} else if (targetPath) {
 				const resultCwd =
 					ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 				const resolvedPath = resolveUserPath(targetPath, resultCwd);
@@ -667,50 +689,80 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 				if (!syntaxRes.valid && syntaxRes.status === "failed") {
 					const warning = `\n\n[SYNTAX WARNING] ${syntaxRes.error}\nPlease fix this syntax error.`;
-					const updatedContent = event.content.map((c: any) =>
+					resultContent = event.content.map((c: any) =>
 						c.type === "text" ? { ...c, text: c.text + warning } : c,
 					);
-					return {
-						content: updatedContent,
-					};
-				}
+				} else {
+					// Synchronize with active LSP daemon and fetch post-edit diagnostics if available
+					let lspNotice = "";
+					try {
+						const lspMgr = LspManager.getInstance();
+						const client = lspMgr.getReadyClientForFile(resolvedPath, resultCwd);
+						if (client && client.getState() === "ready") {
+							const fileContent = fs.readFileSync(resolvedPath, "utf8");
+							await client.changeDocument(resolvedPath, fileContent);
+							await client.saveDocument(resolvedPath, fileContent);
 
-				// Synchronize with active LSP daemon and fetch post-edit diagnostics if available
-				let lspNotice = "";
-				try {
-					const lspMgr = LspManager.getInstance();
-					const client = lspMgr.getReadyClientForFile(resolvedPath, resultCwd);
-					if (client && client.getState() === "ready") {
-						const fileContent = fs.readFileSync(resolvedPath, "utf8");
-						await client.changeDocument(resolvedPath, fileContent);
-						await client.saveDocument(resolvedPath, fileContent);
-
-						// Allow LSP server brief window to compute diagnostics
-						const diagnostics = await client.getDiagnosticsResult(resolvedPath);
-						if (diagnostics.diagnostics.length > 0) {
-							const formattedDiags = formatDiagnostics(
-								diagnostics.diagnostics,
-								resolvedPath,
-								resultCwd,
-							);
-							lspNotice = `\n\n[LSP Diagnostics]\n${formattedDiags}`;
-						} else if (diagnostics.status !== "clean") {
-							lspNotice = `\n\n[LSP ${diagnostics.status.toUpperCase()}] No definitive diagnostics result.`;
+							// Allow LSP server brief window to compute diagnostics
+							const diagnostics = await client.getDiagnosticsResult(resolvedPath);
+							if (diagnostics.diagnostics.length > 0) {
+								const formattedDiags = formatDiagnostics(
+									diagnostics.diagnostics,
+									resolvedPath,
+									resultCwd,
+								);
+								lspNotice = `\n\n[LSP Diagnostics]\n${formattedDiags}`;
+							} else if (diagnostics.status !== "clean") {
+								lspNotice = `\n\n[LSP ${diagnostics.status.toUpperCase()}] No definitive diagnostics result.`;
+							}
 						}
+					} catch (e) {
+						kernelDebug(e);
 					}
-				} catch (e) {
-					kernelDebug(e);
-				}
 
-				if (lspNotice) {
-					const updatedContent = event.content.map((c: any) =>
-						c.type === "text" ? { ...c, text: c.text + lspNotice } : c,
-					);
-					return {
-						content: updatedContent,
-					};
+					if (lspNotice) {
+						resultContent = event.content.map((c: any) =>
+							c.type === "text" ? { ...c, text: c.text + lspNotice } : c,
+						);
+					}
 				}
 			}
+		}
+
+		// 9c. Dedup pass: hash the rendered text the LLM will see; if it's a
+		// byte-equal duplicate of one already in this session's current
+		// (uncompacted) context, replace with a [=rN,sizeB] reference. Bail
+		// branches (didBail) skip dedup; errors are filtered at the top.
+		// The `recall` tool is exempt: its entire purpose is to break the
+		// dedup chain by emitting the original bytes; if we dedup'd its
+		// output, the LLM would get a reference instead of the bytes it
+		// asked for.
+		if (!didBail && toolName !== "recall") {
+			const contentForLLM = resultContent !== undefined ? resultContent : (event.content || []);
+			const finalText = (contentForLLM as any[])
+				.map((c: any) => (c.type === "text" && typeof c.text === "string" ? c.text : ""))
+				.join("");
+			if (finalText.length > 0) {
+				const sessionId = getSessionId(ctx);
+				const compactionCounter = dedupStore.getCompactionCounter(sessionId);
+				const decision = dedupStore.record(
+					sessionId,
+					event.toolCallId || "",
+					finalText,
+					false,
+					compactionCounter,
+				);
+				if (decision.isDuplicate) {
+					resultContent = [{ type: "text", text: `[=${decision.shortRef},${finalText.length}B]` }];
+				}
+				// For first occurrence, the dedup store has the entry, but we
+				// don't need to return anything; Pi will use event.content as-is.
+			}
+		}
+
+		if (didBail) return;
+		if (resultContent !== undefined) {
+			return { content: resultContent };
 		}
 	});
 
@@ -735,9 +787,12 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			lastRepoMapCheck = now;
 		}
 
+		const dedupNote = `\nTool results may be replaced with a short reference like [=rN,sizeB] when the same content was already shown earlier in this session. Call recall({ ref: "rN" }) to retrieve the full original content if you need to quote or re-read it.\n`;
+
 		const runtimeContext = `
 ## Available Repository Context:
 ${cachedRepoMap}
+${dedupNote}
 `;
 		return {
 			systemPrompt: event.systemPrompt

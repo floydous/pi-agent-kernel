@@ -105,6 +105,18 @@ const sections: TestEntry[] = [
 			if (mod.runPromise) await mod.runPromise;
 		},
 	},
+	{
+		name: "29. Content-Addressed Dedup",
+		loader: () => import("./section-29-dedup-content-store"),
+	},
+	{
+		name: "30. Recall Tool Decision Logic",
+		loader: () => import("./section-30-recall-tool"),
+	},
+	{
+		name: "31. End-to-End Dedup Hook Chain",
+		loader: () => import("./section-31-e2e-dedup-hook"),
+	},
 ];
 
 async function main(): Promise<void> {
