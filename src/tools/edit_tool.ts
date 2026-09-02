@@ -9,7 +9,10 @@ import {
 	verifyEditedFile,
 } from "../editing/post_edit_verification";
 import { LspManager } from "../lsp";
-import { globalEpistemicGuard } from "../safety/epistemic_guard";
+import {
+	globalEpistemicGuard,
+	resolveUserPath,
+} from "../safety/epistemic_guard";
 import { loadKernelConfig } from "../config";
 import type { SessionDeps } from "./context";
 
@@ -68,9 +71,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-			const resolvedPath = path.isAbsolute(params.path)
-				? params.path
-				: path.resolve(ctx.cwd, params.path);
+			const resolvedPath = resolveUserPath(params.path, ctx.cwd);
 
 			// 1. Read-Before-Write Epistemic Guard Check
 			const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);

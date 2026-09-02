@@ -4,7 +4,6 @@ import { HybridSearchIndex } from "../src/retrieval/search_index";
 import { LocalEmbedder } from "../src/retrieval/search_embedder";
 import { getSearchConfig } from "../src/retrieval/search_config";
 import { formatDocumentSymbols } from "../src/lsp/lsp_formatter";
-import { buildChronologicalCompactionPrompt, buildCompactionSystemPrompt } from "../src/context/compaction_enhanced";
 import { LspSymbolKind } from "../src/lsp/lsp_types";
 
 async function runIntensiveTests() {
@@ -131,31 +130,6 @@ async function runIntensiveTests() {
   assert(formattedLarge.includes("[Truncated: 100/150 symbols shown]"), "Truncates output when >100 symbols");
   const symbolLines = formattedLarge.split("\n").filter((l) => l.includes("[function]"));
   assert(symbolLines.length === 100, `Outputs exactly 100 symbols before truncation notice (got ${symbolLines.length})`);
-
-  // 3. TEST COMPACTION PROMPT PREFIX STABILITY & SYSTEM PROMPT SEPARATION
-  console.log("\n[3. Testing Compaction Prompt Prefix Stability]");
-  const sysPrompt = buildCompactionSystemPrompt();
-  assert(sysPrompt.length > 500, "System prompt contains complete static summarization instructions");
-  assert(sysPrompt.includes("CRITICAL INSTRUCTIONS FOR CHRONOLOGICAL RECONCILIATION"), "Contains grounding constraints");
-
-  const prompt1 = buildChronologicalCompactionPrompt({
-    previousSummary: "## Goal: Test",
-    discardedConversationText: "Turn 1: user hello",
-    recentTrajectoryDigest: "<recent>digest</recent>",
-    workspaceState: "<workspace-state>file: index.ts</workspace-state>",
-  });
-
-  const prompt2 = buildChronologicalCompactionPrompt({
-    previousSummary: "## Goal: Test",
-    discardedConversationText: "Turn 1: user hello",
-    recentTrajectoryDigest: "<recent>digest</recent>",
-    workspaceState: "<workspace-state>file: index.ts\nfile: added.ts</workspace-state>",
-  });
-
-  // Verify prefix stability up to the dynamic workspaceState at the tail
-  const prefixUpToWorkspace = prompt1.slice(0, prompt1.indexOf("<workspace-state>"));
-  assert(prompt2.startsWith(prefixUpToWorkspace), "User message prompt prefix is strictly stable across workspace changes");
-  assert(prompt1.endsWith("</workspace-state>\n\n"), "Dynamic workspace state sits cleanly at prompt tail");
 
   console.log("\n=== TEST RESULTS SUMMARY ===");
   if (failed === 0) {

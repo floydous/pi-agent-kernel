@@ -1,5 +1,6 @@
 import * as fs from "fs";
-import * as path from "path";
+import * as path from "node:path";
+import { resolveUserPath } from "../safety/epistemic_guard";
 import * as diff from "diff";
 import { checkSyntaxContent } from "./syntax-verify";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
@@ -197,9 +198,7 @@ function applySingleBlock(
 }
 
 function resolvePatchPath(filePath: string): string {
-	return path.isAbsolute(filePath)
-		? filePath
-		: path.resolve(process.cwd(), filePath);
+	return resolveUserPath(filePath, process.cwd());
 }
 
 function readPatchTarget(

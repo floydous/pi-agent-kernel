@@ -4,7 +4,10 @@ import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { extractSymbolContent } from "../retrieval/symbol_reader";
-import { globalEpistemicGuard } from "../safety/epistemic_guard";
+import {
+	globalEpistemicGuard,
+	resolveUserPath,
+} from "../safety/epistemic_guard";
 import type { SessionDeps } from "./context";
 
 /** Extracted from index.ts — registers the `read` tool. */
@@ -62,9 +65,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-			const resolvedPath = path.isAbsolute(params.path)
-				? params.path
-				: path.resolve(ctx.cwd, params.path);
+			const resolvedPath = resolveUserPath(params.path, ctx.cwd);
 			if (!fs.existsSync(resolvedPath)) {
 				return {
 					content: [{ type: "text", text: `File not found: ${params.path}` }],

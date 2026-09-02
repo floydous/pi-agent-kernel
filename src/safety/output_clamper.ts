@@ -145,27 +145,52 @@ export function clampCommandOutput(
 		kernelDebug(e);
 	}
 
-	// Horizontal Line-Width Clamping & Vertical Capping
+	// Horizontal Line-Width Clamping & Vertical Head+Tail Capping
 	const clampedLines: string[] = [];
-	const lineLimit = Math.min(totalLines, maxLines);
 
-	for (let i = 0; i < lineLimit; i++) {
-		const line = rawLines[i];
+	const formatLine = (line: string, idx: number): string => {
 		if (line.length > maxLineLength) {
-			const kept = line.slice(0, maxLineLength - 60);
+			const kept = line.slice(0, Math.max(10, maxLineLength - 60));
 			const omitted = line.length - kept.length;
-			clampedLines.push(
-				`${kept}... <line ${i + 1} truncated: ${omitted.toLocaleString()} chars omitted>`,
-			);
-		} else {
-			clampedLines.push(line);
+			return `${kept}... <line ${idx + 1} truncated: ${omitted.toLocaleString()} chars omitted>`;
+		}
+		return line;
+	};
+
+	let shownLines = totalLines;
+
+	if (totalLines > maxLines) {
+		const effectiveMaxLines = Math.max(2, maxLines);
+		const headCount = Math.floor(effectiveMaxLines / 2);
+		const tailCount = effectiveMaxLines - headCount;
+		const omittedLines = totalLines - (headCount + tailCount);
+		shownLines = headCount + tailCount;
+
+		// Head lines
+		for (let i = 0; i < headCount; i++) {
+			clampedLines.push(formatLine(rawLines[i], i));
+		}
+
+		// Middle omission marker
+		clampedLines.push(
+			`\n[... ${omittedLines.toLocaleString()} lines omitted ...]\n`,
+		);
+
+		// Tail lines
+		const tailStart = totalLines - tailCount;
+		for (let i = tailStart; i < totalLines; i++) {
+			clampedLines.push(formatLine(rawLines[i], i));
+		}
+	} else {
+		for (let i = 0; i < totalLines; i++) {
+			clampedLines.push(formatLine(rawLines[i], i));
 		}
 	}
 
 	let resultText = clampedLines.join("\n");
 
 	// Append concise footer with spillover pointer
-	let footer = `\n\n[Truncated: ${lineLimit}/${totalLines} lines.`;
+	let footer = `\n\n[Truncated: ${shownLines}/${totalLines} lines.`;
 	if (spilloverPath) {
 		footer += ` Full: ${spilloverPath}]`;
 	} else {
@@ -183,6 +208,6 @@ export function clampCommandOutput(
 		originalBytes,
 		returnedBytes,
 		totalLines,
-		shownLines: lineLimit,
+		shownLines,
 	};
 }

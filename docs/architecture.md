@@ -10,7 +10,7 @@ package.
 src/
 ├── index.ts       Extension integration boundary
 ├── config/        Hierarchical TOML configuration
-├── context/       Compaction and session repair
+├── context/       Session repair
 ├── editing/       Surgical patching and verification
 ├── lsp/           Language Server Protocol support
 ├── retrieval/     AST, repository-map, and code-search logic
@@ -28,7 +28,7 @@ src/
 - `src/retrieval/`, `src/editing/`, `src/lsp/`, and `src/safety/` contain the
   reusable implementation modules.
 - `src/config/` owns configuration loading and merging.
-- `src/context/` owns compaction prompt construction and session repair.
+- `src/context/` owns session repair.
 - `src/ui/` contains presentation helpers and width-safe rendering utilities.
 
 ## Runtime flow
@@ -38,5 +38,3 @@ src/
 3. Read and edit operations pass through the epistemic guard where enabled.
 4. Retrieval operations use AST-aware indexing and bounded output contracts.
 5. Edits are verified locally and return compact structured status text.
-6. Compaction uses deterministic workspace state and recent trajectory data to
-   build a grounded summary prompt.

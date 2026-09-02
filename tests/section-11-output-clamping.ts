@@ -41,7 +41,7 @@ async function main(): Promise<void> {
 			}
 		} catch {}
 
-		// Test 3: Match flood vertical line capping
+		// Test 3: Match flood vertical line capping (head + tail)
 		const matchFlood = Array.from({ length: 150 }, (_, i) => `src/file_${i}.ts:42: const item_${i} = true;`).join("\n");
 		const clamped2 = clampCommandOutput(matchFlood, "find . -name '*.ts'", { maxLines: 40 });
 
@@ -49,10 +49,13 @@ async function main(): Promise<void> {
 			"Match flood vertical capping works",
 			clamped2.truncated &&
 				clamped2.shownLines === 40 &&
+				clamped2.text.includes("src/file_0.ts") &&
+				clamped2.text.includes("src/file_149.ts") &&
+				clamped2.text.includes("110 lines omitted") &&
 				clamped2.text.includes("Truncated: 40/150 lines"),
 			{ clamped2 }
 		);
-		logPass("Match flood vertical capping verified (150 lines capped to 40 lines with footer)!");
+		logPass("Match flood vertical capping verified (150 lines capped to 40 lines head+tail with footer)!");
 
 		try {
 			if (clamped2.spilloverPath && fs.existsSync(clamped2.spilloverPath)) {

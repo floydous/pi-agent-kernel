@@ -28,5 +28,5 @@ Prefer the narrowest useful check first:
 4. Review `git diff --check` and the final working-tree status.
 
 The suite covers AST extraction, repository maps, patching, syntax checks,
-session repair, retrieval, output clamping, compaction, LSP support,
+session repair, retrieval, output clamping, LSP support,
 configuration, lifecycle integration, and post-edit verification.

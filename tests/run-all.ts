@@ -47,22 +47,6 @@ const sections: TestEntry[] = [
 		loader: () => import("./section-11-output-clamping"),
 	},
 	{
-		name: "12. Compaction Engine",
-		loader: () => import("./section-12-compaction-engine"),
-	},
-	{
-		name: "12.1. Compaction Prompt Caching Partitioning",
-		loader: () => import("./section-12.1-compaction-prompt-caching"),
-	},
-	{
-		name: "12.2. Bounded workspace-state extraction",
-		loader: () => import("./section-12.2-workspace-state"),
-	},
-	{
-		name: "12.3. Compaction retry logic with large input",
-		loader: () => import("./section-12.3-compaction-retry-logic"),
-	},
-	{
 		name: "13. Epistemic Guard",
 		loader: () => import("./section-13-epistemic-guard"),
 	},

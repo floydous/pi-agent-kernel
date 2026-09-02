@@ -36,8 +36,8 @@ npx tsx tests/section-13-epistemic-guard.ts
 | `section-09-session-repair.ts` | `sanitizeSessionFiles` heals missing `usage.cost.total` |
 | `section-10-hybrid-search.ts` | `HybridSearchIndex` chunking, search, and indexing fallback |
 | `section-11-output-clamping.ts` | `clampCommandOutput` and `isDiscoveryCommand` |
-| `section-12-compaction-engine.ts` | workspace status extraction, `extractTrajectoryDigest`, `buildChronologicalCompactionPrompt` |
-| `section-12.1-compaction-prompt-caching.ts` | `buildCompactionSystemPrompt` keeps static instructions in the system prompt for caching |
+
+
 | `section-13-epistemic-guard.ts` | `EpistemicGuard` blocking, per-session scope, case-sensitivity |
 | `section-15-unified-footer.ts` | `renderFooter` produces a properly formatted line with TrueColor codes |
 | `section-16-lsp-uri-and-detection.ts` | LSP URI/Path roundtrip, language detection, workspace root |

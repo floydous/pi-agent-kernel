@@ -4,10 +4,12 @@
 // per-platform case-sensitivity.
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
 	EpistemicGuard,
 	extractInspectedFilesFromCommand,
+	resolveUserPath,
 } from "../src/safety/epistemic_guard";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
@@ -46,6 +48,38 @@ async function main(): Promise<void> {
 				"Epistemic guard allows write on brand-new file",
 				newFileCheck.allowed,
 				{ newFileCheck },
+			);
+
+			// Pi accepts the OS temp directory as disposable scratch space for
+			// measurements, while arbitrary external roots remain rejected.
+			const tempScratchPath = path.join(os.tmpdir(), "pi_kernel_measurement.ts");
+			const tempScratchCheck = guard.checkReadPrecondition(
+				tempScratchPath,
+				"write",
+				TEST_SESSION,
+				ws.tempDir,
+			);
+			assertPass(
+				"Epistemic guard allows new writes in OS temp scratch space",
+				tempScratchCheck.allowed,
+				{ tempScratchCheck },
+			);
+			const externalPath = path.join(os.homedir(), "pi_kernel_external.ts");
+			const externalCheck = guard.checkReadPrecondition(
+				externalPath,
+				"write",
+				TEST_SESSION,
+				ws.tempDir,
+			);
+			assertPass(
+				"Epistemic guard still rejects arbitrary external roots",
+				!externalCheck.allowed,
+				{ externalCheck },
+			);
+			assertPass(
+				"User-home shorthand resolves to the host home directory",
+				path.normalize(resolveUserPath("~")) === path.normalize(os.homedir()),
+				{ home: os.homedir() },
 			);
 
 			// Record file inspection via read

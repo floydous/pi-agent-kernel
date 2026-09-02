@@ -7,6 +7,7 @@
 
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { kernelDebug } from "./kernel_debug";
 
@@ -34,6 +35,23 @@ function commandName(token: string): string {
 		.basename(token)
 		.toLowerCase()
 		.replace(/\.exe$/, "");
+}
+
+/** Resolve the path forms accepted by Pi's file tools, including ~ paths. */
+export function resolveUserPath(
+	filePath: string,
+	cwd = process.cwd(),
+): string {
+	const normalized = filePath.trim();
+	const expanded =
+		normalized === "~"
+			? os.homedir()
+			: normalized.startsWith("~/") || normalized.startsWith("~\\")
+				? path.join(os.homedir(), normalized.slice(2))
+				: normalized;
+	return path.isAbsolute(expanded)
+		? path.resolve(expanded)
+		: path.resolve(cwd, expanded);
 }
 
 export function extractInspectedFilesFromCommand(
@@ -108,7 +126,7 @@ export function extractInspectedFilesFromCommand(
 
 		for (const token of candidates) {
 			try {
-				const resolved = path.isAbsolute(token) ? token : path.resolve(cwd, token);
+				const resolved = resolveUserPath(token, cwd);
 				if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
 					inspected.push(resolved);
 				}
@@ -131,9 +149,7 @@ export class EpistemicGuard {
 		new Map();
 
 	private resolvePath(filePath: string, cwd = process.cwd()): string {
-		return path.isAbsolute(filePath)
-			? path.resolve(filePath)
-			: path.resolve(cwd, filePath);
+		return resolveUserPath(filePath, cwd);
 	}
 
 	/**
@@ -199,12 +215,12 @@ export class EpistemicGuard {
 	 * Enforce workspace containment, including symlink resolution. This check is
 	 * independent of the optional inspection setting.
 	 */
-	private isWithinWorkspace(filePath: string, cwd: string): boolean {
+	private isWithinRoot(filePath: string, rootPath: string): boolean {
 		try {
 			const isWindows = process.platform === "win32";
-			const root = path.normalize(this.canonicalPath(path.resolve(cwd)));
+			const root = path.normalize(this.canonicalPath(path.resolve(rootPath)));
 			const target = path.normalize(
-				this.canonicalPath(this.resolvePath(filePath, cwd)),
+				this.canonicalPath(this.resolvePath(filePath, rootPath)),
 			);
 			const normalizedRoot = isWindows ? root.toLowerCase() : root;
 			const normalizedTarget = isWindows ? target.toLowerCase() : target;
@@ -218,6 +234,16 @@ export class EpistemicGuard {
 		} catch {
 			return false;
 		}
+	}
+
+	private isWithinWorkspace(filePath: string, cwd: string): boolean {
+		// The OS temp directory is the narrow, disposable scratch area allowed for
+		// measurements and generated intermediates. Existing files there still pass
+		// through the normal read-before-write and freshness checks below.
+		return (
+			this.isWithinRoot(filePath, cwd) ||
+			this.isWithinRoot(filePath, os.tmpdir())
+		);
 	}
 
 	private getSessionEvidence(

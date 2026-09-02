@@ -6,7 +6,10 @@ import { HybridSearchIndex } from "./retrieval/search_index";
 import type { SearchProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
 import { checkSyntax } from "./editing/syntax-verify";
-import { globalEpistemicGuard } from "./safety/epistemic_guard";
+import {
+	globalEpistemicGuard,
+	resolveUserPath,
+} from "./safety/epistemic_guard";
 import { loadKernelConfig } from "./config";
 import { kernelDebug } from "./safety/kernel_debug";
 import { registerRepoMapTool } from "./tools/repo_map_tool";
@@ -40,7 +43,6 @@ function getSessionId(ctx: any): string {
 	return `__default__${process.pid}`;
 }
 import { clampCommandOutput } from "./safety/output_clamper";
-import { registerCustomCompaction } from "./context/compaction_enhanced";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { renderFooter } from "./ui/footer";
 import {
@@ -60,9 +62,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	} catch (e) {
 		kernelDebug(e);
 	}
-
-	// 1. Enhanced Compaction Hook (session_before_compact)
-	registerCustomCompaction(pi);
 
 	// 3. Slash Commands: /repomap, /engine, /lsp
 	let activeTui: any = null;
@@ -577,9 +576,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				};
 			}
 			const config = getConfig(cwd);
-			const resolvedPath = path.isAbsolute(targetPath)
-				? targetPath
-				: path.resolve(cwd, targetPath);
+			const resolvedPath = resolveUserPath(targetPath, cwd);
 			const check = globalEpistemicGuard.checkReadPrecondition(
 				resolvedPath,
 				"write",
@@ -665,9 +662,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			if (targetPath) {
 				const resultCwd =
 					ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
-				const resolvedPath = path.isAbsolute(targetPath)
-					? targetPath
-					: path.resolve(resultCwd, targetPath);
+				const resolvedPath = resolveUserPath(targetPath, resultCwd);
 				const syntaxRes = checkSyntax(resolvedPath);
 
 				if (!syntaxRes.valid && syntaxRes.status === "failed") {
