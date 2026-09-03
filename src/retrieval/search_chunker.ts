@@ -201,14 +201,15 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 }
 
 /**
- * Scan workspace and chunk all supported source files.
+ * Find supported source files in a workspace using the same traversal policy as
+ * chunkWorkspace. The search index uses this to check live file freshness
+ * without reparsing unchanged files.
  */
-export function chunkWorkspace(rootDir: string, maxFiles = 500): { chunks: CodeChunk[]; fileCount: number } {
-	const chunks: CodeChunk[] = [];
-	let fileCount = 0;
+export function findChunkableFiles(rootDir: string, maxFiles = 500): string[] {
+	const files: string[] = [];
 
 	function scan(dir: string) {
-		if (fileCount >= maxFiles) return;
+		if (files.length >= maxFiles) return;
 		let entries: fs.Dirent[];
 		try {
 			entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -226,15 +227,25 @@ export function chunkWorkspace(rootDir: string, maxFiles = 500): { chunks: CodeC
 			} else if (entry.isFile()) {
 				const ext = path.extname(entry.name).toLowerCase();
 				if (SUPPORTED_EXTENSIONS.has(ext)) {
-					const fileChunks = chunkFile(rootDir, fullPath);
-					chunks.push(...fileChunks);
-					fileCount++;
-					if (fileCount >= maxFiles) return;
+					files.push(fullPath);
+					if (files.length >= maxFiles) return;
 				}
 			}
 		}
 	}
 
 	scan(rootDir);
-	return { chunks, fileCount };
+	return files;
+}
+
+/**
+ * Scan workspace and chunk all supported source files.
+ */
+export function chunkWorkspace(rootDir: string, maxFiles = 500): { chunks: CodeChunk[]; fileCount: number } {
+	const files = findChunkableFiles(rootDir, maxFiles);
+	const chunks: CodeChunk[] = [];
+	for (const filePath of files) {
+		chunks.push(...chunkFile(rootDir, filePath));
+	}
+	return { chunks, fileCount: files.length };
 }

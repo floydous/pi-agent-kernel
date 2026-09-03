@@ -153,7 +153,7 @@ export class StdioLspClient {
             ...customInitOpts,
           },
         },
-        5000,
+        loadKernelConfig().lsp.init_timeout_ms || 25000,
       );
 
       this.serverCapabilities = initResult?.capabilities || {};

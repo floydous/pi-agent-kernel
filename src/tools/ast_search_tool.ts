@@ -63,7 +63,17 @@ export function registerAstSearchTool(
 
 			const sessionId = deps.getSessionId(ctx);
 			for (const r of results) {
-				globalEpistemicGuard.recordFileSearched(r.filePath, sessionId, ctx.cwd);
+				const visibleRange = r.codeBlock && r.visibleEndLine
+					? { startLine: r.line, endLine: r.visibleEndLine }
+					: null;
+				globalEpistemicGuard.recordFileSearched(r.filePath, sessionId, ctx.cwd, {
+					coverage: {
+						complete: false,
+						ranges: visibleRange ? [visibleRange] : [],
+					},
+					provenance: "ast_search",
+					query: params.name,
+				});
 			}
 
 			if (results.length === 0) {

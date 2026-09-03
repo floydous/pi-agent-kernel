@@ -86,6 +86,16 @@ async function main(): Promise<void> {
 		await downloadModal.handleInput("\x1b");
 		downloadModal.dispose();
 		logPass("LspDownloadModal animated ASCII spinner & task progress verified!");
+
+		// 8. In-flight startup promise coalescing test
+		const sampleFile = "sample.ts";
+		const p1 = lspMgr.getClientForFile(sampleFile, process.cwd());
+		const p2 = lspMgr.getClientForFile(sampleFile, process.cwd());
+		const [c1, c2] = await Promise.all([p1, p2]);
+		assertPass("Concurrent getClientForFile calls coalesce to the same instance", c1 === c2, { c1, c2 });
+		await lspMgr.stopAll();
+		lspMgr.stopReaper();
+		logPass("LspManager startup concurrency coalescing verified!");
 	});
 }
 

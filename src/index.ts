@@ -575,10 +575,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// 4-8. Tools: repo map, AST search, code search, read, edit, LSP
 	registerRepoMapTool(pi);
+	const invalidateSearchFile = (cwd: string, filePath: string) => {
+		getSearchIndex(cwd).invalidateFile(filePath);
+	};
 	registerAstSearchTool(pi, { getSessionId, getConfig });
 	registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 	registerReadTool(pi, { getSessionId, getConfig });
-	registerEditTool(pi, { getSessionId, getConfig });
+	registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
 	registerLspTool(pi, { getSessionId, getConfig });
 	registerRecallTool(pi, { getSessionId, getDedupStore });
 
@@ -642,7 +645,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			const outputConfig = getConfig(
 				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
 			);
-
+			let bashOutputComplete = true;
 			resultContent = (event.content || []).map((c: any) => {
 				if (c.type === "text" && typeof c.text === "string") {
 					const clamped = clampCommandOutput(c.text, command, {
@@ -651,11 +654,22 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 						maxTotalBytes: outputConfig.safety.max_total_bytes,
 					});
 					if (clamped.truncated) {
+						bashOutputComplete = false;
 						return { ...c, text: clamped.text };
 					}
 				}
 				return c;
 			});
+			globalEpistemicGuard.recordCommandExecution(
+				command,
+				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
+				getSessionId(ctx),
+				bashOutputComplete,
+				(resultContent || [])
+					.filter((c: any) => c.type === "text" && typeof c.text === "string")
+					.map((c: any) => c.text)
+					.join(""),
+			);
 		}
 
 		// 9b. Preserve the host write-tool compatibility path. The custom edit
@@ -684,6 +698,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				const resultCwd =
 					ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 				const resolvedPath = resolveUserPath(targetPath, resultCwd);
+				getSearchIndex(resultCwd).invalidateFile(resolvedPath);
 				const syntaxRes = checkSyntax(resolvedPath);
 
 				if (!syntaxRes.valid && syntaxRes.status === "failed") {

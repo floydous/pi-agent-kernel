@@ -89,7 +89,7 @@ def raise_rate_limit_exceeded():
 				fs.writeFileSync(path.join(srcDir, "long_body.py"), longBody, "utf8");
 
 				// Query alias WebSocketClient
-				const aliasHits = searchAstSymbols(ws.tempDir, { name: "WebSocketClient" });
+				const aliasHits = searchAstSymbols(ws.tempDir, { name: "WebSocketClient", includeBody: true });
 				assertPass(
 					"Aliased re-export resolution for WebSocketClient",
 					aliasHits.length > 0 &&
@@ -98,6 +98,11 @@ def raise_rate_limit_exceeded():
 								h.filePath.includes("websocket.py") &&
 								h.aliasedFrom?.originalName === "client",
 						),
+					{ aliasHits },
+				);
+				assertPass(
+					"Aliased re-export preserves visibleEndLine when previewing body",
+					aliasHits.some((h) => h.visibleEndLine !== undefined && h.visibleEndLine > 0),
 					{ aliasHits },
 				);
 				logPass(

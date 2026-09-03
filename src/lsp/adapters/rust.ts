@@ -7,9 +7,7 @@ export class RustLspAdapter extends BaseLspAdapter {
 
   public override getInitializationOptions(_rootDir: string): Record<string, any> {
     return {
-      checkOnSave: {
-        command: "check",
-      },
+      checkOnSave: true,
       diagnostics: {
         enable: true,
       },

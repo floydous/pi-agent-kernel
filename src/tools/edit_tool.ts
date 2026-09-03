@@ -2,7 +2,12 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
-import { applySurgicalPatch, applyMultiBlockPatch } from "../editing/patch";
+import {
+	applySurgicalPatch,
+	applyMultiBlockPatch,
+	findSurgicalPatchTargetRange,
+} from "../editing/patch";
+import type { EvidenceRange } from "../safety/epistemic_guard";
 import {
 	renderEditFailure,
 	renderPostEditVerification,
@@ -75,12 +80,40 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			// 1. Read-Before-Write Epistemic Guard Check
 			const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
+			const targetRanges: EvidenceRange[] = [];
+			const hasSingleBlock =
+				typeof params.search === "string" && typeof params.replace === "string";
+			const hasMultiBlock = Array.isArray(params.edits) && params.edits.length > 0;
+			if (!hasSingleBlock && !hasMultiBlock) {
+				return {
+					content: [
+						{
+							type: "text",
+							text: "[EDIT ERROR] Must provide either 'search' and 'replace' strings, or an 'edits' array of search/replace blocks.",
+						},
+					],
+					isError: true,
+				};
+			}
+			if (hasSingleBlock) {
+				const targetRange = findSurgicalPatchTargetRange(resolvedPath, params.search);
+				if (targetRange) targetRanges.push(targetRange);
+			} else {
+				// Multi-block patching reports ranges after applying blocks; preflight
+				// uses the original file's coordinates for each search block.
+				for (const block of params.edits) {
+					if (!block || typeof block.search !== "string") continue;
+					const targetRange = findSurgicalPatchTargetRange(resolvedPath, block.search);
+					if (targetRange) targetRanges.push(targetRange);
+				}
+			}
 			const epistemicCheck = globalEpistemicGuard.checkReadPrecondition(
 				resolvedPath,
 				"edit",
 				deps.getSessionId(ctx),
 				ctx.cwd,
 				config.safety.enable_epistemic_guard,
+				targetRanges,
 			);
 			if (!epistemicCheck.allowed) {
 				return {
@@ -99,10 +132,10 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				content: [{ type: "text", text: `Editing ${params.path}...` }],
 			});
 
-			let patchRes;
-			if (params.edits && Array.isArray(params.edits) && params.edits.length > 0) {
+			let patchRes: ReturnType<typeof applySurgicalPatch>;
+			if (hasMultiBlock) {
 				patchRes = applyMultiBlockPatch(resolvedPath, params.edits);
-			} else if (params.search !== undefined && params.replace !== undefined) {
+			} else if (hasSingleBlock) {
 				patchRes = applySurgicalPatch(resolvedPath, params.search, params.replace);
 			} else {
 				return {
@@ -128,6 +161,10 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					isError: true,
 				};
 			}
+
+			// The file was mutated even when post-edit diagnostics later report a
+			// problem; never leave the search index serving its pre-edit content.
+			deps.invalidateSearchFile?.(ctx.cwd, resolvedPath);
 
 			// Verify locally first. Reuse an already-ready LSP client only; edit
 			// verification must not spawn a server or trigger broad analysis.

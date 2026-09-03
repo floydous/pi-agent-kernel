@@ -10,6 +10,10 @@ import {
 } from "../safety/epistemic_guard";
 import type { SessionDeps } from "./context";
 
+function countFileLines(filePath: string): number {
+	return fs.readFileSync(filePath, "utf8").split("\n").length;
+}
+
 /** Extracted from index.ts — registers the `read` tool. */
 export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	// 6. Tool: `read` (Unified File Reader with Surgical AST Symbol Extraction - Replaces stock read tool)
@@ -84,9 +88,23 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						},
 					],
 				});
-				const res = extractSymbolContent(resolvedPath, sym, {
-					surroundingLines: params.surrounding_lines,
-				});
+				let symbolSnapshot: string;
+				try {
+					symbolSnapshot = fs.readFileSync(resolvedPath, "utf8");
+				} catch (error: any) {
+					return {
+						content: [
+							{ type: "text", text: `[READ ERROR] Unable to read ${params.path}: ${error.message}` },
+						],
+						isError: true,
+					};
+				}
+				const res = extractSymbolContent(
+					resolvedPath,
+					sym,
+					{ surroundingLines: params.surrounding_lines },
+					symbolSnapshot,
+				);
 
 				if (!res.found) {
 					return {
@@ -102,12 +120,25 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					};
 				}
 
-				// The symbol reader completed a native read successfully. Record it
-				// only now; failed extraction must not authorize a later mutation.
+				// Record the exact snapshot used for extraction only after a successful
+				// symbol result; failed extraction must not authorize a mutation.
 				globalEpistemicGuard.recordFileRead(
 					resolvedPath,
 					deps.getSessionId(ctx),
 					ctx.cwd,
+					symbolSnapshot,
+					{
+						coverage: {
+							complete: false,
+							ranges: res.symbols.map((symbol) => ({
+								startLine: symbol.startLine,
+								endLine: symbol.endLine,
+							})),
+							totalLines: countFileLines(resolvedPath),
+						},
+						provenance: "symbol",
+						query: sym,
+					},
 				);
 
 				const formatted = res.symbols
@@ -166,6 +197,10 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						deps.getSessionId(ctx),
 						ctx.cwd,
 						buffer,
+						{
+							coverage: { complete: true, ranges: [] },
+							provenance: "read",
+						},
 					);
 					const base64 = buffer.toString("base64");
 					const mimeType = mimeMap[ext] || "image/png";
@@ -255,6 +290,14 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					deps.getSessionId(ctx),
 					ctx.cwd,
 					content,
+					{
+						coverage: {
+							complete: !isTruncated,
+							ranges: [{ startLine: offset, endLine: endIdx }],
+							totalLines,
+						},
+						provenance: "read",
+					},
 				);
 
 				return {

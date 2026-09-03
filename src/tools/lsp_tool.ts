@@ -19,7 +19,6 @@ import {
 } from "../retrieval/ast_search";
 import { checkSyntax } from "../editing/syntax-verify";
 import { kernelDebug } from "../safety/kernel_debug";
-import { globalEpistemicGuard } from "../safety/epistemic_guard";
 import type { SessionDeps } from "./context";
 
 /** Extracted from index.ts — registers the `lsp` tool. */
@@ -59,7 +58,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 			),
 			symbol: Type.Optional(
 				Type.String({
-					description: "Optional symbol name for hover; avoids manual line/character coordinates",
+					description: "Optional symbol name for definition, references, or hover; avoids manual line/character coordinates",
 				}),
 			),
 		}),
@@ -70,8 +69,30 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 			onUpdate: any,
 			ctx: any,
 		): Promise<any> {
+			if (
+				!params ||
+				typeof params !== "object" ||
+				typeof params.path !== "string" ||
+				!params.path.trim() ||
+				!["definition", "references", "hover", "document_symbols", "diagnostics"].includes(params.action)
+			) {
+				return {
+					content: [{ type: "text", text: "[LSP ERROR] Invalid action or file path." }],
+					isError: true,
+				};
+			}
 			const action = params.action;
 			const targetPath = params.path;
+			if (
+				typeof targetPath !== "string" ||
+				!targetPath.trim() ||
+				!["definition", "references", "hover", "document_symbols", "diagnostics"].includes(action)
+			) {
+				return {
+					content: [{ type: "text", text: "[LSP ERROR] Invalid action or file path." }],
+					isError: true,
+				};
+			}
 			const absPath = path.isAbsolute(targetPath)
 				? targetPath
 				: path.resolve(ctx.cwd, targetPath);
@@ -85,8 +106,9 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				};
 			}
 
-			// Establish read evidence only after a real native read succeeds. The
-			// buffer is the exact version used for this operation's preflight.
+			// Read the source only for local cursor/symbol resolution. An LSP query
+			// returns metadata, not model-visible source coverage, so it must not
+			// authorize a later mutation.
 			let observedContent: Buffer;
 			try {
 				observedContent = fs.readFileSync(absPath);
@@ -98,16 +120,38 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					isError: true,
 				};
 			}
-			globalEpistemicGuard.recordFileRead(
-				absPath,
-				deps?.getSessionId?.(ctx) || "__default__",
-				ctx.cwd,
-				observedContent,
-			);
+			// Intentionally no epistemic read record: the source buffer is an
+			// implementation input, not content returned by the LSP operation.
 
-			const line0 = Math.max(0, (params.line || 1) - 1);
-			const col0 = Math.max(0, (params.character || 1) - 1);
 			const requestedSymbol = typeof params.symbol === "string" ? params.symbol.trim() : "";
+			let line0 = Math.max(0, (params.line || 1) - 1);
+			let col0 = Math.max(0, (params.character || 1) - 1);
+
+			// If a symbol is requested or column coordinate is defaulted to 1 (col0 = 0),
+			// check if line0 points to leading whitespace or reserved keywords (e.g. `pub fn`, `export async`).
+			// Advance col0 to the actual declared identifier so LSP and AST queries resolve cleanly.
+			const fileLines = observedContent.toString("utf8").split("\n");
+			if (requestedSymbol && (params.line === undefined || params.character === undefined)) {
+				const lineIdx = fileLines.findIndex((l) => {
+					const escaped = requestedSymbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+					return new RegExp(`\\b${escaped}\\b`).test(l);
+				});
+				if (lineIdx !== -1) {
+					line0 = lineIdx;
+					const charIdx = fileLines[lineIdx].indexOf(requestedSymbol);
+					if (charIdx !== -1) col0 = charIdx;
+				}
+			} else if (params.character === undefined || params.character === 1) {
+				const lineText = fileLines[line0] || "";
+				const declMatch = lineText.match(/(?:pub(?:\([^)]*\))?\s+|async\s+|fn\s+|function\s+|def\s+|class\s+|interface\s+|type\s+|struct\s+|enum\s+|export\s+|let\s+|const\s+|var\s+)+([a-zA-Z_][a-zA-Z0-9_]*)/);
+				if (declMatch && declMatch.index !== undefined && declMatch[1]) {
+					const symName = declMatch[1];
+					const symOffset = lineText.indexOf(symName, declMatch.index);
+					if (symOffset !== -1) {
+						col0 = symOffset;
+					}
+				}
+			}
 
 			// Helper: extract identifier / qualified symbol under cursor (supports `foo.bar`, `crate::state::KeyUsage`)
 			const getSymbolUnderCursor = (): {
@@ -168,6 +212,8 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 
 			const lspMgr = LspManager.getInstance();
 			const client = await lspMgr.getClientForFile(absPath, ctx.cwd);
+			// LSP results are metadata, not source visibility. Keep the native buffer
+			// local for cursor resolution and never treat it as read evidence.
 
 			// If no client available, fall back cleanly to AST intelligence
 			if (!client) {
@@ -198,7 +244,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 
 				if (action === "references") {
 					const sym = getSymbolUnderCursor();
-					const targetSym = sym.leaf || sym.full;
+					const targetSym = requestedSymbol || sym.leaf || sym.full;
 					if (targetSym) {
 						const refs = findSymbolReferences(ctx.cwd, targetSym);
 						if (refs.length > 0) {
@@ -262,7 +308,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 
 				if (action === "definition") {
 					const sym = getSymbolUnderCursor();
-					const targetSym = sym.leaf || sym.full;
+					const targetSym = requestedSymbol || sym.leaf || sym.full;
 					if (targetSym) {
 						// 1. Check if targetSym is a module/file in the workspace (e.g. `state` -> `src/state.rs` or `state/mod.rs`)
 						const candidates = [
@@ -388,7 +434,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 
 					// Tree-sitter fallback with exact symbol ranking
 					const sym = getSymbolUnderCursor();
-					const targetSym = sym.leaf || sym.full;
+					const targetSym = requestedSymbol || sym.leaf || sym.full;
 					if (targetSym) {
 						let astHits = searchAstSymbols(ctx.cwd, {
 							name: targetSym,
@@ -455,7 +501,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 
 					// Workspace-wide symbol reference search fallback
 					const sym = getSymbolUnderCursor();
-					const targetSym = sym.leaf || sym.full;
+					const targetSym = requestedSymbol || sym.leaf || sym.full;
 					if (targetSym) {
 						const astRefs = findSymbolReferences(ctx.cwd, targetSym);
 						if (astRefs.length > 0) {

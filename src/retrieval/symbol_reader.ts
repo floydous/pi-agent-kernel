@@ -18,7 +18,8 @@ export interface SymbolLocation {
 export function extractSymbolContent(
 	filePath: string,
 	targetSymbol: string,
-	options: { surroundingLines?: number } = {}
+	options: { surroundingLines?: number } = {},
+	fileContentOverride?: string,
 ): { found: boolean; symbols: SymbolLocation[]; error?: string } {
 	const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
 
@@ -27,10 +28,14 @@ export function extractSymbolContent(
 	}
 
 	let fileContent: string;
-	try {
-		fileContent = fs.readFileSync(resolvedPath, "utf-8");
-	} catch (e: any) {
-		return { found: false, symbols: [], error: `Unable to read file: ${e.message}` };
+	if (fileContentOverride !== undefined) {
+		fileContent = fileContentOverride;
+	} else {
+		try {
+			fileContent = fs.readFileSync(resolvedPath, "utf-8");
+		} catch (e: any) {
+			return { found: false, symbols: [], error: `Unable to read file: ${e.message}` };
+		}
 	}
 
 	const lines = fileContent.split("\n");

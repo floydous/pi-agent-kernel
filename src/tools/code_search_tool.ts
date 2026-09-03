@@ -80,6 +80,11 @@ export function registerCodeSearchTool(
 					hit.chunk.absolutePath,
 					sessionId,
 					ctx.cwd,
+					{
+						coverage: { complete: false, ranges: [] },
+						provenance: "code_search",
+						query,
+					},
 				);
 			}
 

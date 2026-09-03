@@ -7,7 +7,9 @@ export interface SessionDeps {
  /** Resolve stable session id for epistemic-guard bookkeeping. */
  getSessionId: (ctx: any) => string;
  /** Load runtime settings for the active workspace. */
- getConfig?: (cwd: string) => import("../config").KernelConfig;
+	getConfig?: (cwd: string) => import("../config").KernelConfig;
+	/** Mark a successfully mutated file stale in the workspace index. */
+	invalidateSearchFile?: (cwd: string, filePath: string) => void;
 }
 
 export interface SearchDeps extends SessionDeps {

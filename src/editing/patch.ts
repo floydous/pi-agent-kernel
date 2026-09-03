@@ -19,11 +19,40 @@ export interface PatchResult {
 	strategy: string;
 	diffOutput?: string;
 	error?: string;
+	targetRanges?: PatchTargetRange[];
 }
 
 export interface PatchBlock {
 	search: string;
 	replace: string;
+}
+
+/** Inclusive 1-based line span matched by an edit block before mutation. */
+export interface PatchTargetRange {
+	startLine: number;
+	endLine: number;
+}
+
+function lineRangeFromOffsets(
+	content: string,
+	startOffset: number,
+	length: number,
+): PatchTargetRange {
+	const startLine = content.slice(0, startOffset).split("\n").length;
+	// When a match ends with a trailing newline (e.g. "foo\n"), that newline is the
+	// delimiter terminating the line, not content on the next line.
+	let effectiveLength = Math.max(length, 1);
+	if (
+		effectiveLength > 1 &&
+		content.slice(startOffset, startOffset + effectiveLength).endsWith("\n")
+	) {
+		effectiveLength -= 1;
+	}
+	const matched = content.slice(startOffset, startOffset + effectiveLength);
+	return {
+		startLine,
+		endLine: startLine + Math.max(0, matched.split("\n").length - 1),
+	};
 }
 
 function computeSimilarity(a: string, b: string): number {
@@ -63,7 +92,13 @@ function applySingleBlock(
 	content: string,
 	search: string,
 	replace: string,
-): { success: boolean; newContent: string; strategy: string; error?: string } {
+): {
+	success: boolean;
+	newContent: string;
+	strategy: string;
+	error?: string;
+	targetRange?: PatchTargetRange;
+} {
 	const hadCrlf = content.includes("\r\n");
 	const searchNorm = search.replace(/\r\n/g, "\n");
 	const replaceNorm = replace.replace(/\r\n/g, "\n");
@@ -96,6 +131,7 @@ function applySingleBlock(
 			success: true,
 			newContent: restoreLineEndings(newContent, hadCrlf),
 			strategy: "exact",
+			targetRange: lineRangeFromOffsets(contentNorm, start, searchNorm.length),
 		};
 	}
 	if (exactMatches.length > 1) {
@@ -137,6 +173,10 @@ function applySingleBlock(
 				hadCrlf,
 			),
 			strategy: "whitespace_normalized",
+			targetRange: {
+				startLine: normalizedMatches[0] + 1,
+				endLine: normalizedMatches[0] + searchLines.length,
+			},
 		};
 	}
 	if (normalizedMatches.length > 1) {
@@ -186,6 +226,10 @@ function applySingleBlock(
 				hadCrlf,
 			),
 			strategy: `fuzzy (similarity: ${(best.score * 100).toFixed(1)}%)`,
+			targetRange: {
+				startLine: best.index + 1,
+				endLine: best.index + searchLines.length,
+			},
 		};
 	}
 
@@ -195,6 +239,21 @@ function applySingleBlock(
 		strategy: "none",
 		error: "Could not locate SEARCH block. Check line context and try again.",
 	};
+}
+
+/**
+ * Locate a single-block edit without mutating the target. The edit tool uses
+ * this narrow preflight to compare the matched span with visible read evidence.
+ */
+export function findSurgicalPatchTargetRange(
+	filePath: string,
+	search: string,
+): PatchTargetRange | null {
+	const resolvedPath = resolvePatchPath(filePath);
+	const target = readPatchTarget(resolvedPath);
+	if ("error" in target) return null;
+	const result = applySingleBlock(target.content, search, "");
+	return result.success ? result.targetRange ?? null : null;
 }
 
 function resolvePatchPath(filePath: string): string {
@@ -299,6 +358,7 @@ export function applySurgicalPatch(
 		success: true,
 		filePath: resolvedPath,
 		strategy: result.strategy,
+		targetRanges: result.targetRange ? [result.targetRange] : [],
 		diffOutput: diff.createPatch(
 			path.basename(resolvedPath),
 			originalContent,
@@ -324,9 +384,12 @@ export function applyMultiBlockPatch(
 	}
 
 	const originalContent = target.content;
-	let currentContent = originalContent;
-	const appliedStrategies: string[] = [];
+	const plannedRanges: PatchTargetRange[] = [];
 
+	// Preflight every search against the same original snapshot. Returned ranges
+	// deliberately use original-file coordinates so callers can compare them with
+	// the read evidence used to authorize this atomic edit; they do not move when
+	// an earlier replacement changes the line count.
 	for (let i = 0; i < blocks.length; i++) {
 		const block = blocks[i];
 		if (
@@ -337,10 +400,41 @@ export function applyMultiBlockPatch(
 			return {
 				success: false,
 				filePath: resolvedPath,
-				strategy: appliedStrategies.join(", "),
+				strategy: "none",
 				error: `Block ${i + 1}/${blocks.length} is malformed.`,
 			};
 		}
+
+		const located = applySingleBlock(originalContent, block.search, "");
+		if (!located.success || !located.targetRange) {
+			return {
+				success: false,
+				filePath: resolvedPath,
+				strategy: "none",
+				error: `Block ${i + 1}/${blocks.length} failed: ${located.error} in ${resolvedPath}`,
+			};
+		}
+
+		const overlaps = plannedRanges.some(
+			(range) =>
+				range.startLine <= located.targetRange!.endLine &&
+				located.targetRange!.startLine <= range.endLine,
+		);
+		if (overlaps) {
+			return {
+				success: false,
+				filePath: resolvedPath,
+				strategy: "none",
+				error: `Block ${i + 1}/${blocks.length} overlaps another patch target in ${resolvedPath}.`,
+			};
+		}
+		plannedRanges.push({ ...located.targetRange });
+	}
+
+	let currentContent = originalContent;
+	const appliedStrategies: string[] = [];
+	for (let i = 0; i < blocks.length; i++) {
+		const block = blocks[i];
 		const result = applySingleBlock(currentContent, block.search, block.replace);
 		if (!result.success) {
 			return {
@@ -378,6 +472,7 @@ export function applyMultiBlockPatch(
 		success: true,
 		filePath: resolvedPath,
 		strategy: appliedStrategies.join(", "),
+		targetRanges: plannedRanges,
 		diffOutput: diff.createPatch(
 			path.basename(resolvedPath),
 			originalContent,

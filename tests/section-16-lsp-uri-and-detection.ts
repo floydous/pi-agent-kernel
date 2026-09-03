@@ -27,6 +27,11 @@ async function main(): Promise<void> {
 			const wsRoot = findWorkspaceRoot(ws.tempDir, "python");
 			assertPass("Workspace root finder", !!wsRoot && fs.existsSync(wsRoot), { tempDir: ws.tempDir, wsRoot });
 			logPass("Language detection and workspace root resolution passed!");
+
+			// 3. Fallback behavior for unsupported language extension
+			const unsupportedPath = path.resolve(ws.tempDir, "notes.unknownext");
+			assertPass("detectLanguageFromPath returns null for unknown extensions", detectLanguageFromPath(unsupportedPath) === null, { unsupportedPath });
+			logPass("Unknown language extension gracefully returns null!");
 		} finally {
 			ws.cleanup();
 		}

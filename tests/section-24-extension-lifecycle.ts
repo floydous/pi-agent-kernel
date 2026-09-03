@@ -2,6 +2,7 @@
 // Tests the agent-kernel extension's registerTool/registerCommand/on hooks
 // and the before_agent_start prompt preservation logic.
 
+import * as fs from "node:fs";
 import kernelExt from "../src/index";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
@@ -34,10 +35,14 @@ async function main(): Promise<void> {
 
 				const startHandler = eventHandlers["before_agent_start"]?.[0];
 				const writePreflight = eventHandlers["tool_call"]?.[0];
+				const resultInterceptor = eventHandlers["tool_result"]?.[0];
 				assertPass("tool_call write preflight hook registered", !!writePreflight, {
 					eventHandlers,
 				});
 				assertPass("before_agent_start lifecycle hook registered", !!startHandler, {
+					eventHandlers,
+				});
+				assertPass("tool_result mutation hook registered", !!resultInterceptor, {
 					eventHandlers,
 				});
 
@@ -104,6 +109,97 @@ async function main(): Promise<void> {
 					});
 				}
 				logPass(`Core kernel tools verified (${expectedTools.join(", ")})!`);
+
+				// Test the write tool interception and search index invalidation path
+				const testFile = `${ws.tempDir}/host_write_test.ts`;
+				fs.writeFileSync(testFile, "export const marker = 'initialHostWrite';\n", "utf8");
+				const searchTool = registeredTools.find((t) => t.name === "code_search");
+				assertPass("code_search tool registered", !!searchTool, { searchTool });
+
+				// Direct execution of code_search initially finds initialHostWrite
+				const initialHits = await searchTool.execute(
+					"call-search-1",
+					{ query: "initialHostWrite", limit: 5 },
+					undefined,
+					() => {},
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass(
+					"Initial search hit resolves newly indexed file",
+					initialHits?.content?.[0]?.text?.includes("initialHostWrite"),
+					{ initialHits },
+				);
+
+				// Now simulate a host write modifying the file, followed by the tool_result hook
+				fs.writeFileSync(testFile, "export const marker = 'updatedHostWrite';\n", "utf8");
+				await resultInterceptor(
+					{
+						toolName: "write",
+						input: { path: "host_write_test.ts" },
+						content: [{ type: "text", text: "Successfully wrote to host_write_test.ts" }],
+					},
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+
+				// Subsequent search query should immediately discover the updated content
+				const updatedHits = await searchTool.execute(
+					"call-search-2",
+					{ query: "updatedHostWrite", limit: 5 },
+					undefined,
+					() => {},
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass(
+					"Search refreshes without explicit reindex after host write hook execution",
+					updatedHits?.content?.[0]?.text?.includes("updatedHostWrite"),
+					{ updatedHits },
+				);
+				logPass("Host write tool result invalidation & automatic search refresh verified!");
+
+				// Verify registered custom edit tool invalidation & epistemic authorization
+				const editTool = registeredTools.find((t) => t.name === "edit");
+				assertPass("edit tool registered", !!editTool, { editTool });
+				const readTool = registeredTools.find((t) => t.name === "read");
+				assertPass("read tool registered", !!readTool, { readTool });
+
+				// Read file to satisfy the epistemic guard
+				const readRes = await readTool.execute(
+					"call-read-1",
+					{ path: "host_write_test.ts" },
+					undefined,
+					() => {},
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass("read executed successfully", !readRes?.isError, { readRes });
+
+				// Execute surgical edit
+				const editRes = await editTool.execute(
+					"call-edit-1",
+					{
+						path: "host_write_test.ts",
+						search: "updatedHostWrite",
+						replace: "editedViaCustomTool",
+					},
+					undefined,
+					() => {},
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass("edit executed successfully", !editRes?.isError, { editRes });
+
+				// Search query should discover the edit immediately
+				const afterEditHits = await searchTool.execute(
+					"call-search-3",
+					{ query: "editedViaCustomTool", limit: 5 },
+					undefined,
+					() => {},
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass(
+					"Search discovers custom edit tool changes without manual reindex",
+					afterEditHits?.content?.[0]?.text?.includes("editedViaCustomTool"),
+					{ afterEditHits },
+				);
+				logPass("Custom edit tool mutation & search invalidation flow verified!");
 			} finally {
 				ws.cleanup();
 			}

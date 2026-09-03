@@ -9,6 +9,7 @@ const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 export class LspManager {
   private static instance: LspManager | null = null;
   private clients = new Map<string, StdioLspClient>();
+  private inFlightStarts = new Map<string, Promise<StdioLspClient | null>>();
   private reaperTimer: NodeJS.Timeout | null = null;
 
   public static getInstance(): LspManager {
@@ -103,10 +104,17 @@ export class LspManager {
         existing.touch();
         return existing;
       }
+      if (existing.getState() === "starting") {
+        const inFlight = this.inFlightStarts.get(clientId);
+        if (inFlight) return inFlight;
+      }
       // If client is in error or stopped state, clean it up before recreating
       await existing.stop().catch(() => {});
       this.clients.delete(clientId);
     }
+
+    const inFlight = this.inFlightStarts.get(clientId);
+    if (inFlight) return inFlight;
 
     // Resolve installed executable
     const resolved = resolveLspServer(langKey);
@@ -119,13 +127,21 @@ export class LspManager {
       languageId: resolved.languageId,
     });
 
-    const started = await client.start();
-    if (started) {
-      this.clients.set(clientId, client);
-      return client;
-    }
+    const startPromise = (async () => {
+      try {
+        const started = await client.start();
+        if (started) {
+          this.clients.set(clientId, client);
+          return client;
+        }
+        return null;
+      } finally {
+        this.inFlightStarts.delete(clientId);
+      }
+    })();
 
-    return null;
+    this.inFlightStarts.set(clientId, startPromise);
+    return startPromise;
   }
 
   /**

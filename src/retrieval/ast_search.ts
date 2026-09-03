@@ -11,6 +11,8 @@ export interface AstQueryResult {
 	line: number;
 	endLine?: number;
 	codeBlock?: string;
+	/** Inclusive line where the bounded preview ends, when a preview is present. */
+	visibleEndLine?: number;
 	bodyTruncated?: boolean;
 	aliasedFrom?: {
 		module?: string;
@@ -778,10 +780,12 @@ export function searchAstSymbols(
 					for (const def of tags.definitions) {
 						let codeBlock: string | undefined;
 						let bodyTruncated = false;
+						let visibleEndLine: number | undefined;
 						if (query.includeBody) {
 							const start = Math.max(0, def.line - 1);
 							const end = Math.min(lines.length, start + 25);
 							codeBlock = lines.slice(start, end).join("\n");
+							visibleEndLine = end;
 							bodyTruncated = end < lines.length;
 						}
 
@@ -793,6 +797,7 @@ export function searchAstSymbols(
 							line: def.line,
 							endLine: findSymbolEndLine(lines, def.line - 1, ext),
 							codeBlock,
+							visibleEndLine,
 							bodyTruncated: query.includeBody ? bodyTruncated : undefined,
 							aliasedFrom: def.aliasedFrom,
 						};
@@ -879,6 +884,7 @@ export function searchAstSymbols(
 					line: foundOrig.line,
 					endLine: foundOrig.endLine,
 					codeBlock: foundOrig.codeBlock,
+					visibleEndLine: foundOrig.visibleEndLine,
 					bodyTruncated: foundOrig.bodyTruncated,
 					aliasedFrom: {
 						module: `${hit.filePath}:${hit.line}`,

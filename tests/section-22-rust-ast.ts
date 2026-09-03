@@ -12,7 +12,7 @@ import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 async function main(): Promise<void> {
 	await runSection(
 		"22. Rust Full AST, Struct Bleed Defense, Variable Hover, Comment Filtering",
-		() => {
+		async () => {
 			const ws = createTestWorkspace();
 			try {
 				const rsSrcDir = path.join(ws.tempDir, "src", "rust_engine");
@@ -137,6 +137,44 @@ pub fn pick_key_client() -> bool {
 				logPass(
 					`Comment word token filtering verified (${pickClientRefs.length} real code reference(s), 0 comment false positives)!`,
 				);
+
+				// 11.5 Test lsp tool keyword-bypass & symbol-name queries on Rust declarations
+				let registeredTool: any = null;
+				const mockPi = {
+					registerTool: (t: any) => { registeredTool = t; }
+				};
+				const { registerLspTool } = require("../src/tools/lsp_tool");
+				registerLspTool(mockPi);
+
+				// Query references by symbol parameter
+				const symRefRes = await registeredTool.execute("call-sym-ref", {
+					action: "references",
+					path: rsCircuitPath,
+					symbol: "pick_key_client"
+				}, undefined, () => {}, { cwd: ws.tempDir });
+				assertPass(
+					"LSP references resolves by symbol parameter without explicit coordinates",
+					symRefRes.content?.[0]?.text?.includes("pick_key_client") &&
+						!symRefRes.content?.[0]?.text?.includes("No references found"),
+					{ symRefRes }
+				);
+
+				// Query references at line: 1, character: 1 (on `pub struct CircuitBreaker;`)
+				const lineColRefRes = await registeredTool.execute("call-col1-ref", {
+					action: "references",
+					path: rsCircuitPath,
+					line: 1,
+					character: 1
+				}, undefined, () => {}, { cwd: ws.tempDir });
+				assertPass(
+					"LSP references at column 1 advances past 'pub struct' to resolve CircuitBreaker",
+					lineColRefRes.content?.[0]?.text?.includes("CircuitBreaker"),
+					{ lineColRefRes }
+				);
+				const { LspManager } = require("../src/lsp/lsp_manager");
+				await LspManager.getInstance().stopAll();
+				LspManager.getInstance().stopReaper();
+				logPass("LSP declaration keyword bypass & symbol parameter query verified!");
 			} finally {
 				ws.cleanup();
 			}

@@ -168,6 +168,8 @@ async function main(): Promise<void> {
 				`cat proxy_server.py`,
 				ws.tempDir,
 				TEST_SESSION,
+				true,
+				fs.readFileSync(proxyServerPath, "utf8"),
 			);
 			const postBashCheck = guard.checkReadPrecondition(
 				proxyServerPath,
@@ -178,6 +180,24 @@ async function main(): Promise<void> {
 				"Guard allows edit after bash inspection",
 				postBashCheck.allowed,
 				{ postBashCheck },
+			);
+			const pipedGuard = new EpistemicGuard();
+			pipedGuard.recordCommandExecution(
+				`cat proxy_server.py | grep -n def`,
+				ws.tempDir,
+				TEST_SESSION,
+				true,
+				"1:# mock\n",
+			);
+			const pipedCheck = pipedGuard.checkReadPrecondition(
+				proxyServerPath,
+				"edit",
+				TEST_SESSION,
+			);
+			assertPass(
+				"Piped Bash output does not overclaim complete file visibility",
+				!pipedCheck.allowed && pipedCheck.reason?.includes("Target lines not covered") === true,
+				{ pipedCheck },
 			);
 
 			// Per-session isolation
@@ -222,6 +242,59 @@ async function main(): Promise<void> {
 					{ crossCaseCheck },
 				);
 			}
+
+			// Coverage-aware evidence: a paginated read authorizes only the visible
+			// source range, while a complete read authorizes any matched target.
+			const coverageGuard = new EpistemicGuard();
+			const coverageSession = "coverage_session";
+			const coveragePath = path.join(ws.tempDir, "coverage.py");
+			fs.writeFileSync(coveragePath, "line1\nline2\nline3\nline4\nline5\n", "utf8");
+			coverageGuard.recordFileRead(coveragePath, coverageSession, ws.tempDir, undefined, {
+				coverage: { complete: false, ranges: [{ startLine: 1, endLine: 3 }], totalLines: 5 },
+				provenance: "read",
+			});
+			const visibleTarget = coverageGuard.checkReadPrecondition(
+				coveragePath,
+				"edit",
+				coverageSession,
+				ws.tempDir,
+				true,
+				[{ startLine: 2, endLine: 3 }],
+			);
+			const hiddenTarget = coverageGuard.checkReadPrecondition(
+				coveragePath,
+				"edit",
+				coverageSession,
+				ws.tempDir,
+				true,
+				[{ startLine: 4, endLine: 4 }],
+			);
+			assertPass("Coverage ledger allows edits inside visible range", visibleTarget.allowed, { visibleTarget });
+			assertPass(
+				"Coverage ledger blocks edits outside visible range",
+				!hiddenTarget.allowed && hiddenTarget.reason?.includes("Target lines not covered") === true,
+				{ hiddenTarget },
+			);
+			const coverageEvidence = coverageGuard.getEvidence(coveragePath, coverageSession, ws.tempDir);
+			assertPass(
+				"Coverage ledger exposes snapshot, provenance, and ranges",
+				coverageEvidence?.provenance === "read" &&
+					coverageEvidence.snapshot.length === 64 &&
+					coverageEvidence.coverage.ranges[0]?.endLine === 3,
+				{ coverageEvidence },
+			);
+
+			coverageGuard.recordFileRead(coveragePath, coverageSession, ws.tempDir, undefined, {
+				coverage: { complete: false, ranges: [{ startLine: 5, endLine: 5 }], totalLines: 5 },
+				provenance: "read",
+			});
+			const mergedEvidence = coverageGuard.getEvidence(coveragePath, coverageSession, ws.tempDir);
+			assertPass(
+				"Repeated partial reads merge visible ranges for one file",
+				mergedEvidence?.coverage.ranges.length === 2 &&
+					mergedEvidence.coverage.ranges[1]?.startLine === 5,
+				{ mergedEvidence },
+			);
 
 			logPass(
 				"Read-Before-Write epistemic guard & bash terminal inspection verified!",

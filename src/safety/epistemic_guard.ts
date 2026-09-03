@@ -139,9 +139,154 @@ export function extractInspectedFilesFromCommand(
 	return Array.from(new Set(inspected));
 }
 
+export interface EvidenceRange {
+	/** Inclusive 1-based source line. */
+	startLine: number;
+	/** Inclusive 1-based source line. */
+	endLine: number;
+}
+
+export interface EvidenceCoverage {
+	/** True only when the model-visible result represented the complete file. */
+	complete: boolean;
+	ranges: EvidenceRange[];
+	totalLines?: number;
+}
+
+export type EvidenceProvenance =
+	| "read"
+	| "symbol"
+	| "search"
+	| "lsp"
+	| "bash"
+	| "ast_search"
+	| "code_search";
+
+export interface EvidenceOptions {
+	coverage?: EvidenceCoverage;
+	provenance?: EvidenceProvenance;
+	query?: string;
+}
+
+export interface ContextEvidence {
+	sessionId: string;
+	filePath: string;
+	kind: "read" | "search";
+	/** SHA-256 snapshot of the file version observed by the tool. */
+	snapshot: string;
+	coverage: EvidenceCoverage;
+	provenance: EvidenceProvenance;
+	query?: string;
+}
+
 interface InspectionEvidence {
 	kind: "read" | "search";
 	fingerprint: string;
+	coverage: EvidenceCoverage;
+	provenance: EvidenceProvenance;
+	query?: string;
+}
+
+function normalizeRanges(
+	ranges: EvidenceRange[],
+	totalLines?: number,
+): EvidenceRange[] {
+	const valid = ranges
+		.filter(
+			(range) =>
+				Number.isFinite(range.startLine) &&
+				Number.isFinite(range.endLine) &&
+				range.startLine >= 1 &&
+				range.endLine >= range.startLine,
+		)
+		.map((range) => ({
+			startLine: Math.floor(range.startLine),
+			endLine: Math.floor(
+				totalLines === undefined
+					? range.endLine
+					: Math.min(range.endLine, totalLines),
+			),
+		}))
+		.filter((range) => range.endLine >= range.startLine)
+		.sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
+
+	const merged: EvidenceRange[] = [];
+	for (const range of valid) {
+		const previous = merged[merged.length - 1];
+		if (previous && range.startLine <= previous.endLine + 1) {
+			previous.endLine = Math.max(previous.endLine, range.endLine);
+		} else {
+			merged.push({ ...range });
+		}
+	}
+	return merged;
+}
+
+function normalizeCoverage(coverage?: EvidenceCoverage): EvidenceCoverage {
+	const totalLines =
+		coverage?.totalLines === undefined
+			? undefined
+			: Math.max(0, Math.floor(coverage.totalLines));
+	return {
+		complete: coverage?.complete ?? true,
+		ranges: normalizeRanges(coverage?.ranges || [], totalLines),
+		...(totalLines === undefined ? {} : { totalLines }),
+	};
+}
+
+function mergeCoverage(
+	first: EvidenceCoverage,
+	second: EvidenceCoverage,
+): EvidenceCoverage {
+	const totalLines = second.totalLines ?? first.totalLines;
+	const complete = first.complete || second.complete;
+	return {
+		complete,
+		ranges: normalizeRanges(
+			[...first.ranges, ...second.ranges],
+			totalLines,
+		),
+		...(totalLines === undefined ? {} : { totalLines }),
+	};
+}
+
+function mergeEvidence(
+	previous: InspectionEvidence,
+	fingerprint: string,
+	kind: "read" | "search",
+	coverage: EvidenceCoverage,
+	provenance: EvidenceProvenance,
+	query?: string,
+): InspectionEvidence {
+	if (previous.fingerprint !== fingerprint || previous.kind !== kind) {
+		return {
+			kind,
+			fingerprint,
+			coverage,
+			provenance,
+			...(query === undefined ? {} : { query }),
+		};
+	}
+	return {
+		...previous,
+		coverage: mergeCoverage(previous.coverage, coverage),
+		provenance,
+		...(query === undefined ? {} : { query }),
+	};
+}
+
+function coversRanges(
+	coverage: EvidenceCoverage,
+	targetRanges: EvidenceRange[],
+): boolean {
+	if (coverage.complete) return true;
+	const normalizedTargets = normalizeRanges(targetRanges, coverage.totalLines);
+	return normalizedTargets.length > 0 && normalizedTargets.every((target) =>
+		coverage.ranges.some(
+			(range) =>
+				range.startLine <= target.startLine && range.endLine >= target.endLine,
+		),
+	);
 }
 
 export class EpistemicGuard {
@@ -263,14 +408,31 @@ export class EpistemicGuard {
 		sessionId: string,
 		cwd = process.cwd(),
 		content?: string | Buffer,
+		options: EvidenceOptions = {},
 	): void {
 		if (!filePath) return;
 		const fingerprint = this.fingerprint(filePath, cwd, content);
 		if (!fingerprint) return;
-		this.getSessionEvidence(sessionId).set(this.normalize(filePath, cwd), {
-			kind: "read",
-			fingerprint,
-		});
+		const normalized = this.normalize(filePath, cwd);
+		const coverage = normalizeCoverage(options.coverage);
+		const evidence = this.getSessionEvidence(sessionId);
+		const previous = evidence.get(normalized);
+		evidence.set(
+			normalized,
+			mergeEvidence(
+				previous || {
+					kind: "read",
+					fingerprint,
+					coverage: { complete: false, ranges: [] },
+					provenance: options.provenance || "read",
+				},
+				fingerprint,
+				"read",
+				coverage,
+				options.provenance || "read",
+				options.query,
+			),
+		);
 	}
 
 	/** Search results are weaker evidence and never authorize a mutation. */
@@ -278,15 +440,32 @@ export class EpistemicGuard {
 		filePath: string,
 		sessionId: string,
 		cwd = process.cwd(),
+		options: EvidenceOptions = {},
 	): void {
 		if (!filePath) return;
 		const fingerprint = this.fingerprint(filePath, cwd);
 		if (!fingerprint) return;
 		const evidence = this.getSessionEvidence(sessionId);
 		const normalized = this.normalize(filePath, cwd);
-		if (evidence.get(normalized)?.kind !== "read") {
-			evidence.set(normalized, { kind: "search", fingerprint });
-		}
+		const previous = evidence.get(normalized);
+		if (previous?.kind === "read") return;
+		const provenance = options.provenance || "search";
+		evidence.set(
+			normalized,
+			mergeEvidence(
+				previous || {
+					kind: "search",
+					fingerprint,
+					coverage: { complete: false, ranges: [] },
+					provenance,
+				},
+				fingerprint,
+				"search",
+				normalizeCoverage(options.coverage ?? { complete: false, ranges: [] }),
+				provenance,
+				options.query,
+			),
+		);
 	}
 
 	private recordShellEvidence(
@@ -294,24 +473,57 @@ export class EpistemicGuard {
 		cwd: string,
 		sessionId: string,
 		files: string[],
+		outputComplete: boolean,
+		outputText = "",
 	): void {
 		const isSearch = /^\s*(?:grep|rg)(?:\.exe)?(?:\s|$)/i.test(command);
+		const isPlainCat =
+			/^\s*cat(?:\.exe)?\s+[^|;&><]+$/i.test(command) &&
+			!/^\s*cat(?:\.exe)?\s+-/i.test(command);
 		for (const filePath of files) {
 			if (isSearch) {
-				this.recordFileSearched(filePath, sessionId, cwd);
-			} else {
-				this.recordFileRead(filePath, sessionId, cwd);
+				this.recordFileSearched(filePath, sessionId, cwd, {
+					coverage: { complete: false, ranges: [] },
+					provenance: "bash",
+					query: command,
+				});
+				continue;
 			}
+
+			let observedContent: string | undefined;
+			if (isPlainCat && files.length === 1) {
+				try {
+					observedContent = fs.readFileSync(filePath, "utf8");
+				} catch {
+					observedContent = undefined;
+				}
+			}
+			this.recordFileRead(filePath, sessionId, cwd, observedContent, {
+				coverage: {
+					complete:
+						outputComplete &&
+						isPlainCat &&
+						files.length === 1 &&
+						observedContent !== undefined &&
+						outputText === observedContent,
+					ranges: [],
+				},
+				provenance: "bash",
+				query: command,
+			});
 		}
 	}
 
-	/** Record classified shell content-reader evidence during tool-call preflight. */
+	/** Record classified shell content-reader evidence after a successful result. */
 	public recordCommandExecution(
 		command: string,
 		cwd = process.cwd(),
 		sessionId: string,
+		outputComplete = true,
+		outputText = "",
 	): string[] {
 		const files = extractInspectedFilesFromCommand(command, cwd);
+		const isCompound = /[|;&\n><]/.test(command);
 		for (const subCommand of command.split(/[|;&\n]+/)) {
 			const trimmed = subCommand.trim();
 			if (!trimmed) continue;
@@ -320,6 +532,8 @@ export class EpistemicGuard {
 				cwd,
 				sessionId,
 				extractInspectedFilesFromCommand(trimmed, cwd),
+				outputComplete && !isCompound,
+				outputText,
 			);
 		}
 		return files;
@@ -337,6 +551,7 @@ export class EpistemicGuard {
 		sessionId: string,
 		cwd?: string,
 		enforceInspection = true,
+		targetRanges: EvidenceRange[] = [],
 	): { allowed: boolean; reason?: string } {
 		if (!filePath) {
 			return {
@@ -383,6 +598,13 @@ export class EpistemicGuard {
 			};
 		}
 
+		if (!coversRanges(evidence.coverage, targetRanges)) {
+			return {
+				allowed: false,
+				reason: `[BLOCKED: Target lines not covered by visible read -> read({ path: "${relPath}" })]`,
+			};
+		}
+
 		const currentFingerprint = this.fingerprint(resolvedPath, workspace);
 		if (!currentFingerprint || currentFingerprint !== evidence.fingerprint) {
 			return {
@@ -401,6 +623,32 @@ export class EpistemicGuard {
 		cwd = process.cwd(),
 	): boolean {
 		return this.getSessionEvidence(sessionId).has(this.normalize(filePath, cwd));
+	}
+
+	/** Return a stable, non-content ledger view for diagnostics and tests. */
+	public getEvidence(
+		filePath: string,
+		sessionId: string,
+		cwd = process.cwd(),
+	): ContextEvidence | null {
+		const normalized = this.normalize(filePath, cwd);
+		const evidence = this.getSessionEvidence(sessionId).get(normalized);
+		if (!evidence) return null;
+		return {
+			sessionId,
+			filePath: normalized,
+			kind: evidence.kind,
+			snapshot: evidence.fingerprint,
+			coverage: {
+				complete: evidence.coverage.complete,
+				ranges: evidence.coverage.ranges.map((range) => ({ ...range })),
+				...(evidence.coverage.totalLines === undefined
+					? {}
+					: { totalLines: evidence.coverage.totalLines }),
+			},
+			provenance: evidence.provenance,
+			...(evidence.query === undefined ? {} : { query: evidence.query }),
+		};
 	}
 
 	public getInspectedFiles(sessionId: string): string[] {

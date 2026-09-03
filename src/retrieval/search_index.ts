@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
-import { type CodeChunk, chunkWorkspace, computeHash } from "./search_chunker";
+import {
+	type CodeChunk,
+	chunkFile,
+	computeHash,
+	findChunkableFiles,
+} from "./search_chunker";
 import { BM25Engine } from "./search_bm25";
 import { LocalEmbedder } from "./search_embedder";
 import {
@@ -35,6 +40,10 @@ export class HybridSearchIndex {
 	private fileHashes: Map<string, string> = new Map(); // relPath -> SHA256 hash
 	private isInitialized = false;
 	private isIndexing = false;
+	private dirtyFiles = new Set<string>();
+	private generation = 0;
+	private activeSync: Promise<{ chunkCount: number; fileCount: number }> | null = null;
+	private liveCheckPromise: Promise<boolean> | null = null;
 
 	constructor(cwd: string, profile?: SearchProfile) {
 		this.cwd = cwd;
@@ -264,38 +273,139 @@ export class HybridSearchIndex {
 		forceReindex = false,
 		onProgress?: (msg: string) => void,
 	): Promise<{ chunkCount: number; fileCount: number }> {
-		if (this.isIndexing) {
-			return { chunkCount: this.chunks.size, fileCount: this.fileHashes.size };
-		}
+		if (this.activeSync) return this.activeSync;
 
+		const sync = (async () => {
+			for (let attempt = 0; attempt < 3; attempt++) {
+				const syncGeneration = this.generation;
+				const result = await this.performSyncWorkspace(
+					forceReindex && attempt === 0,
+					onProgress,
+					syncGeneration,
+				);
+				if (
+					this.generation !== syncGeneration ||
+					!this.isWorkspaceSnapshotFresh()
+				) {
+					this.isInitialized = false;
+					continue;
+				}
+				this.dirtyFiles.clear();
+				return result;
+			}
+			this.isInitialized = false;
+			throw new Error("Workspace changed repeatedly while indexing; search was not refreshed.");
+		})();
+		this.activeSync = sync;
+		try {
+			return await sync;
+		} finally {
+			if (this.activeSync === sync) this.activeSync = null;
+		}
+	}
+
+	private getWorkspaceFileHashes(): Map<string, string> | null {
+		const hashes = new Map<string, string>();
+		for (const filePath of findChunkableFiles(this.cwd)) {
+			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
+			try {
+				hashes.set(relPath, computeHash(fs.readFileSync(filePath, "utf8")));
+			} catch (error) {
+				kernelDebug(error);
+				return null;
+			}
+		}
+		return hashes;
+	}
+
+	private isWorkspaceSnapshotFresh(): boolean {
+		const currentHashes = this.getWorkspaceFileHashes();
+		if (!currentHashes || currentHashes.size !== this.fileHashes.size) return false;
+		for (const [relPath, hash] of this.fileHashes.entries()) {
+			if (currentHashes.get(relPath) !== hash) return false;
+		}
+		return true;
+	}
+
+	private async waitForActiveSync(): Promise<void> {
+		while (this.activeSync) {
+			const sync = this.activeSync;
+			try {
+				await sync;
+			} catch (error) {
+				if (this.activeSync === sync) throw error;
+			}
+			if (this.activeSync === sync) return;
+		}
+	}
+
+	private async ensureWorkspaceSnapshotFresh(): Promise<void> {
+		await this.waitForActiveSync();
+		if (this.liveCheckPromise) {
+			const check = this.liveCheckPromise;
+			const isFresh = await check;
+			if (this.liveCheckPromise === check) {
+				if (!isFresh) {
+					this.isInitialized = false;
+					await this.waitForActiveSync();
+					if (this.dirtyFiles.size > 0 || !this.isInitialized) {
+						await this.syncWorkspace(false);
+					}
+				}
+				return;
+			}
+			return this.ensureWorkspaceSnapshotFresh();
+		}
+		const check = Promise.resolve().then(() => this.isWorkspaceSnapshotFresh());
+		this.liveCheckPromise = check;
+		try {
+			const isFresh = await check;
+			if (!isFresh) {
+				this.isInitialized = false;
+				await this.waitForActiveSync();
+				if (this.dirtyFiles.size > 0 || !this.isInitialized) {
+					await this.syncWorkspace(false);
+				}
+			}
+		} finally {
+			if (this.liveCheckPromise === check) this.liveCheckPromise = null;
+		}
+	}
+
+	private async performSyncWorkspace(
+		forceReindex: boolean,
+		onProgress: ((msg: string) => void) | undefined,
+		syncGeneration: number,
+	): Promise<{ chunkCount: number; fileCount: number }> {
 		this.isIndexing = true;
 		try {
-			if (!this.isInitialized && !forceReindex) {
+			if (
+				!this.isInitialized &&
+				!forceReindex &&
+				this.dirtyFiles.size === 0
+			) {
 				this.loadFromDisk();
 			}
 
 			onProgress?.("Scanning workspace files...");
-			const { chunks: currentChunks } = chunkWorkspace(this.cwd);
 
-			// Map file paths to their current content hash
+			// Read each file once and derive both its chunks and hash from that same
+			// snapshot. A second read could pair old chunks with a new hash and make
+			// the final freshness check falsely accept stale content.
 			const currentFiles = new Map<
 				string,
 				{ hash: string; chunks: CodeChunk[] }
 			>();
-			for (const chunk of currentChunks) {
-				if (!currentFiles.has(chunk.filePath)) {
-					currentFiles.set(chunk.filePath, { hash: "", chunks: [] });
-				}
-				currentFiles.get(chunk.filePath)!.chunks.push(chunk);
-			}
-
-			for (const [relPath, info] of currentFiles.entries()) {
+			for (const absPath of findChunkableFiles(this.cwd)) {
+				const relPath = path.relative(this.cwd, absPath).replace(/\\/g, "/");
 				try {
-					const absPath = path.resolve(this.cwd, relPath);
 					const content = fs.readFileSync(absPath, "utf-8");
-					info.hash = computeHash(content);
-				} catch (e) {
-					kernelDebug(e);
+					currentFiles.set(relPath, {
+						hash: computeHash(content),
+						chunks: chunkFile(this.cwd, absPath, content),
+					});
+				} catch (error) {
+					kernelDebug(error);
 				}
 			}
 
@@ -397,7 +507,36 @@ export class HybridSearchIndex {
 			return { chunkCount: this.chunks.size, fileCount: this.fileHashes.size };
 		} finally {
 			this.isIndexing = false;
+			if (this.generation !== syncGeneration) this.isInitialized = false;
 		}
+	}
+
+	/**
+	 * Drop cached chunks for a file; the next search performs an incremental rescan.
+	 */
+	public invalidateFile(filePath: string): void {
+		const resolvedPath = path.resolve(this.cwd, filePath);
+		const relPath = path
+			.relative(this.cwd, resolvedPath)
+			.replace(/\\/g, "/");
+		if (
+			!relPath ||
+			relPath === ".." ||
+			relPath.startsWith("../") ||
+			path.isAbsolute(relPath)
+		) return;
+		this.bm25.removeFile(relPath);
+		this.fileHashes.delete(relPath);
+		for (const chunkId of Array.from(this.chunks.keys())) {
+			if (chunkId.startsWith(`${relPath}:`)) {
+				this.chunks.delete(chunkId);
+				this.vectors.delete(chunkId);
+			}
+		}
+		this.bm25.recalculateStats();
+		this.generation++;
+		this.dirtyFiles.add(relPath);
+		this.isInitialized = false;
 	}
 
 	/**
@@ -415,8 +554,18 @@ export class HybridSearchIndex {
 			rrfK?: number;
 		} = {},
 	): Promise<SearchHit[]> {
-		if (!this.isInitialized && !this.isIndexing) {
-			await this.syncWorkspace(false);
+		// Do not return the previous snapshot while a background synchronization
+		// is active. This also covers startup/reindex work where the old index is
+		// still initialized and would otherwise look usable.
+		await this.waitForActiveSync();
+		if (this.dirtyFiles.size > 0 || !this.isInitialized) {
+			if (!this.isIndexing) {
+				await this.syncWorkspace(false);
+			}
+		}
+
+		if (this.isInitialized && !this.isIndexing) {
+			await this.ensureWorkspaceSnapshotFresh();
 		}
 
 		const limit = options.limit || 5;

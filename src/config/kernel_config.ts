@@ -33,6 +33,7 @@ export interface KernelConfigOverrides {
 export interface LspConfig {
 	idle_timeout_ms: number;
 	diagnostic_timeout_ms: number;
+	init_timeout_ms: number;
 	spinner_interval_ms: number;
 	disabled_servers: string[];
 }
@@ -66,6 +67,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 	lsp: {
 		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes
 		diagnostic_timeout_ms: 8000,
+		init_timeout_ms: 25000, // 25s for heavy servers like rust-analyzer/vtsls/gopls
 		spinner_interval_ms: 80,
 		disabled_servers: [],
 	},
