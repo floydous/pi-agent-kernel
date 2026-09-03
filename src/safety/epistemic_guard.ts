@@ -160,7 +160,9 @@ export type EvidenceProvenance =
 	| "lsp"
 	| "bash"
 	| "ast_search"
-	| "code_search";
+	| "code_search"
+	| "edit"
+	| "write";
 
 export interface EvidenceOptions {
 	coverage?: EvidenceCoverage;
@@ -433,6 +435,70 @@ export class EpistemicGuard {
 				options.query,
 			),
 		);
+	}
+
+	/**
+	 * Record a successful mutation performed by the session itself (e.g. through `edit` or `write`).
+	 * Refreshes the session's fingerprint against the mutated file content on disk so sequential
+	 * edits do not trigger spurious drift rejections, while adjusting or preserving coverage.
+	 */
+	public recordFileMutation(
+		filePath: string,
+		sessionId: string,
+		cwd = process.cwd(),
+		content?: string | Buffer,
+		options: {
+			complete?: boolean;
+			targetRanges?: EvidenceRange[];
+			deltaLines?: number;
+		} = {},
+	): void {
+		if (!filePath) return;
+		const fingerprint = this.fingerprint(filePath, cwd, content);
+		if (!fingerprint) return;
+		const normalized = this.normalize(filePath, cwd);
+		const evidence = this.getSessionEvidence(sessionId);
+		const previous = evidence.get(normalized);
+
+		const isComplete = options.complete ?? previous?.coverage?.complete ?? false;
+		let updatedRanges = previous?.coverage?.ranges ? [...previous.coverage.ranges] : [];
+		const deltaLines = options.deltaLines ?? 0;
+
+		if (!isComplete && deltaLines !== 0 && options.targetRanges && options.targetRanges.length > 0) {
+			const maxEditEnd = Math.max(...options.targetRanges.map((r) => r.endLine));
+			updatedRanges = updatedRanges.map((r) => {
+				if (r.startLine > maxEditEnd) {
+					return {
+						startLine: r.startLine + deltaLines,
+						endLine: r.endLine + deltaLines,
+					};
+				}
+				return r;
+			});
+		}
+
+		let totalLines: number | undefined;
+		if (content !== undefined) {
+			totalLines =
+				typeof content === "string"
+					? content.split("\n").length
+					: content.toString("utf8").split("\n").length;
+		}
+
+		evidence.set(normalized, {
+			kind: "read",
+			fingerprint,
+			coverage: normalizeCoverage({
+				complete: isComplete,
+				ranges: isComplete ? [] : updatedRanges,
+				...(totalLines !== undefined
+					? { totalLines }
+					: previous?.coverage?.totalLines !== undefined
+						? { totalLines: previous.coverage.totalLines + deltaLines }
+						: {}),
+			}),
+			provenance: "edit",
+		});
 	}
 
 	/** Search results are weaker evidence and never authorize a mutation. */

@@ -699,6 +699,23 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 				const resolvedPath = resolveUserPath(targetPath, resultCwd);
 				getSearchIndex(resultCwd).invalidateFile(resolvedPath);
+
+				// Update epistemic guard ledger with the newly written file
+				try {
+					if (fs.existsSync(resolvedPath)) {
+						const writtenContent = fs.readFileSync(resolvedPath, "utf8");
+						globalEpistemicGuard.recordFileMutation(
+							resolvedPath,
+							getSessionId(ctx),
+							resultCwd,
+							writtenContent,
+							{ complete: true },
+						);
+					}
+				} catch (e) {
+					kernelDebug(e);
+				}
+
 				const syntaxRes = checkSyntax(resolvedPath);
 
 				if (!syntaxRes.valid && syntaxRes.status === "failed") {

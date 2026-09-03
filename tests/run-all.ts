@@ -117,6 +117,10 @@ const sections: TestEntry[] = [
 		name: "31. End-to-End Dedup Hook Chain",
 		loader: () => import("./section-31-e2e-dedup-hook"),
 	},
+	{
+		name: "33. Epistemic Guard Mutation Continuity",
+		loader: () => import("./section-33-mutation-continuity"),
+	},
 ];
 
 async function main(): Promise<void> {
