@@ -238,7 +238,22 @@ async function main(): Promise<void> {
 			logPass("intensive: 13 mixed dedup calls, 1 compaction, all correct");
 		}
 
-		// ---- Test 6: documented limitations ----
+		// ---- Test 6: non-text content is outside the text-only store contract ----
+		{
+			// The production hook must pass through image/mixed blocks because recall
+			// stores only rendered text and cannot restore arbitrary content blocks.
+			const mixedContent = [
+				{ type: "text", text: "x".repeat(200) },
+				{ type: "image", data: "not-text" },
+			];
+			const hasOnlyTextContent = mixedContent.every(
+				(block) => block.type === "text" && typeof block.text === "string",
+			);
+			assertPass("non-text content: mixed blocks bypass text dedup", !hasOnlyTextContent);
+			logPass("non-text content: mixed results are not eligible for text recall");
+		}
+
+		// ---- Test 7: documented limitations ----
 		// Limitation: bash clamping injects a random hex filename into the
 		// spillover path footer (`pi_bash_spillover_<hex>.log`). Two identical
 		// bash commands on the same file therefore produce byte-different

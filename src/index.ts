@@ -595,7 +595,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				return {
 					block: true,
 					reason: "[WRITE ERROR] Missing target path.",
-					terminate: true,
 				};
 			}
 			const config = getConfig(cwd);
@@ -608,10 +607,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				config.safety.enable_epistemic_guard,
 			);
 			if (!check.allowed) {
+				// Block only this write. The model must remain able to inspect the
+				// rejection and choose a safe workaround or ask for clarification.
 				return {
 					block: true,
 					reason: check.reason,
-					terminate: true,
 				};
 			}
 		} catch (e) {
@@ -620,7 +620,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				return {
 					block: true,
 					reason: `[WRITE BLOCKED] Safety preflight failed closed: ${e instanceof Error ? e.message : String(e)}`,
-					terminate: true,
 				};
 			}
 		}
@@ -740,10 +739,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		// asked for.
 		if (!didBail && toolName !== "recall") {
 			const contentForLLM = resultContent !== undefined ? resultContent : (event.content || []);
-			const finalText = (contentForLLM as any[])
-				.map((c: any) => (c.type === "text" && typeof c.text === "string" ? c.text : ""))
-				.join("");
-			if (finalText.length > 0) {
+			const hasOnlyTextContent = (contentForLLM as any[]).every(
+				(c: any) => c.type === "text" && typeof c.text === "string",
+			);
+			const finalText = hasOnlyTextContent
+				? (contentForLLM as any[]).map((c: any) => c.text).join("")
+				: "";
+			if (hasOnlyTextContent && Buffer.byteLength(finalText, "utf8") > 0) {
 				const sessionId = getSessionId(ctx);
 				const compactionCounter = dedupStore.getCompactionCounter(sessionId);
 				const inputParams = event.input || {};
@@ -766,7 +768,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					resultContent = [
 						{
 							type: "text",
-							text: `[=${decision.shortRef},${finalText.length}B,${priorTool},${priorParamsKey}]`,
+							text: `[=${decision.shortRef},${Buffer.byteLength(finalText, "utf8")}B,${priorTool},${priorParamsKey}]`,
 						},
 					];
 				}
@@ -802,7 +804,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			lastRepoMapCheck = now;
 		}
 
-		const dedupNote = `\nTool results may be replaced with a short reference like [=rN,sizeB,tool,paramsKey] when the same content was already shown earlier in this session. The reference includes the tool name and a 4-hex digest of the input parameters. Call recall({ ref: "rN" }) to retrieve the full original content. If you need a different section, line range, or symbol, run a fresh read or search instead of recalling — the recall output is byte-equal to the prior result and will not contain a different range.\n`;
+		const dedupNote = `\nA [=rN,sizeB,tool,paramsKey] reference means the identical result was already provided earlier in this session. It is informational, not an instruction to call recall. Use recall only when the exact content is needed and is no longer visible. For a different range, symbol, or query, run a fresh tool call.\n`;
 
 		const runtimeContext = `
 ## Available Repository Context:

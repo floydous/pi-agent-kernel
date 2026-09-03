@@ -38,7 +38,7 @@ export function registerAstSearchTool(
 			includeBody: Type.Optional(
 				Type.Boolean({
 					description:
-						"Include a bounded preview of up to 25 symbol lines (default: false); use read_symbol for the complete body",
+						"Include a bounded preview of up to 25 symbol lines (default: false); use read({ path, symbol }) for the complete body",
 				}),
 			),
 		}),
@@ -80,7 +80,8 @@ export function registerAstSearchTool(
 
 			const formatted = results.slice(0, 30).map((r) => {
 				const normPath = r.filePath.replace(/\\/g, "/");
-				let str = `${normPath}:${r.line} [${r.kind}] ${r.signature || r.name}`;
+				const span = r.endLine && r.endLine !== r.line ? `${r.line}-${r.endLine}` : `${r.line}`;
+				let str = `${normPath}:${span} [${r.kind}] ${r.signature || r.name}`;
 				if (r.codeBlock) {
 					str += `\n${r.codeBlock}`;
 				}

@@ -57,6 +57,11 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					description: "1-based character/column number (default: 1)",
 				}),
 			),
+			symbol: Type.Optional(
+				Type.String({
+					description: "Optional symbol name for hover; avoids manual line/character coordinates",
+				}),
+			),
 		}),
 		async execute(
 			_toolCallId: string,
@@ -102,6 +107,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 
 			const line0 = Math.max(0, (params.line || 1) - 1);
 			const col0 = Math.max(0, (params.character || 1) - 1);
+			const requestedSymbol = typeof params.symbol === "string" ? params.symbol.trim() : "";
 
 			// Helper: extract identifier / qualified symbol under cursor (supports `foo.bar`, `crate::state::KeyUsage`)
 			const getSymbolUnderCursor = (): {
@@ -472,6 +478,43 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				}
 
 				if (action === "hover") {
+					if (requestedSymbol) {
+						const candidates = searchAstSymbols(ctx.cwd, {
+							name: requestedSymbol,
+							exactMatch: true,
+							currentFilePath: absPath,
+						});
+						if (candidates.length === 1) {
+							const candidate = candidates[0];
+							const candidatePath = path.isAbsolute(candidate.filePath)
+								? candidate.filePath
+								: path.resolve(ctx.cwd, candidate.filePath);
+							const candidateLine = Math.max(0, candidate.line - 1);
+							const candidateContent = candidatePath === absPath
+								? observedContent.toString("utf8")
+								: fs.readFileSync(candidatePath, "utf8");
+							const candidateLineText = candidateContent.split("\n")[candidateLine] || "";
+							const candidateColumn = Math.max(0, candidateLineText.indexOf(candidate.name));
+							const candidateClient = candidatePath === absPath
+								? client
+								: await lspMgr.getClientForFile(candidatePath, ctx.cwd);
+							if (candidateClient) {
+								const candidateHover = await candidateClient.hover(candidatePath, candidateLine, candidateColumn);
+								const candidateHoverText = formatHover(candidateHover);
+								if (candidateHover && !candidateHoverText.startsWith("No hover information")) {
+									return { content: [{ type: "text", text: candidateHoverText }] };
+								}
+							}
+							return {
+								content: [{ type: "text", text: `[AST Hover] ${candidate.kind} ${candidate.name}\n${candidate.signature}\nDeclared in ${candidate.filePath}:${candidate.line}` }],
+							};
+						}
+						if (candidates.length > 1) {
+							return {
+								content: [{ type: "text", text: `Multiple declarations found for '${requestedSymbol}':\n${candidates.slice(0, 10).map((candidate) => `- ${candidate.filePath}:${candidate.line} [${candidate.kind}] ${candidate.signature}`).join("\n")}` }],
+							};
+						}
+					}
 					const h = await client.hover(absPath, line0, col0);
 					const hoverText = formatHover(h);
 					if (h && !hoverText.startsWith("No hover information")) {

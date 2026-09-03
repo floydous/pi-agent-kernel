@@ -9,6 +9,7 @@ export interface AstQueryResult {
 	kind: string;
 	signature: string;
 	line: number;
+	endLine?: number;
 	codeBlock?: string;
 	bodyTruncated?: boolean;
 	aliasedFrom?: {
@@ -696,6 +697,28 @@ export function computeSymbolRankScore(
 	);
 }
 
+function findSymbolEndLine(lines: string[], startIdx: number, ext: string): number {
+	if (ext === ".py") {
+		const baseIndent = lines[startIdx].match(/^(\s*)/)?.[1].length || 0;
+		let end = startIdx;
+		for (let i = startIdx + 1; i < lines.length; i++) {
+			if (lines[i].trim() && (lines[i].match(/^(\s*)/)?.[1].length || 0) <= baseIndent) break;
+			end = i;
+		}
+		return end + 1;
+	}
+	let depth = 0;
+	let opened = false;
+	for (let i = startIdx; i < lines.length; i++) {
+		for (const ch of lines[i]) {
+			if (ch === "{") { depth++; opened = true; }
+			else if (ch === "}") depth--;
+		}
+		if (opened && depth <= 0) return i + 1;
+	}
+	return startIdx + 1;
+}
+
 export function searchAstSymbols(
 	rootDir: string,
 	query: {
@@ -768,6 +791,7 @@ export function searchAstSymbols(
 							kind: def.kind,
 							signature: def.signature,
 							line: def.line,
+							endLine: findSymbolEndLine(lines, def.line - 1, ext),
 							codeBlock,
 							bodyTruncated: query.includeBody ? bodyTruncated : undefined,
 							aliasedFrom: def.aliasedFrom,
@@ -852,10 +876,11 @@ export function searchAstSymbols(
 					name: hit.name,
 					kind: foundOrig.kind,
 					signature: foundOrig.signature,
-							line: foundOrig.line,
-							codeBlock: foundOrig.codeBlock,
-							bodyTruncated: foundOrig.bodyTruncated,
-							aliasedFrom: {
+					line: foundOrig.line,
+					endLine: foundOrig.endLine,
+					codeBlock: foundOrig.codeBlock,
+					bodyTruncated: foundOrig.bodyTruncated,
+					aliasedFrom: {
 						module: `${hit.filePath}:${hit.line}`,
 						originalName: origName,
 					},

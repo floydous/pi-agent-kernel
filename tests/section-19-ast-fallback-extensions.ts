@@ -5,6 +5,7 @@ import {
 	extractDocumentSymbols,
 	findSymbolReferences,
 	extractLocalSymbolHover,
+	searchAstSymbols,
 } from "../src/retrieval/ast_search";
 import { createTestWorkspace, runSection, assertPass, logPass } from "./_setup";
 
@@ -44,6 +45,17 @@ async function main(): Promise<void> {
 					{ localHover },
 				);
 				logPass("extractLocalSymbolHover verified for function parameter!");
+
+				const spanHits = searchAstSymbols(ws.tempDir, {
+					name: "calculate_tax",
+					exactMatch: true,
+				});
+				assertPass(
+					"searchAstSymbols reports enclosing symbol end line",
+					spanHits.some((s) => s.name === "calculate_tax" && s.endLine === 9),
+					{ spanHits },
+				);
+				logPass("searchAstSymbols verified enclosing symbol line span!");
 			} finally {
 				ws.cleanup();
 			}

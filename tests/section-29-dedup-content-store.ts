@@ -602,6 +602,30 @@ async function main(): Promise<void> {
 			});
 			logPass("get: returns toolName and paramsKey for self-describing refs");
 		}
+
+		// ---- Test 22: UTF-8 byte accounting ----
+		{
+			const store = new DedupStore();
+			const content = "é".repeat(100);
+			const r1 = store.record("utf8", "c1", "read", {}, content, false, 0);
+			const r2 = store.record("utf8", "c2", "read", {}, content, false, 0);
+			const got = store.get("utf8", r1.shortRef);
+			assertPass("UTF-8: 100 characters are above the 80-byte threshold", r1.shortRef === "r1");
+			assertPass("UTF-8: stored size is byte length", got !== null && got.sizeBytes === Buffer.byteLength(content, "utf8"), { got });
+			assertPass("UTF-8: repeated content still dedups", r2.isDuplicate && r2.shortRef === r1.shortRef, { r1, r2 });
+			logPass("UTF-8: thresholds and stored sizes use UTF-8 bytes");
+		}
+
+		// ---- Test 23: authoritative parameter hash is not the display digest ----
+		{
+			const store = new DedupStore();
+			const content = "collision-safe content ".repeat(12);
+			const first = store.record("params-collision", "c1", "read", { n: 369 }, content, false, 0);
+			const second = store.record("params-collision", "c2", "read", { n: 394 }, content, false, 0);
+			assertPass("parameter collision: different params are not deduped", !second.isDuplicate, { first, second });
+			assertPass("parameter collision: distinct refs remain recallable", store.get("params-collision", first.shortRef) !== null && store.get("params-collision", second.shortRef) !== null);
+			logPass("parameter collision: full hash protects internal identity");
+		}
 	});
 }
 

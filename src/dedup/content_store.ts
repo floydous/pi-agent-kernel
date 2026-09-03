@@ -30,7 +30,9 @@ export interface DedupEntry {
 	contentHash: string;
 	/** Tool name (e.g. "read", "code_search", "bash"). */
 	toolName: string;
-	/** Short hex digest of the input parameters; 4 hex chars. */
+	/** Full SHA-256 digest of the stable input parameters; authoritative key. */
+	paramsHash: string;
+	/** Short hex digest of the input parameters for display; 4 hex chars. */
 	paramsKey: string;
 	callId: string;
 	fullText: string;
@@ -109,18 +111,20 @@ export class DedupStore {
 	): RecordResult {
 		// Errors and short results are never deduped. Return a fresh ref
 		// (caller will not use it for a dedup notice; full text is emitted).
-		if (isError || fullText.length <= this.minBytes) {
+		if (isError || Buffer.byteLength(fullText, "utf8") <= this.minBytes) {
 			const s = this.getOrCreateSession(sessionId);
 			const shortRef = this.allocateRef(s);
-			const paramsKey = shortParamsKey(inputParams);
+			const paramsHash = hashParams(inputParams);
+			const paramsKey = paramsHash.slice(0, 4);
 			s.entries.set(shortRef, {
 				shortRef,
 				contentHash: hashOf(fullText),
 				toolName,
+				paramsHash,
 				paramsKey,
 				callId,
 				fullText,
-				sizeBytes: fullText.length,
+				sizeBytes: Buffer.byteLength(fullText, "utf8"),
 				lastSeenInContext: currentCompactionCounter,
 			});
 			// Don't index by dedup key — we don't want a future identical
@@ -132,8 +136,9 @@ export class DedupStore {
 
 		const s = this.getOrCreateSession(sessionId);
 		const contentHash = hashOf(fullText);
-		const paramsKey = shortParamsKey(inputParams);
-		const dedupKey = contentHash + ":" + toolName + ":" + paramsKey;
+		const paramsHash = hashParams(inputParams);
+		const paramsKey = paramsHash.slice(0, 4);
+		const dedupKey = contentHash + ":" + toolName + ":" + paramsHash;
 		const priorRef = s.byDedupKey.get(dedupKey);
 
 		if (
@@ -157,10 +162,11 @@ export class DedupStore {
 			shortRef,
 			contentHash,
 			toolName,
+			paramsHash,
 			paramsKey,
 			callId,
 			fullText,
-			sizeBytes: fullText.length,
+			sizeBytes: Buffer.byteLength(fullText, "utf8"),
 			lastSeenInContext: currentCompactionCounter,
 		});
 		s.byDedupKey.set(dedupKey, shortRef);
@@ -270,7 +276,7 @@ export class DedupStore {
 		const entry = s.entries.get(ref);
 		if (!entry) return;
 		s.entries.delete(ref);
-		const dedupKey = entry.contentHash + ":" + entry.toolName + ":" + entry.paramsKey;
+		const dedupKey = entry.contentHash + ":" + entry.toolName + ":" + entry.paramsHash;
 		// Only delete from byDedupKey if the stored ref still points to
 		// this entry. (A different entry with the same dedup key may have
 		// overwritten it; in that case we should not delete the new ref.)
@@ -292,7 +298,7 @@ export class DedupStore {
 
 interface SessionState {
 	entries: Map<string, DedupEntry>;
-	/** Map from `contentHash:toolName:paramsKey` to ref. */
+	/** Map from `contentHash:toolName:paramsHash` to ref. */
 	byDedupKey: Map<string, string>;
 	/**
 	 * MRU-ordered list of refs. New allocations and dedup hits push to the
@@ -308,10 +314,10 @@ function hashOf(text: string): string {
 	return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-/** 4-hex-char digest of the input parameters. Accepts string or object. */
-function shortParamsKey(inputParams: unknown): string {
+/** Full SHA-256 digest of the stable input parameters. */
+function hashParams(inputParams: unknown): string {
 	const s = typeof inputParams === "string" ? inputParams : stableStringify(inputParams);
-	return crypto.createHash("sha256").update(s, "utf8").digest("hex").slice(0, 4);
+	return crypto.createHash("sha256").update(s, "utf8").digest("hex");
 }
 
 /**

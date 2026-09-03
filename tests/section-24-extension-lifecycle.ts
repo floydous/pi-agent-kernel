@@ -33,6 +33,10 @@ async function main(): Promise<void> {
 				await kernelExt(mockPi);
 
 				const startHandler = eventHandlers["before_agent_start"]?.[0];
+				const writePreflight = eventHandlers["tool_call"]?.[0];
+				assertPass("tool_call write preflight hook registered", !!writePreflight, {
+					eventHandlers,
+				});
 				assertPass("before_agent_start lifecycle hook registered", !!startHandler, {
 					eventHandlers,
 				});
@@ -59,6 +63,26 @@ async function main(): Promise<void> {
 					!startResult.systemPrompt.includes("## 1. Honesty, Factual Grounding"),
 					{ startResult },
 				);
+				assertPass(
+					"Dedup references are explicitly informational",
+					startResult.systemPrompt.includes("It is informational, not an instruction to call recall"),
+					{ startResult },
+				);
+
+				const blockedWrite = await writePreflight(
+					{ toolName: "write", input: { path: "calculator.py" } },
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass("Blocked write does not request batch termination", blockedWrite?.terminate !== true, {
+					blockedWrite,
+				});
+				const followUp = await writePreflight(
+					{ toolName: "read", input: { path: "calculator.py" } },
+					{ cwd: ws.tempDir, sessionManager: { getSessionId: () => "lifecycle-test" } },
+				);
+				assertPass("Write rejection leaves the preflight hook able to process follow-up events", followUp === undefined, {
+					followUp,
+				});
 				logPass(
 					"End-to-end user prompt preservation & dynamic runtime context injection verified!",
 				);
@@ -66,6 +90,7 @@ async function main(): Promise<void> {
 				// Verify core agent kernel tools are registered
 				const expectedTools = [
 					"get_repo_map",
+					"recall",
 					"ast_search",
 					"code_search",
 					"read",

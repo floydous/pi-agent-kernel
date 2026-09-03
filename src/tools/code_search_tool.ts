@@ -99,7 +99,7 @@ export function registerCodeSearchTool(
 				const chunk = hit.chunk;
 				const normPath = chunk.filePath.replace(/\\/g, "/");
 				const lang = path.extname(chunk.filePath).slice(1) || "text";
-				return `${normPath}:${chunk.startLine}-${chunk.endLine} (${chunk.breadcrumb}):\n\`\`\`${lang}\n${chunk.content}\n\`\`\``;
+				return `${normPath}:${chunk.startLine}-${chunk.endLine} [${chunk.kind}] ${chunk.symbolName} (${chunk.breadcrumb}):\n\`\`\`${lang}\n${chunk.content}\n\`\`\``;
 			});
 
 			return {
