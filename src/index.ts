@@ -42,6 +42,27 @@ function getSessionId(ctx: any): string {
 
 	return `__default__${process.pid}`;
 }
+
+const PI_DOCS_START =
+	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
+const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
+const piDocsEnabledBySession = new Map<string, boolean>();
+
+function withoutPiDocumentation(systemPrompt: string): string {
+	const start = systemPrompt.indexOf(PI_DOCS_START);
+	if (start < 0) return systemPrompt;
+	const endMatch = systemPrompt.slice(start).match(PI_DOCS_END);
+	if (!endMatch || endMatch.index === undefined) return systemPrompt;
+
+	const end = start + endMatch.index + endMatch[0].length;
+	const before = systemPrompt.slice(0, start).replace(/\n{2,}$/, "\n");
+	const after = systemPrompt.slice(end).replace(/^\n{2,}/, "\n");
+	return before + after;
+}
+
+function piDocsEnabled(ctx: any): boolean {
+	return piDocsEnabledBySession.get(getSessionId(ctx)) ?? true;
+}
 import { clampCommandOutput } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { renderFooter } from "./ui/footer";
@@ -72,7 +93,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	const dedupStore = new DedupStore();
 	const getDedupStore = () => dedupStore;
 
-	// 3. Slash Commands: /repomap, /engine, /lsp
+	// 3. Slash Commands: /repomap, /engine, /lsp, /pi-docs
 	let activeTui: any = null;
 	const configByWorkspace = new Map<
 		string,
@@ -194,6 +215,38 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			});
 		}
 	};
+
+	pi.registerCommand("pi-docs", {
+		description: "Toggle Pi documentation guidance in the system prompt",
+		getArgumentCompletions: (prefix: string) => {
+			const options = [
+				{ value: "on", label: "on - Include Pi documentation guidance" },
+				{ value: "off", label: "off - Omit Pi documentation guidance" },
+				{ value: "status", label: "status - Show the current setting" },
+			];
+			const filtered = options.filter((option) =>
+				option.value.startsWith(prefix.toLowerCase()),
+			);
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args: string, ctx: any) => {
+			const sessionId = getSessionId(ctx);
+			const value = (args || "").trim().toLowerCase();
+			if (value === "on" || value === "off") {
+				piDocsEnabledBySession.set(sessionId, value === "on");
+				ctx.ui?.notify?.(
+					`Pi documentation guidance ${value === "on" ? "enabled" : "disabled"} for this session.`,
+					"info",
+				);
+				return;
+			}
+
+			const enabled = piDocsEnabled(ctx);
+			const message = `Pi documentation guidance: ${enabled ? "on" : "off"}`;
+			ctx.ui?.notify?.(message, "info");
+			if (!ctx.hasUI) console.log(message);
+		},
+	});
 
 	pi.registerCommand("repomap", {
 		description: "Display the Tree-Sitter AST & PageRank ranked repository map",
@@ -552,6 +605,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// shutdown we drop only this session's entry and stop running LSP daemons.
 	pi.on("session_shutdown", async (_event: any, ctx: any) => {
 		const sessionId = getSessionId(ctx);
+		piDocsEnabledBySession.delete(sessionId);
 		globalEpistemicGuard.resetSession(sessionId);
 		dedupStore.clearSession(sessionId);
 		try {
@@ -843,9 +897,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 ${cachedRepoMap}
 ${dedupNote}
 `;
+		const basePrompt = event.systemPrompt || "";
+		const systemPrompt = piDocsEnabled(ctx)
+			? basePrompt
+			: withoutPiDocumentation(basePrompt);
 		return {
-			systemPrompt: event.systemPrompt
-				? `${event.systemPrompt}\n\n${runtimeContext}`
+			systemPrompt: systemPrompt
+				? `${systemPrompt}\n\n${runtimeContext}`
 				: runtimeContext,
 		};
 	});

@@ -103,6 +103,7 @@ The entry point is declared in `package.json` under `pi.extensions` (`./src/inde
 | `/repomap` | `[budget]` | Render the AST and PageRank-ranked repository map. The default budget is 1024 tokens. |
 | `/engine` | `auto\|lean\|hybrid\|full\|off\|status\|reindex` | Change the retrieval profile or inspect engine state. `lean` is the default and uses AST-aware BM25; `hybrid` adds local embeddings. |
 | `/lsp` | `[install <lang>]` | Inspect active language servers or install one, for example `/lsp install python`. |
+| `/pi-docs` | `on\|off\|status` | Toggle Pi documentation guidance in the system prompt for the current session. |
 
 ## Configuration
 

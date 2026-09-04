@@ -46,6 +46,11 @@ async function main(): Promise<void> {
 					eventHandlers,
 				});
 
+				const piDocsCommand = registeredCommands.find((c) => c.name === "pi-docs");
+				assertPass("pi-docs command is registered", !!piDocsCommand, {
+					registeredCommands,
+				});
+
 				const customAgentPrompt =
 					"You are a custom AI agent adhering to AGENT.md guidelines.";
 				const startResult = await startHandler(
@@ -73,6 +78,26 @@ async function main(): Promise<void> {
 					startResult.systemPrompt.includes("It is informational, not an instruction to call recall"),
 					{ startResult },
 				);
+
+				const sessionContext = {
+					cwd: ws.tempDir,
+					sessionManager: { getSessionId: () => "lifecycle-docs-test" },
+				};
+				const docsPrompt = "before\nPi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):\n- Main documentation: docs/README.md\n- Always read pi .md files completely and follow links to related docs (e.g., tui.md for API details)\nafter";
+				const docsOn = await startHandler({ systemPrompt: docsPrompt }, sessionContext);
+				assertPass("Pi documentation guidance is enabled by default", docsOn.systemPrompt.includes("Pi documentation (read only"), {
+					docsOn,
+				});
+				await piDocsCommand.def.handler("off", sessionContext);
+				const docsOff = await startHandler({ systemPrompt: docsPrompt }, sessionContext);
+				assertPass("pi-docs off removes only Pi documentation guidance", !docsOff.systemPrompt.includes("Pi documentation (read only") && docsOff.systemPrompt.includes("Available Repository Context"), {
+					docsOff,
+				});
+				await piDocsCommand.def.handler("on", sessionContext);
+				const docsRestored = await startHandler({ systemPrompt: docsPrompt }, sessionContext);
+				assertPass("pi-docs on restores Pi documentation guidance", docsRestored.systemPrompt.includes("Pi documentation (read only"), {
+					docsRestored,
+				});
 
 				const blockedWrite = await writePreflight(
 					{ toolName: "write", input: { path: "calculator.py" } },
