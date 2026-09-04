@@ -14,12 +14,22 @@ async function main(): Promise<void> {
 			edit: "applied",
 			syntax: { state: "clean" },
 			diagnostic: { state: "clean", findings: [] },
-			tests: "not run",
 		});
 		assertPass(
 			"Clean edit returns empty string to save tokens",
 			clean === "",
 			{ clean },
+		);
+
+		const inconclusive = renderPostEditVerification({
+			edit: "applied",
+			syntax: { state: "clean" },
+			diagnostic: { state: "inconclusive", findings: [] },
+		});
+		assertPass(
+			"Inconclusive diagnostics with clean syntax returns clean empty string (no false alarms)",
+			inconclusive === "",
+			{ inconclusive },
 		);
 
 		const failure = renderPostEditVerification({
@@ -30,17 +40,17 @@ async function main(): Promise<void> {
 				findings: [
 					{
 						line: 42,
+						column: 15,
 						message: "Property 'token' does not exist on type 'Session'",
 						severity: "error",
 					},
 				],
 			},
-			tests: "not run",
 		});
 		assertPass(
-			"Diagnostic errors remain compact and actionable",
+			"Diagnostic errors render in clean - [line:col] message format",
 			failure ===
-				"FAIL!\nsyntax:clean\ndiagnostic:1 err\ntests:not run\n -line 42: Property 'token' does not exist on type 'Session'",
+				"Edit: Applied\nDiagnostics (errors):\n  - [42:15] Property 'token' does not exist on type 'Session'",
 			{ failure },
 		);
 
@@ -49,14 +59,13 @@ async function main(): Promise<void> {
 			syntax: { state: "clean" },
 			diagnostic: {
 				state: "findings",
-				findings: [{ line: 7, message: "Deprecated API", severity: "warning" }],
+				findings: [{ line: 7, column: 3, message: "Deprecated API", severity: "warning" }],
 			},
-			tests: "not run",
 		});
 		assertPass(
-			"Warnings are distinguished without verbose output",
+			"Warnings render in clean - [line:col] message format",
 			warning ===
-				"WARN!\nsyntax:clean\ndiagnostic:1 warn\ntests:not run\n -line 7: Deprecated API",
+				"Edit: Applied\nDiagnostics (warnings):\n  - [7:3] Deprecated API",
 			{ warning },
 		);
 
@@ -64,12 +73,10 @@ async function main(): Promise<void> {
 			edit: "applied",
 			syntax: { state: "unavailable", message: "Runtime unavailable" },
 			diagnostic: { state: "not run", findings: [] },
-			tests: "not run",
 		});
 		assertPass(
-			"Unavailable syntax checks are not reported as clean",
-			unavailable.startsWith("WARN!") &&
-				unavailable.includes("syntax:unavailable"),
+			"Unavailable syntax checks report as syntax error",
+			unavailable.includes("Edit: Applied") && unavailable.includes("Syntax Error:"),
 			{ unavailable },
 		);
 
@@ -97,7 +104,7 @@ async function main(): Promise<void> {
 			);
 			assertPass(
 				"Syntax failure is not reported as a clean edit",
-				renderPostEditVerification(broken).startsWith("FAIL!"),
+				renderPostEditVerification(broken).includes("Syntax Error:"),
 				{ broken },
 			);
 

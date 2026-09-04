@@ -315,7 +315,26 @@ export function checkSyntaxContent(
 		);
 		const candidatePath = path.join(tempDir, `candidate${extension}`);
 		fs.writeFileSync(candidatePath, content, "utf8");
-		return validateSyntaxAtPath(candidatePath);
+		const res = validateSyntaxAtPath(candidatePath);
+		if (!res.valid && res.error) {
+			// Clean up leaked temporary directory and candidate filenames
+			let cleanErr = res.error
+				.replace(new RegExp(`.*\\.pi-agent-kernel-validate-[^/\\\\]+[\\/\\\\]candidate\\.[a-zA-Z0-9]+:?`, "g"), "")
+				.replace(/Syntax validation failed on candidate\.[a-zA-Z0-9]+:?\s*/g, "")
+				.trim();
+
+			// Normalize "(line,col): error TSXXXX:" -> "[line:col] TSXXXX:"
+			cleanErr = cleanErr.replace(
+				/\(?(\d+)[,:]\s*(\d+)\)?:\s*(?:error\s+)?([A-Za-z0-9_]+:)?/g,
+				(_, line, col, code) => `[${line}:${col}] ${code || ""}`,
+			).trim();
+
+			return {
+				...res,
+				error: cleanErr || res.error,
+			};
+		}
+		return res;
 	} catch (err: any) {
 		return {
 			valid: false,

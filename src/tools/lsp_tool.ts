@@ -10,6 +10,8 @@ import {
 	formatReferences,
 	formatHover,
 	formatDocumentSymbols,
+	uriToPath,
+	windowAround,
 } from "../lsp";
 import {
 	extractDocumentSymbols,
@@ -59,6 +61,16 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 			symbol: Type.Optional(
 				Type.String({
 					description: "Optional symbol name for definition, references, or hover; avoids manual line/character coordinates",
+				}),
+			),
+			exclude_tests: Type.Optional(
+				Type.Boolean({
+					description: "Exclude references located in test files or test modules (default: false)",
+				}),
+			),
+			exclude_declaration: Type.Optional(
+				Type.Boolean({
+					description: "Exclude the symbol's own declaration site from references (default: false)",
 				}),
 			),
 		}),
@@ -485,8 +497,42 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				}
 
 				if (action === "references") {
-					const refs = await client.findReferences(absPath, line0, col0);
+					const filterRefs = (locations: any[]) => {
+						let res = locations;
+						if (params.exclude_declaration) {
+							res = res.filter((loc) => {
+								const locPath = uriToPath(loc.uri);
+								const sameFile = locPath === absPath || path.resolve(locPath) === path.resolve(absPath);
+								const sameLine = loc.range?.start?.line === line0;
+								return !(sameFile && sameLine);
+							});
+						}
+						if (params.exclude_tests) {
+							res = res.filter((loc) => {
+								const locPath = uriToPath(loc.uri).replace(/\\/g, "/").toLowerCase();
+								const fileName = path.basename(locPath);
+								const isTestPath =
+									locPath.includes("/test/") ||
+									locPath.includes("/tests/") ||
+									locPath.startsWith("tests/") ||
+									locPath.startsWith("test/") ||
+									locPath.includes("__tests__") ||
+									fileName.startsWith("test_") ||
+									fileName.endsWith("_test.rs") ||
+									fileName.endsWith("_test.go") ||
+									fileName.endsWith("_test.py") ||
+									fileName.endsWith(".test.ts") ||
+									fileName.endsWith(".spec.ts") ||
+									fileName.endsWith(".test.js");
+								return !isTestPath;
+							});
+						}
+						return res;
+					};
+
+					let refs = await client.findReferences(absPath, line0, col0);
 					if (refs.length > 0) {
+						refs = filterRefs(refs);
 						return {
 							content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
 						};
@@ -503,16 +549,47 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					const sym = getSymbolUnderCursor();
 					const targetSym = requestedSymbol || sym.leaf || sym.full;
 					if (targetSym) {
-						const astRefs = findSymbolReferences(ctx.cwd, targetSym);
+						let astRefs = findSymbolReferences(ctx.cwd, targetSym);
+						if (params.exclude_declaration) {
+							astRefs = astRefs.filter((r) => {
+								const sameFile = path.resolve(ctx.cwd, r.filePath) === path.resolve(absPath);
+								return !(sameFile && r.line === (line0 + 1));
+							});
+						}
+						if (params.exclude_tests) {
+							astRefs = astRefs.filter((r) => {
+								const norm = r.filePath.replace(/\\/g, "/").toLowerCase();
+								const fileName = path.basename(norm);
+								return !(
+									norm.includes("/test/") ||
+									norm.includes("/tests/") ||
+									norm.startsWith("tests/") ||
+									norm.startsWith("test/") ||
+									norm.includes("__tests__") ||
+									fileName.startsWith("test_") ||
+									fileName.endsWith("_test.rs") ||
+									fileName.endsWith("_test.go") ||
+									fileName.endsWith("_test.py") ||
+									fileName.endsWith(".test.ts") ||
+									fileName.endsWith(".spec.ts") ||
+									fileName.endsWith(".test.js")
+								);
+							});
+						}
 						if (astRefs.length > 0) {
 							const formatted = astRefs
-								.map((r) => `  • ${r.filePath}:${r.line}:${r.column}  ${r.lineText}`)
+								.map((r) => {
+									const col0 = Math.max(0, r.column - 1);
+									const endCol0 = col0 + targetSym.length;
+									const snippet = windowAround(r.lineText, col0, endCol0, 50);
+									return `${r.filePath}:${r.line}:${r.column}: ${snippet}`;
+								})
 								.join("\n");
 							return {
 								content: [
 									{
 										type: "text",
-										text: `[Tree-sitter AST References - ${astRefs.length} match(es) for '${targetSym}']\n${formatted}`,
+										text: formatted,
 									},
 								],
 							};
@@ -683,8 +760,14 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						};
 					}
 
+					const relPath = path.relative(ctx.cwd, absPath).replace(/\\/g, "/") || absPath;
 					return {
-						content: [],
+						content: [
+							{
+								type: "text",
+								text: `${relPath} clean`,
+							},
+						],
 					};
 				}
 

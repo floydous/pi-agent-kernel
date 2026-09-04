@@ -11,6 +11,7 @@ export type VerificationState =
 
 export interface DiagnosticFinding {
 	line?: number;
+	column?: number;
 	message: string;
 	severity?: "error" | "warning" | "info";
 }
@@ -27,7 +28,6 @@ export interface PostEditVerification {
 		message?: string;
 	};
 	diagnostic: DiagnosticVerification;
-	tests: "not run";
 }
 
 export interface DiagnosticCheck {
@@ -35,7 +35,7 @@ export interface DiagnosticCheck {
 	findings?: DiagnosticFinding[];
 }
 
-const LABEL_ORDER = ["edit", "diagnostic", "syntax", "tests"] as const;
+const LABEL_ORDER = ["edit", "diagnostic", "syntax"] as const;
 
 function compactMessage(message: string, maxLength = 240): string {
 	const compact = message.replace(/\s+/g, " ").trim();
@@ -67,13 +67,11 @@ function verificationEntries(
 	return [
 		["syntax", result.syntax.state],
 		["diagnostic", diagnosticValue(result.diagnostic)],
-		["tests", result.tests],
 	];
 }
 
 /**
- * Render the default edit result in a compact, deterministic form.
- * Equal values are grouped to avoid repeating status text.
+ * Render the default edit result in a clean, indented form.
  */
 export function renderPostEditVerification(
 	result: PostEditVerification,
@@ -91,52 +89,57 @@ export function renderPostEditVerification(
 	const hasDiagnosticWarning = result.diagnostic.findings.some(
 		(finding) => finding.severity === "warning" || finding.severity === "info",
 	);
-	const hasDiagnosticUncertainty = [
-		"unavailable",
-		"inconclusive",
-		"timeout",
-	].includes(result.diagnostic.state);
-	const overall =
-		result.edit === "not applied" ||
-		hasSyntaxFailure ||
-		result.diagnostic.state === "failed" ||
-		hasDiagnosticError
-			? "FAIL!"
-			: hasSyntaxUncertainty || hasDiagnosticUncertainty || hasDiagnosticWarning
-				? "WARN!"
-				: "OK!";
 
 	// Token density: return empty string on completely clean verification
-	if (overall === "OK!") {
+	if (
+		result.edit === "applied" &&
+		!hasSyntaxFailure &&
+		!hasDiagnosticError &&
+		!hasDiagnosticWarning &&
+		(!hasSyntaxUncertainty || result.syntax.state === "clean")
+	) {
 		return "";
 	}
 
-	const groups = new Map<string, string[]>();
-	for (const [label, value] of verificationEntries(result)) {
-		const labels = groups.get(value) || [];
-		labels.push(label);
-		groups.set(value, labels);
+	const lines: string[] = [];
+
+	if (result.edit === "not applied") {
+		lines.push("Edit: Not applied");
+		lines.push("Reason:");
+		if (reason) {
+			lines.push(`  - ${compactMessage(reason)}`);
+		}
+		if (result.syntax.message && result.syntax.message !== reason) {
+			lines.push(`  - ${compactMessage(result.syntax.message)}`);
+		}
+		return lines.join("\n");
 	}
 
-	const lines = [overall];
-	for (const value of Array.from(groups.keys())) {
-		const labels = LABEL_ORDER.filter((label) =>
-			groups.get(value)?.includes(label),
-		);
-		lines.push(`${labels.join(",")}:${value}`);
+	// Edit was applied
+	lines.push("Edit: Applied");
+
+	if (hasSyntaxFailure || (hasSyntaxUncertainty && result.syntax.state !== "clean")) {
+		lines.push("Syntax Error:");
+		lines.push(`  - ${compactMessage(result.syntax.message || "Syntax validation failed")}`);
 	}
 
-	if (reason) lines.push(`reason:${compactMessage(reason)}`);
-	if (result.syntax.message) {
-		lines.push(` -${compactMessage(result.syntax.message)}`);
+	if (result.diagnostic.findings.length > 0) {
+		const header = hasDiagnosticError ? "Diagnostics (errors):" : "Diagnostics (warnings):";
+		lines.push(header);
+		for (const finding of result.diagnostic.findings.slice(0, 5)) {
+			const pos =
+				finding.line !== undefined
+					? finding.column !== undefined
+						? `[${finding.line}:${finding.column}] `
+						: `[${finding.line}] `
+					: "";
+			lines.push(`  - ${pos}${compactMessage(finding.message)}`);
+		}
+		if (result.diagnostic.findings.length > 5) {
+			lines.push(`  - +${result.diagnostic.findings.length - 5} more`);
+		}
 	}
-	for (const finding of result.diagnostic.findings.slice(0, 3)) {
-		const line = finding.line === undefined ? "" : `line ${finding.line}: `;
-		lines.push(` -${line}${compactMessage(finding.message)}`);
-	}
-	if (result.diagnostic.findings.length > 3) {
-		lines.push(` -+${result.diagnostic.findings.length - 3} more`);
-	}
+
 	return lines.join("\n");
 }
 
@@ -147,7 +150,6 @@ export function renderEditFailure(reason: string): string {
 			edit: "not applied",
 			syntax: { state: "not run" },
 			diagnostic: { state: "not run", findings: [] },
-			tests: "not run",
 		},
 		reason,
 	);
@@ -166,7 +168,6 @@ export async function verifyEditedFile(
 				message: syntax.error,
 			},
 			diagnostic: { state: "not run", findings: [] },
-			tests: "not run",
 		};
 	}
 
@@ -195,6 +196,5 @@ export async function verifyEditedFile(
 		edit: "applied",
 		syntax: { state: syntax.status || "clean" },
 		diagnostic,
-		tests: "not run",
 	};
 }

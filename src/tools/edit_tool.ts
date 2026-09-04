@@ -231,6 +231,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 								state: result.status,
 								findings: result.diagnostics.map((finding) => ({
 									line: finding.range.start.line + 1,
+									column: finding.range.start.character + 1,
 									message: finding.message,
 									severity:
 										finding.severity === 1

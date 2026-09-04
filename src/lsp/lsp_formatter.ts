@@ -1,5 +1,6 @@
 import { pathToFileURL, fileURLToPath } from "node:url";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import {
   LspDiagnostic,
   LspDiagnosticSeverity,
@@ -147,7 +148,31 @@ export function formatDefinitions(
 }
 
 /**
- * Format symbol references into compact output
+ * Extract a bounded snippet around the target character span without truncating the symbol.
+ */
+export function windowAround(
+  line: string,
+  startCol0: number,
+  endCol0: number,
+  budget = 50
+): string {
+  const normLine = line.replace(/\r?\n$/, "");
+  const s = Math.max(0, Math.min(startCol0, normLine.length));
+  const e = Math.max(s, Math.min(endCol0, normLine.length));
+  const symLen = Math.max(1, e - s);
+  const effectiveBudget = Math.max(budget, symLen);
+  const pad = Math.max(0, effectiveBudget - symLen);
+  const left = Math.max(0, s - Math.floor(pad / 2));
+  const right = Math.min(normLine.length, e + Math.ceil(pad / 2));
+  const snippet = normLine.slice(left, right).trim();
+  const prefix = left > 0 ? "... " : "";
+  const suffix = right < normLine.length ? " ..." : "";
+  return `${prefix}${snippet}${suffix}`.trim();
+}
+
+/**
+ * Format symbol references into compact output with bounded line snippets.
+ * Never leaks read evidence into epistemic ledger (metadata only).
  */
 export function formatReferences(
   references: LspLocation[],
@@ -157,12 +182,47 @@ export function formatReferences(
     return "No references found.";
   }
 
+  // Per-query line cache: read each file from disk at most once
+  const fileLinesCache = new Map<string, string[] | null>();
+
+  const getLines = (filePath: string): string[] | null => {
+    if (fileLinesCache.has(filePath)) {
+      return fileLinesCache.get(filePath)!;
+    }
+    try {
+      if (fs.existsSync(filePath)) {
+        const lines = fs.readFileSync(filePath, "utf8").split("\n");
+        fileLinesCache.set(filePath, lines);
+        return lines;
+      }
+    } catch {
+      // Fall through to null for inaccessible/virtual files
+    }
+    fileLinesCache.set(filePath, null);
+    return null;
+  };
+
   const lines = references.map((loc) => {
     const filePath = uriToPath(loc.uri);
     const displayPath = cwd ? path.relative(cwd, filePath) || filePath : filePath;
-    const line = loc.range.start.line + 1;
-    const col = loc.range.start.character + 1;
-    return `${displayPath}:${line}:${col}`;
+    const line1 = loc.range.start.line + 1;
+    const col1 = loc.range.start.character + 1;
+    const baseLoc = `${displayPath}:${line1}:${col1}`;
+
+    const cachedLines = getLines(filePath);
+    if (!cachedLines || loc.range.start.line >= cachedLines.length) {
+      return baseLoc;
+    }
+
+    const rawLine = cachedLines[loc.range.start.line] || "";
+    const startCol0 = loc.range.start.character;
+    const endCol0 =
+      loc.range.end?.line === loc.range.start.line
+        ? loc.range.end.character
+        : startCol0 + 1;
+
+    const snippet = windowAround(rawLine, startCol0, endCol0, 50);
+    return snippet ? `${baseLoc}: ${snippet}` : baseLoc;
   });
 
   return lines.join("\n");

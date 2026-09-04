@@ -121,6 +121,14 @@ const sections: TestEntry[] = [
 		name: "33. Epistemic Guard Mutation Continuity",
 		loader: () => import("./section-33-mutation-continuity"),
 	},
+	{
+		name: "34. LSP Clean Diagnostics & Reference Filtering",
+		loader: () => import("./section-34-lsp-clean-and-filters"),
+	},
+	{
+		name: "35. LSP Reference Snippets & Seam Tests",
+		loader: () => import("./section-35-lsp-reference-snippets"),
+	},
 ];
 
 async function main(): Promise<void> {
