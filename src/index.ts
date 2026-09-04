@@ -237,15 +237,15 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				{
 					value: "hybrid",
 					label:
-						"hybrid - Throttled 256-dim Matryoshka embeddings [Persisted Default]",
+						"hybrid - Throttled 256-dim Matryoshka embeddings",
 				},
 				{
 					value: "full",
-					label: "full - Multi-core 768-dim embeddings [Persisted Default]",
+					label: "full - Multi-core 768-dim embeddings",
 				},
 				{
 					value: "off",
-					label: "off - Disable search & unload memory [Persisted Default]",
+					label: "off - Disable search & unload memory",
 				},
 				{ value: "reindex", label: "reindex - Force full workspace re-indexing" },
 			];

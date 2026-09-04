@@ -1,7 +1,7 @@
 {
   "name": "pi-agent-kernel",
   "version": "1.0.0",
-  "description": "Unified Hybrid Kernel and tooling extensions for Pi",
+  "description": "Focused code retrieval, editing, safety checks, and language-server support for Pi.",
   "keywords": [
     "pi-package"
   ],

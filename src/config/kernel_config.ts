@@ -51,7 +51,7 @@ export interface KernelConfig {
 
 const DEFAULT_CONFIG: KernelConfig = {
 	retrieval: {
-		default_profile: "hybrid",
+		default_profile: "lean",
 		repo_map_budget: 1024,
 		max_search_results: 5,
 	},

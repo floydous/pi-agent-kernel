@@ -231,7 +231,7 @@ export class SearchControlModal implements Focusable {
 		);
 
 		cardLines.push(bgCard + fgBorder + `├${"─".repeat(innerW)}┤` + reset);
-		cardLines.push(row(` ${fgSubHeader}Engine Profiles (Persisted Default):`));
+		cardLines.push(row(` ${fgSubHeader}Engine Profiles:`));
 
 		// Render profile items
 		for (let i = 0; i < this.items.length; i++) {
