@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-kernel",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Focused code retrieval, editing, safety checks, and language-server support for Pi.",
   "keywords": [
     "pi-package"

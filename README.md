@@ -1,17 +1,14 @@
-# Pi Agent Operating Kernel & Tooling Extensions (`pi-agent-kernel`)
+# Pi agent kernel
 
-A high-leverage agentic coding extension suite for `@earendil-works/pi-coding-agent`.
+A Pi extension for code retrieval, surgical editing, safety checks, and language-server support.
 
-## Design Priorities
+## Design priorities
 
-`pi-agent-kernel` is designed for bare-minimum token usage while maximizing
-performance and reliability across agent work. It favors focused retrieval,
-bounded output, deterministic checks, and grounded edits over unnecessary
-context, background processing, or speculative automation.
+The extension keeps agent interactions small while improving reliability. It uses focused retrieval, bounded output, deterministic checks, and grounded edits. It avoids loading unnecessary context, doing background work without a reason, or making speculative changes.
 
-## Empirical Performance & Token Efficiency
+## Token and performance measurements
 
-Compared to unconstrained agent harnesses (which dump full files, perform raw directory walks, rewrite entire source files on every edit, and stream unbounded terminal stdout directly into context), `pi-agent-kernel` optimizes token consumption and execution latency across every interaction turn:
+The table compares this extension with an unconstrained harness that dumps whole files, walks the entire repository, rewrites files for every edit, and streams unbounded terminal output.
 
 | Capability / Interaction | Unconstrained Harness | `pi-agent-kernel` | Token / Overhead Delta | Latency |
 |---|---|---|---|---|
@@ -22,12 +19,11 @@ Compared to unconstrained agent harnesses (which dump full files, perform raw di
 | **Codebase Search** (Lexical / BM25 Query) | Linear `grep`/`find` disk scan | Inverted In-Memory BM25 Index | **0 MB** background RAM (Lean) | ~0.03 ms / query |
 | **Pre-Commit Safety** (Broken syntax gate) | Allowed to commit broken code | Local Fast AST Delimiter Gate | **Deterministic** failure block | Instant |
 
-*Empirical metrics measured against this codebase (45 source files, ~92.8k raw tokens) using `tests/benchmark_metrics.ts`.*
+*These measurements come from `tests/benchmark_metrics.ts`, using this codebase with 45 source files and about 92.8k raw tokens.*
 
-## Architecture & Directory Layout
+## Architecture and directory layout
 
-Authored runtime code lives under `src/`; tests, documentation, and example
-configuration stay at the repository boundary.
+Runtime code lives under `src/`. Tests, documentation, and example configuration remain at the repository root.
 
 ```
 pi-agent-kernel/
@@ -47,66 +43,66 @@ pi-agent-kernel/
 └── package.json            # Extension manifest
 ```
 
-## Tool Suite
+## Tool suite
 
 | Tool | Purpose | Output Strategy |
 |---|---|---|
-| `read` | Content & surgical AST symbol inspection | Bounded, zero bloat, line-targeted |
-| `edit` | Exact & fuzzy surgical patching with syntax gate | Empty on clean (`OK!`), diagnostic on `WARN/FAIL` |
-| `write` | Complete new file authoring | Direct write |
+| `read` | Content and surgical AST symbol inspection | Bounded, zero bloat, line-targeted |
+| `edit` | Exact and fuzzy surgical patching with a syntax gate | Empty on clean (`OK!`), diagnostic on `WARN/FAIL` |
+| `write` | Complete new-file authoring | Direct write |
 | `get_repo_map` | PageRank-ranked repository AST definitions | Pure code symbols without import noise (~1k tokens) |
 | `ast_search` | AST structure search across definitions | Concise `file:line [kind] signature` |
-| `code_search` | Hybrid BM25 & semantic AST chunk search | Compact `file:start-end (breadcrumb)` snippets |
+| `code_search` | Hybrid BM25 and semantic AST chunk search | Compact `file:start-end (breadcrumb)` snippets |
 | `lsp` | Realtime Language Server Protocol queries | Compact `def`, `ref`, and structural symbols |
-| `recall` | Restore exact deduplicated tool result by ref | Bare original output content |
+| `recall` | Restore an exact deduplicated tool result by reference | Bare original output content |
 | `search_tools` | Deferred tool discovery | On-demand tool capability matching |
 
-## Safety & Invariants
+## Safety and invariants
 
-- **Epistemic Guard**: Enforces inspection-before-mutation (`read` required before `edit`). Rejects ungrounded edits with copy-pasteable minimal instructions, and preserves authorization continuity across sequential mutations.
-- **Output Clamping**: Prevents context-window blowouts by clamping stdout/stderr and persisting full dumps to disk.
-- **Tool Result Deduplication**: Replaces byte-identical repeated outputs with lightweight `[=rN,sizeB,tool,paramsKey]` notices recoverable via `recall`.
-- **Bounded Syntax Verification**: Fast local verification on mutations before committing changes to disk.
+- **Epistemic Guard**: Requires inspection before editing an existing file. It rejects ungrounded edits with short, copyable instructions and preserves authorization across sequential mutations.
+- **Output Clamping**: Limits stdout and stderr so they do not fill the context window, while saving complete output to disk.
+- **Tool Result Deduplication**: Replaces byte-identical repeated output with a small `[=rN,sizeB,tool,paramsKey]` notice that can be recovered with `recall`.
+- **Bounded Syntax Verification**: Runs a fast local check on mutations before committing changes to disk.
 
 ## Installation
 
-`pi-agent-kernel` is consumed by Pi as a packaged extension. Install globally or in your project:
+Install the extension as a Pi package, either globally or in a project:
 
 ```bash
 pi install npm:pi-agent-kernel
 ```
 
-Or install in your project locally:
+For a project-local installation:
 
 ```bash
 pi install -l npm:pi-agent-kernel
 ```
 
-The entry point is declared in `package.json` under `pi.extensions` (`./src/index.ts`); Pi loads it on session start.
+The entry point is declared in `package.json` under `pi.extensions` (`./src/index.ts`). Pi loads it when a session starts.
 
-## Slash Commands
+## Slash commands
 
 | Command | Args | Purpose |
 |---|---|---|
-| `/repomap` | `[budget]` | Render the AST + PageRank-ranked repo map. Default budget 1024 tokens. |
-| `/engine` | `auto\|lean\|hybrid\|full\|off\|status\|reindex` | Switch retrieval profile or inspect engine state. `lean` is the default (AST-aware BM25); `hybrid` adds local embeddings. |
-| `/lsp` | `[install <lang>]` | Inspect active language servers / daemons, or install a server (`/lsp install python`). |
+| `/repomap` | `[budget]` | Render the AST and PageRank-ranked repository map. The default budget is 1024 tokens. |
+| `/engine` | `auto\|lean\|hybrid\|full\|off\|status\|reindex` | Change the retrieval profile or inspect engine state. `lean` is the default and uses AST-aware BM25; `hybrid` adds local embeddings. |
+| `/lsp` | `[install <lang>]` | Inspect active language servers or install one, for example `/lsp install python`. |
 
 ## Configuration
 
-Configuration is resolved hierarchically per workspace, looking for `agent-kernel/config.toml` (or `config.toml`) in the workspace root and walking upward. The shipped defaults are defined in [`src/config/kernel_config.ts`](src/config/kernel_config.ts) and the example config lives at [`config.toml`](config.toml). Full schema and override semantics are in [`docs/configuration.md`](docs/configuration.md).
+The loader resolves configuration per workspace. It looks for `agent-kernel/config.toml` or `config.toml` at the workspace root and then walks upward. The built-in defaults are in [`src/config/kernel_config.ts`](src/config/kernel_config.ts), and the example configuration is [`config.toml`](config.toml). See [`docs/configuration.md`](docs/configuration.md) for the full schema and override rules.
 
-Top-level keys: `[retrieval]`, `[safety]`, `[lsp]`, `[ui]`.
+The top-level sections are `[retrieval]`, `[safety]`, `[lsp]`, and `[ui]`.
 
 ## Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — module map and request flow
-- [`docs/retrieval.md`](docs/retrieval.md) — search profile semantics
-- [`docs/editing-and-verification.md`](docs/editing-and-verification.md) — patch + verify pipeline
-- [`docs/lsp.md`](docs/lsp.md) — LSP integration & registry
-- [`docs/configuration.md`](docs/configuration.md) — TOML schema and precedence
-- [`docs/testing.md`](docs/testing.md) — section-based test layout
+- [`docs/architecture.md`](docs/architecture.md): module map and request flow
+- [`docs/retrieval.md`](docs/retrieval.md): search profile semantics
+- [`docs/editing-and-verification.md`](docs/editing-and-verification.md): patch and verification pipeline
+- [`docs/lsp.md`](docs/lsp.md): LSP integration and registry
+- [`docs/configuration.md`](docs/configuration.md): TOML schema and precedence
+- [`docs/testing.md`](docs/testing.md): section-based test layout
 
 ## License
 
-ISC — see [`LICENSE`](LICENSE).
+ISC. See [`LICENSE`](LICENSE).
