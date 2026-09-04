@@ -30,9 +30,9 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 		name: "lsp",
 		label: "Language Server Protocol (LSP)",
 		description:
-			"Query language server for definitions, references, hover docstrings, document symbols, or diagnostics with instant Tree-sitter fallback.",
+			"Query language server for definitions, references (supports exclude_tests and exclude_declaration), hover docstrings, document symbols, or diagnostics with instant Tree-sitter fallback.",
 		promptSnippet:
-			"Query LSP for definitions, references, hover type signatures, and workspace diagnostics",
+			"Query LSP for definitions, references (with test filtering), hover type signatures, and workspace diagnostics",
 		renderShell: "default",
 		parameters: Type.Object({
 			action: Type.String({

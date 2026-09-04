@@ -804,8 +804,16 @@ export function searchAstSymbols(
 
 						fileDefs.push(item);
 
-						if (query.kind && def.kind.toLowerCase() !== query.kind.toLowerCase()) {
-							continue;
+						if (query.kind) {
+							const qKind = query.kind.toLowerCase();
+							const dKind = def.kind.toLowerCase();
+							const matchKind =
+								qKind === dKind ||
+								(qKind === "struct" && dKind === "class") ||
+								(qKind === "trait" && dKind === "class") ||
+								(qKind === "constant" && (dKind === "constant" || dKind === "variable")) ||
+								(qKind === "variable" && (dKind === "variable" || dKind === "constant"));
+							if (!matchKind) continue;
 						}
 
 						if (queryLeaf) {

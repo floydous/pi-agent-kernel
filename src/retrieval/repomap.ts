@@ -10,6 +10,7 @@ export interface SymbolDef {
 		| "type"
 		| "enum"
 		| "variable"
+		| "constant"
 		| "method"
 		| "alias";
 	signature: string;
@@ -285,6 +286,21 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 				}
 			}
 
+			// const variable / constant declaration: const FOO = ... or const FOO: string = ...
+			const constDecl = line.match(
+				/^(?:export\s+)?const\s+([a-zA-Z0-9_]+)(?:\s*:\s*([^=]+))?\s*=/,
+			);
+			if (constDecl) {
+				const isAllUpper = /^[A-Z0-9_]{2,}$/.test(constDecl[1]);
+				definitions.push({
+					name: constDecl[1],
+					kind: isAllUpper ? "constant" : "variable",
+					signature: line.replace(/;$/, "").trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
 			// TS/JS Aliased re-exports and imports: import/export { a as b } from "./mod"
 			if (
 				(line.startsWith("import") || line.startsWith("export")) &&
@@ -430,6 +446,23 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 					aliasedFrom: { originalName: pyAssignAlias[2] },
 				});
 			}
+
+			// Python top-level constant / variable assignment (e.g. TIMEOUT = 30 or MAX_RETRIES: int = 5)
+			const pyConstMatch = line.match(/^([A-Z0-9_]{2,})(?:\s*:\s*([^=]+))?\s*=/);
+			if (
+				pyConstMatch &&
+				!rawLine.startsWith(" ") &&
+				!rawLine.startsWith("\t") &&
+				!pyConstMatch[1].startsWith("__")
+			) {
+				definitions.push({
+					name: pyConstMatch[1],
+					kind: "constant",
+					signature: line.trim(),
+					line: i + 1,
+				});
+				continue;
+			}
 		}
 
 		// Rust
@@ -469,12 +502,13 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 
 			// static / const
 			const rsStatic = line.match(
-				/^(?:pub(?:\([^)]+\))?\s+)?(?:static|const)\s+(?:mut\s+)?([a-zA-Z0-9_]+)\s*:\s*([^=;]+)/,
+				/^(?:pub(?:\([^)]+\))?\s+)?(static|const)\s+(?:mut\s+)?([a-zA-Z0-9_]+)\s*:\s*([^=;]+)/,
 			);
 			if (rsStatic) {
+				const kind = rsStatic[1] === "const" ? "constant" : "variable";
 				definitions.push({
-					name: rsStatic[1],
-					kind: "variable",
+					name: rsStatic[2],
+					kind,
 					signature: line.replace(/;$/, "").trim(),
 					line: i + 1,
 				});
@@ -520,6 +554,19 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 					name: goType[1],
 					kind: "class",
 					signature: sig,
+					line: i + 1,
+				});
+				continue;
+			}
+
+			// const / var
+			const goConst = line.match(/^(?:const|var)\s+([a-zA-Z0-9_]+)(?:\s+([^=]+))?\s*=/);
+			if (goConst) {
+				const isConst = line.startsWith("const");
+				definitions.push({
+					name: goConst[1],
+					kind: isConst ? "constant" : "variable",
+					signature: line.trim(),
 					line: i + 1,
 				});
 				continue;

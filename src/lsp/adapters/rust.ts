@@ -19,13 +19,15 @@ export class RustLspAdapter extends BaseLspAdapter {
       const items = params?.items || [];
       return items.map((item: any) => {
         const section = item?.section || "";
-        if (section.startsWith("rust-analyzer")) {
+        if (section.startsWith("rust-analyzer") || section === "") {
           return {
             check: { command: "check" },
+            checkOnSave: true,
             cargo: { buildScripts: { enable: true } },
+            diagnostics: { enable: true, experimental: { enable: true } },
           };
         }
-        return null;
+        return {};
       });
     }
     return super.handleServerRequest(method, params, rootDir);

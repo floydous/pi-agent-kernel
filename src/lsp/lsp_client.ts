@@ -464,6 +464,7 @@ export class StdioLspClient {
   }> {
     const uri = pathToUri(filePath);
     await this.openDocument(filePath);
+    await this.saveDocument(filePath);
 
     // If push diagnostics were already published and cached, return them immediately.
     if (this.diagnosticsCache.has(uri)) {
@@ -475,9 +476,20 @@ export class StdioLspClient {
     }
 
     const config = loadKernelConfig();
-    const timeoutMs = timeoutMsOverride ?? config.lsp.diagnostic_timeout_ms ?? 4000;
+    const timeoutMs = timeoutMsOverride ?? config.lsp.diagnostic_timeout_ms ?? 8000;
 
-    // Pull diagnostics are optional in LSP 3.17.
+    // Push-only servers (or servers like rust-analyzer that run cargo check on didSave/didOpen)
+    // emit textDocument/publishDiagnostics asynchronously.
+    // Event-driven wait: resolves as soon as the server publishes without sleep polling.
+    const pushResult = await this.waitForPushDiagnostics(uri, timeoutMs);
+    if (pushResult !== null) {
+      return {
+        status: pushResult.length > 0 ? "findings" : "clean",
+        diagnostics: pushResult,
+      };
+    }
+
+    // Pull diagnostics fallback if server supports LSP 3.17 diagnosticProvider
     if (this.serverCapabilities.diagnosticProvider) {
       try {
         const pullRes = await this.sendRequest<any>(
@@ -485,7 +497,7 @@ export class StdioLspClient {
           {
             textDocument: { uri },
           },
-          timeoutMs,
+          Math.min(timeoutMs, 4000),
         );
         if (pullRes?.items && Array.isArray(pullRes.items)) {
           this.diagnosticsCache.set(uri, pullRes.items);
@@ -496,33 +508,10 @@ export class StdioLspClient {
         }
       } catch (e) {
         kernelDebug(e);
-        const message = e instanceof Error ? e.message : String(e);
-        // Method-not-found / unsupported pull is not a failed diagnostic run;
-        // continue to the push-diagnostic event wait below.
-        if (message.includes("timed out")) {
-          // If pull timed out but push cache arrived, prefer cache
-          if (this.diagnosticsCache.has(uri)) {
-            const cached = this.diagnosticsCache.get(uri) || [];
-            return {
-              status: cached.length > 0 ? "findings" : "clean",
-              diagnostics: cached,
-            };
-          }
-          return { status: "timeout", diagnostics: [] };
-        }
       }
     }
 
-    // Push-only servers emit textDocument/publishDiagnostics after didOpen/didChange.
-    // Event-driven wait: resolves as soon as the server publishes without sleep polling.
-    const pushResult = await this.waitForPushDiagnostics(uri, timeoutMs);
-    if (pushResult === null) {
-      return { status: "inconclusive", diagnostics: [] };
-    }
-    return {
-      status: pushResult.length > 0 ? "findings" : "clean",
-      diagnostics: pushResult,
-    };
+    return { status: "inconclusive", diagnostics: [] };
   }
 
   /**
