@@ -58,7 +58,7 @@ export function registerAstSearchTool(
 				name: params.name,
 				kind: params.kind,
 				filePattern: params.filePattern,
-				includeBody: params.includeBody,
+				includeBody: params.includeBody ?? false,
 			});
 
 			const sessionId = deps.getSessionId(ctx);

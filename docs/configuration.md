@@ -23,10 +23,14 @@ The repository-root `config.toml` is ignored so local settings are not committed
 - `enable_epistemic_guard`: require inspection before editing existing files.
 - `max_line_length`, `max_lines`, and `max_total_bytes`: output-clamping limits.
 - `exec_timeout_ms`: bounded subprocess timeout.
+- `dedup_min_bytes`: minimum rendered byte size for tool output deduplication side storage.
+- `dedup_max_entries_per_session`: maximum LRU capacity for deduplicated tool results per session.
 
 ### `[lsp]`
 
 - `idle_timeout_ms`: idle language-server shutdown delay.
+- `diagnostic_timeout_ms`: timeout for diagnostic publishing and pull requests.
+- `init_timeout_ms`: cold-start LSP initialization timeout.
 - `spinner_interval_ms`: LSP modal spinner interval.
 - `disabled_servers`: language identifiers to disable.
 

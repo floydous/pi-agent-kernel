@@ -58,12 +58,14 @@ pi-agent-kernel/
 | `ast_search` | AST structure search across definitions | Concise `file:line [kind] signature` |
 | `code_search` | Hybrid BM25 & semantic AST chunk search | Compact `file:start-end (breadcrumb)` snippets |
 | `lsp` | Realtime Language Server Protocol queries | Compact `def`, `ref`, and structural symbols |
+| `recall` | Restore exact deduplicated tool result by ref | Bare original output content |
 | `search_tools` | Deferred tool discovery | On-demand tool capability matching |
 
 ## Safety & Invariants
 
-- **Epistemic Guard**: Enforces inspection-before-mutation (`read` required before `edit`). Rejects ungrounded edits with copy-pasteable minimal instructions.
+- **Epistemic Guard**: Enforces inspection-before-mutation (`read` required before `edit`). Rejects ungrounded edits with copy-pasteable minimal instructions, and preserves authorization continuity across sequential mutations.
 - **Output Clamping**: Prevents context-window blowouts by clamping stdout/stderr and persisting full dumps to disk.
+- **Tool Result Deduplication**: Replaces byte-identical repeated outputs with lightweight `[=rN,sizeB,tool,paramsKey]` notices recoverable via `recall`.
 - **Bounded Syntax Verification**: Fast local verification on mutations before committing changes to disk.
 
 ## Installation

@@ -741,6 +741,7 @@ export function searchAstSymbols(
 		cleanQueryName && cleanQueryName.includes(".")
 			? cleanQueryName.split(".").pop()!
 			: cleanQueryName;
+	const includeBody = query.includeBody ?? false;
 
 	function walk(dir: string) {
 		let entries: fs.Dirent[] = [];
@@ -781,7 +782,7 @@ export function searchAstSymbols(
 						let codeBlock: string | undefined;
 						let bodyTruncated = false;
 						let visibleEndLine: number | undefined;
-						if (query.includeBody) {
+						if (includeBody) {
 							const start = Math.max(0, def.line - 1);
 							const end = Math.min(lines.length, start + 25);
 							codeBlock = lines.slice(start, end).join("\n");
@@ -798,7 +799,7 @@ export function searchAstSymbols(
 							endLine: findSymbolEndLine(lines, def.line - 1, ext),
 							codeBlock,
 							visibleEndLine,
-							bodyTruncated: query.includeBody ? bodyTruncated : undefined,
+							bodyTruncated: includeBody ? bodyTruncated : undefined,
 							aliasedFrom: def.aliasedFrom,
 						};
 

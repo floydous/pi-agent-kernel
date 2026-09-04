@@ -24,3 +24,8 @@ The LSP tool can request diagnostics, definitions, references, hover details,
 and document symbols. AST-based fallback behavior is kept in
 `src/retrieval/ast_search.ts` for cases where no ready language server can
 answer the request.
+
+## Output formatting
+
+- Diagnostics render in token-minimal format (`- [line:col] [SEV] [code] message (source)`) with no redundant `<path>` preamble. Clean files return strictly `<path> clean`.
+- References support `exclude_tests` and `exclude_declaration` filters with bounded code window snippets (`windowAround`).

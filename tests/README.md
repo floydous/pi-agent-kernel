@@ -49,6 +49,13 @@ npx tsx tests/section-13-epistemic-guard.ts
 | `section-22-rust-ast.ts` | Rust full AST, struct bleed defense, comment filtering |
 | `section-23-toml-config.ts` | TOML parser, serializer, kernel config loader |
 | `section-24-extension-lifecycle.ts` | Extension API lifecycle, custom prompt preservation, tool registration |
+| `section-25-post-edit-verification.ts` | Compact post-edit verification, syntax failure rendering, diagnostic gates |
+| `section-29-dedup-content-store.ts` | Exact content-addressed deduplication store, LRU eviction, session isolation |
+| `section-30-recall-tool.ts` | Recall tool validation, shortRef lookup, error reporting |
+| `section-31-e2e-dedup-hook.ts` | End-to-end tool output deduplication hook, compaction safety |
+| `section-33-mutation-continuity.ts` | Epistemic guard mutation continuity, sequential edit tracking |
+| `section-34-lsp-clean-and-filters.ts` | Token-minimal clean diagnostics (`<path> clean`), `exclude_tests`, `exclude_declaration` |
+| `section-35-lsp-reference-snippets.ts` | Reference snippet windowing, 0-based to 1-based indexing seams |
 
 ## Notes
 

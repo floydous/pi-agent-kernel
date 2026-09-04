@@ -7,7 +7,7 @@ to `src/editing/patch.ts`.
 
 1. Resolve the target path.
 2. Apply one search/replace block or multiple disjoint blocks.
-3. Enforce the read-before-write guard for existing files when enabled.
+3. Enforce the read-before-write guard for existing files when enabled. Successful edits update the epistemic ledger to maintain continuity across sequential edits without redundant reads.
 4. Validate the complete candidate content with the bounded local syntax gate; the target is written only after validation succeeds.
 5. Reuse an already-ready LSP client when one exists; verification does not
    start a new language server or trigger broad analysis.
