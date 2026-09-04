@@ -2,6 +2,22 @@
 
 A Pi extension for code retrieval, surgical editing, safety checks, and language-server support.
 
+## Pi with and without agent-kernel
+
+The screenshots compare a Pi session with agent-kernel to one without it. The agent-kernel run uses fewer tool calls and fits in one screenshot. The run without agent-kernel takes three screenshots, shown in order from top to bottom.
+
+### With agent-kernel
+
+![Pi session with agent-kernel](static/with-agent-kernel.png)
+
+### Without agent-kernel
+
+![Pi session without agent-kernel, top](static/without-agent-kernel-1.png)
+
+![Pi session without agent-kernel, middle](static/without-agent-kernel-2.png)
+
+![Pi session without agent-kernel, bottom](static/without-agent-kernel-3.png)
+
 ## Design priorities
 
 The extension keeps agent interactions small while improving reliability. It uses focused retrieval, bounded output, deterministic checks, and grounded edits. It avoids loading unnecessary context, doing background work without a reason, or making speculative changes.

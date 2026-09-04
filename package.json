@@ -41,6 +41,7 @@
   "files": [
     "src",
     "README.md",
+    "static",
     "docs",
     "LICENSE",
     "config.toml"
