@@ -336,6 +336,23 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
  */
 const executableCache = new Map<string, string | null>();
 
+function isBinaryUsable(fullPath: string, binName: string): boolean {
+  // Special check for Rustup shims: ~/.cargo/bin contains shims that exist on disk
+  // but fail to execute if the component was never installed in the active toolchain.
+  if (binName === "rust-analyzer") {
+    try {
+      execSync(`"${fullPath}" --version`, {
+        stdio: ["ignore", "ignore", "ignore"],
+        timeout: 1500,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Check if an executable exists in system PATH or ~/.pi/lsp/bin
  */
@@ -404,6 +421,9 @@ export function findExecutable(
       const fullPath = path.join(dir, cand);
       try {
         if (fs.existsSync(fullPath) && fs.statSync(fullPath).isFile()) {
+          if (!isBinaryUsable(fullPath, binName)) {
+            continue;
+          }
           executableCache.set(binName, fullPath);
           return fullPath;
         }
@@ -435,8 +455,11 @@ export function findExecutable(
         );
         if (preferred) selected = preferred;
       }
-      executableCache.set(binName, selected);
-      return selected;
+
+      if (isBinaryUsable(selected, binName)) {
+        executableCache.set(binName, selected);
+        return selected;
+      }
     }
   } catch (e) {
     kernelDebug(e);

@@ -92,17 +92,22 @@ export class StdioLspClient {
         this.onData(chunk);
       });
 
+      let serverStderr = "";
       this.process.stderr?.on("data", (chunk: Buffer) => {
-        // Silently ignore server stderr or log if needed
+        serverStderr += chunk.toString("utf8");
       });
 
       this.process.on("error", (err) => {
         this.state = "error";
       });
 
-      this.process.on("exit", () => {
+      this.process.on("exit", (code) => {
         this.state = "stopped";
-        this.cleanupPending(new Error("LSP server process exited"));
+        const trimmedErr = serverStderr.trim();
+        const exitMsg = trimmedErr
+          ? `LSP server process exited (code ${code}): ${trimmedErr}`
+          : `LSP server process exited (code ${code})`;
+        this.cleanupPending(new Error(exitMsg));
       });
 
       // Handshake Phase 1: initialize
@@ -463,6 +468,8 @@ export class StdioLspClient {
     diagnostics: LspDiagnostic[];
   }> {
     const uri = pathToUri(filePath);
+    // Clear any previous cache so newly triggered diagnostics from didSave are observed fresh
+    this.diagnosticsCache.delete(uri);
     await this.openDocument(filePath);
     await this.saveDocument(filePath);
 

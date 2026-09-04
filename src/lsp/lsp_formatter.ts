@@ -78,19 +78,14 @@ function symbolKindLabel(kind: LspSymbolKind): string {
  */
 export function formatDiagnostics(
   diagnostics: LspDiagnostic[],
-  filePath?: string,
-  cwd?: string
+  _filePath?: string,
+  _cwd?: string
 ): string {
   if (!diagnostics || diagnostics.length === 0) {
     return "";
   }
 
   const lines: string[] = [];
-  const displayFile = filePath && cwd ? path.relative(cwd, filePath) || filePath : filePath;
-
-  if (displayFile) {
-    lines.push(`Diagnostics for ${displayFile}:`);
-  }
 
   for (const d of diagnostics) {
     const sev = severityLabel(d.severity);
@@ -98,7 +93,7 @@ export function formatDiagnostics(
     const col = d.range.start.character + 1;
     const codeStr = d.code !== undefined ? ` [${d.code}]` : "";
     const srcStr = d.source ? ` (${d.source})` : "";
-    lines.push(`  ${line}:${col} [${sev}]${codeStr} ${d.message}${srcStr}`);
+    lines.push(`- [${line}:${col}] [${sev}]${codeStr} ${d.message}${srcStr}`);
   }
 
   return lines.join("\n");

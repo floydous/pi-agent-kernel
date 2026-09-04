@@ -407,7 +407,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							content: [
 								{
 									type: "text",
-									text: `Diagnostics for ${path.relative(ctx.cwd, absPath)}:\n  1:1 [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
+									text: `- [1:1] [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
 								},
 							],
 						};
@@ -743,7 +743,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							content: [
 								{
 									type: "text",
-									text: `Diagnostics for ${path.relative(ctx.cwd, absPath)}:\n  1:1 [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
+									text: `- [1:1] [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
 								},
 							],
 						};

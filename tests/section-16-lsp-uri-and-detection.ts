@@ -32,6 +32,23 @@ async function main(): Promise<void> {
 			const unsupportedPath = path.resolve(ws.tempDir, "notes.unknownext");
 			assertPass("detectLanguageFromPath returns null for unknown extensions", detectLanguageFromPath(unsupportedPath) === null, { unsupportedPath });
 			logPass("Unknown language extension gracefully returns null!");
+
+			// 4. Executable validation behavior (shims without components return null)
+			const { findExecutable } = require("../src/lsp/lsp_registry");
+			const fakeDir = path.join(ws.tempDir, "mock_bin");
+			fs.mkdirSync(fakeDir, { recursive: true });
+			// Create a dummy broken rust-analyzer script that exits 1
+			const fakeShim = path.join(fakeDir, process.platform === "win32" ? "rust-analyzer.bat" : "rust-analyzer");
+			fs.writeFileSync(fakeShim, process.platform === "win32" ? "@exit 1" : "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+			const foundBroken = findExecutable("rust-analyzer", [fakeDir]);
+			// The broken script should not be returned as the candidate if it exits non-zero
+			// (either null if no system RA, or real system RA if available, never the broken fakeShim)
+			assertPass(
+				"findExecutable rejects non-functional broken shims",
+				foundBroken !== fakeShim,
+				{ foundBroken, fakeShim }
+			);
+			logPass("findExecutable non-functional shim rejection verified!");
 		} finally {
 			ws.cleanup();
 		}

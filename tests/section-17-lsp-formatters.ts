@@ -38,8 +38,9 @@ async function main(): Promise<void> {
 			const formattedDiags = formatDiagnostics(mockDiags, samplePath, ws.tempDir);
 			assertPass(
 				"Diagnostics formatter output",
-				formattedDiags.includes("8:5 [ERROR] [unresolved-import] Module 'foo' cannot be resolved (ty)") &&
-					formattedDiags.includes("13:1 [WARN] Unused variable 'bar' (ruff)"),
+				formattedDiags.includes("- [8:5] [ERROR] [unresolved-import] Module 'foo' cannot be resolved (ty)") &&
+					formattedDiags.includes("- [13:1] [WARN] Unused variable 'bar' (ruff)") &&
+					!formattedDiags.includes("Diagnostics for"),
 				{ formattedDiags }
 			);
 			logPass("LSP diagnostics formatter verified!");

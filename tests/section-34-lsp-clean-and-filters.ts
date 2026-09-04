@@ -53,8 +53,9 @@ async function main(): Promise<void> {
 			);
 			const errText = errDiagRes.content?.[0]?.text || "";
 			assertPass(
-				"Syntax error returns formatted diagnostics",
-				errText.includes("Diagnostics for broken.py:") &&
+				"Syntax error returns formatted diagnostics without filler prefix",
+				!errText.includes("Diagnostics for") &&
+					errText.startsWith("- [") &&
 					(errText.includes("invalid-syntax") || errText.includes("Syntax validation")),
 				{ errText },
 			);
