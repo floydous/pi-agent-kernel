@@ -69,13 +69,13 @@ pi-agent-kernel/
 Install the extension as a Pi package, either globally or in a project:
 
 ```bash
-pi install npm:pi-agent-kernel
+pi install npm:@floydous/pi-agent-kernel
 ```
 
 For a project-local installation:
 
 ```bash
-pi install -l npm:pi-agent-kernel
+pi install -l npm:@floydous/pi-agent-kernel
 ```
 
 The entry point is declared in `package.json` under `pi.extensions` (`./src/index.ts`). Pi loads it when a session starts.
