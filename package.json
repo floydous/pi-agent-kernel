@@ -1,6 +1,6 @@
 {
   "name": "@floydous/pi-agent-kernel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Focused code retrieval, editing, safety checks, and language-server support for Pi.",
   "keywords": [
     "pi-package"
@@ -43,6 +43,7 @@
     "static",
     "docs",
     "LICENSE",
-    "config.toml"
+    "config.toml",
+    "CHANGELOG.md"
   ]
 }
