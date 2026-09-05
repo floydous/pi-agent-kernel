@@ -111,30 +111,8 @@ export class TreeSitterEngine {
 					locateFile: (name: string) => path.join(wtsDir, name),
 				});
 
-				// Load all bundled grammars in parallel for instant sub-millisecond AST extraction across all 12 languages
-				const loadPromises = Object.entries(EXTENSION_TO_GRAMMAR).map(async ([ext, spec]) => {
-					if (!this.languages.has(spec.langKey)) {
-						const wasmPath = resolveWasmPath(spec.wasmFile);
-						if (wasmPath && fs.existsSync(wasmPath)) {
-							try {
-								const lang = await this.LanguageClass.load(wasmPath);
-								this.languages.set(spec.langKey, lang);
-							} catch (e) {
-								kernelDebug(`Failed loading grammar for ${spec.langKey}: ${e}`);
-							}
-						}
-					}
-					const loadedLang = this.languages.get(spec.langKey);
-					if (loadedLang && !this.parsers.has(ext)) {
-						const parser = new this.ParserClass();
-						parser.setLanguage(loadedLang);
-						this.parsers.set(ext, parser);
-					}
-				});
-				await Promise.all(loadPromises);
-
-				this.initialized = this.parsers.size > 0;
-				return this.initialized;
+				this.initialized = true;
+				return true;
 			} catch (e) {
 				kernelDebug(`TreeSitterEngine init failed: ${e}`);
 				this.initialized = false;
@@ -152,6 +130,7 @@ export class TreeSitterEngine {
 		await this.init();
 		if (!this.initialized || !this.ParserClass || !this.LanguageClass) return;
 
+		const pending: Promise<void>[] = [];
 		for (const ext of extensions) {
 			const spec = EXTENSION_TO_GRAMMAR[ext];
 			if (!spec) continue;
@@ -159,15 +138,26 @@ export class TreeSitterEngine {
 			if (!this.languages.has(spec.langKey)) {
 				const wasmPath = resolveWasmPath(spec.wasmFile);
 				if (wasmPath && fs.existsSync(wasmPath)) {
-					try {
-						const lang = await this.LanguageClass.load(wasmPath);
-						this.languages.set(spec.langKey, lang);
-					} catch (e) {
-						kernelDebug(`Failed to load grammar for ${spec.langKey}: ${e}`);
-					}
+					pending.push(
+						this.LanguageClass.load(wasmPath)
+							.then((lang: any) => {
+								this.languages.set(spec.langKey, lang);
+							})
+							.catch((e: any) => {
+								kernelDebug(`Failed to load grammar for ${spec.langKey}: ${e}`);
+							}),
+					);
 				}
 			}
+		}
 
+		if (pending.length > 0) {
+			await Promise.all(pending);
+		}
+
+		for (const ext of extensions) {
+			const spec = EXTENSION_TO_GRAMMAR[ext];
+			if (!spec) continue;
 			const loadedLang = this.languages.get(spec.langKey);
 			if (loadedLang && !this.parsers.has(ext)) {
 				const parser = new this.ParserClass();
@@ -177,10 +167,31 @@ export class TreeSitterEngine {
 		}
 	}
 
+	/**
+	 * Synchronously get an initialized parser if language is already loaded,
+	 * or initialize parser if the Language object exists.
+	 */
+	public getParser(ext: string): WtsParser | null {
+		const existing = this.parsers.get(ext);
+		if (existing) return existing;
+
+		const spec = EXTENSION_TO_GRAMMAR[ext];
+		if (!spec || !this.ParserClass) return null;
+
+		const loadedLang = this.languages.get(spec.langKey);
+		if (loadedLang) {
+			const parser = new this.ParserClass();
+			parser.setLanguage(loadedLang);
+			this.parsers.set(ext, parser);
+			return parser;
+		}
+		return null;
+	}
+
 	public extractTags(filePath: string, content: string): FileTags | null {
 		const ext = path.extname(filePath).toLowerCase();
-		const parser = this.parsers.get(ext);
-		if (!this.initialized || !parser) {
+		let parser = this.getParser(ext);
+		if (!parser) {
 			return null;
 		}
 
@@ -254,7 +265,7 @@ export class TreeSitterEngine {
 					}
 					// Stop traversal into function body
 					return;
-				} else if (type === "class_declaration") {
+				} else if (type === "class_declaration" || type === "abstract_class_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -273,6 +284,24 @@ export class TreeSitterEngine {
 						}
 					}
 					return;
+				} else if (type === "ambient_declaration") {
+					// Unwrap ambient_declaration (e.g. declare function foo(), declare const X)
+					for (const child of node.namedChildren) {
+						visit(child, inFunctionScope);
+					}
+					return;
+				} else if (type === "function_signature") {
+					const nameNode = node.childForFieldName("name");
+					if (nameNode) {
+						definitions.push({
+							name: nameNode.text,
+							kind: "function",
+							signature: getCleanSignature(node).replace(/^export\s+/, "").replace(/^declare\s+/, ""),
+							line: node.startPosition.row + 1,
+							endLine: node.endPosition.row + 1,
+						});
+					}
+					return;
 				} else if (type === "interface_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
@@ -280,6 +309,24 @@ export class TreeSitterEngine {
 							name: nameNode.text,
 							kind: "interface",
 							signature: getCleanSignature(node).replace(/^export\s+/, ""),
+							line: node.startPosition.row + 1,
+							endLine: node.endPosition.row + 1,
+						});
+					}
+					const body = node.childForFieldName("body");
+					if (body) {
+						for (const member of body.namedChildren) {
+							visit(member, false);
+						}
+					}
+					return;
+				} else if (type === "method_signature" || type === "abstract_method_signature") {
+					const nameNode = node.childForFieldName("name");
+					if (nameNode) {
+						definitions.push({
+							name: nameNode.text,
+							kind: "method",
+							signature: getCleanSignature(node),
 							line: node.startPosition.row + 1,
 							endLine: node.endPosition.row + 1,
 						});
@@ -424,6 +471,23 @@ export class TreeSitterEngine {
 							endLine: node.endPosition.row + 1,
 						});
 					}
+					const body = node.childForFieldName("body") || node.namedChildren.find((c: any) => c.type === "declaration_list");
+					if (body) {
+						for (const member of body.namedChildren) {
+							if (member.type === "function_signature_item" || member.type === "function_item") {
+								const mName = member.childForFieldName("name");
+								if (mName) {
+									definitions.push({
+										name: mName.text,
+										kind: "method",
+										signature: getCleanSignature(member),
+										line: member.startPosition.row + 1,
+										endLine: member.endPosition.row + 1,
+									});
+								}
+							}
+						}
+					}
 					return;
 				} else if (type === "type_item") {
 					const nameNode = node.childForFieldName("name");
@@ -483,14 +547,32 @@ export class TreeSitterEngine {
 					for (const child of node.namedChildren) {
 						if (child.type === "type_spec") {
 							const nameNode = child.childForFieldName("name");
+							const typeNode = child.childForFieldName("type") || child.namedChildren.find((c: any) => c.type === "interface_type" || c.type === "struct_type");
+							const isInterface = typeNode && typeNode.type === "interface_type";
 							if (nameNode) {
 								definitions.push({
 									name: nameNode.text,
-									kind: "class",
+									kind: isInterface ? "interface" : "class",
 									signature: getCleanSignature(child),
 									line: child.startPosition.row + 1,
 									endLine: child.endPosition.row + 1,
 								});
+							}
+							if (isInterface && typeNode) {
+								for (const elem of typeNode.namedChildren) {
+									if (elem.type === "method_elem") {
+										const mName = elem.childForFieldName("name");
+										if (mName) {
+											definitions.push({
+												name: mName.text,
+												kind: "method",
+												signature: getCleanSignature(elem),
+												line: elem.startPosition.row + 1,
+												endLine: elem.endPosition.row + 1,
+											});
+										}
+									}
+								}
 							}
 						}
 					}
@@ -499,13 +581,22 @@ export class TreeSitterEngine {
 
 				// --- C / C++ ---
 				else if (type === "function_definition" && (ext === ".c" || ext === ".cpp" || ext === ".h" || ext === ".hpp" || ext === ".cc")) {
+					let isMethod = false;
+					let p = node.parent;
+					while (p) {
+						if (p.type === "class_specifier" || p.type === "struct_specifier") {
+							isMethod = true;
+							break;
+						}
+						p = p.parent;
+					}
 					const declarator = node.childForFieldName("declarator");
 					let name = "";
 					if (declarator) {
-						if (declarator.type === "identifier") {
+						if (declarator.type === "identifier" || declarator.type === "field_identifier") {
 							name = declarator.text;
 						} else {
-							const idNode = declarator.childForFieldName("declarator") || declarator.namedChildren.find((c: any) => c.type === "identifier");
+							const idNode = declarator.childForFieldName("declarator") || declarator.namedChildren.find((c: any) => c.type === "identifier" || c.type === "field_identifier");
 							if (idNode) {
 								name = idNode.text;
 							} else {
@@ -516,7 +607,7 @@ export class TreeSitterEngine {
 					if (name) {
 						definitions.push({
 							name: name.replace(/^[*&]+/, "").trim(),
-							kind: "function",
+							kind: isMethod ? "method" : "function",
 							signature: getCleanSignature(node),
 							line: node.startPosition.row + 1,
 							endLine: node.endPosition.row + 1,

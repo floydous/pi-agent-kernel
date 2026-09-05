@@ -672,6 +672,16 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 		return "(No supported source files found in repository)";
 	}
 
+	// Ensure languages present in sourceFiles are loaded in TreeSitterEngine
+	const detectedExts = new Set<string>();
+	for (const f of sourceFiles) {
+		const ext = path.extname(f).toLowerCase();
+		if (ext) detectedExts.add(ext);
+	}
+	// Note: loadLanguages is async, but if called from an async context it is pre-warmed.
+	// We also trigger loadLanguages asynchronously if not loaded.
+	void TreeSitterEngine.getInstance().loadLanguages(Array.from(detectedExts));
+
 	const fileTagsMap = new Map<string, FileTags>();
 	const defToFile = new Map<string, Set<string>>();
 

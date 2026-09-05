@@ -388,8 +388,10 @@ export function findExecutable(
 
   const isWindows = process.platform === "win32";
   const home = process.env.HOME || process.env.USERPROFILE || os.homedir();
+  const legacyUserLspBin = path.join(getPiHomeDir(), "lsp", "bin");
   const searchDirs = [
     PI_LSP_BIN_DIR,
+    legacyUserLspBin,
     path.join(home, ".local", "bin"),
     path.join(home, ".cargo", "bin"),
     path.join(home, "go", "bin"),

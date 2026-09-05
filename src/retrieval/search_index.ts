@@ -20,7 +20,8 @@ import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 import { TreeSitterEngine } from "./tree_sitter_engine";
 
-const INDEX_VERSION = 2;
+const INDEX_VERSION = 3;
+const EXTRACTOR_GENERATION = "tree-sitter-wasm-v2";
 
 export interface SearchHit {
 	chunk: CodeChunk;
@@ -123,7 +124,12 @@ export class HybridSearchIndex {
 			const raw = fs.readFileSync(indexPath, "utf-8");
 			const data = JSON.parse(raw);
 
-			if (data.version !== INDEX_VERSION) return false;
+			if (
+				data.version !== INDEX_VERSION ||
+				data.extractorGeneration !== EXTRACTOR_GENERATION
+			) {
+				return false;
+			}
 
 			this.chunks.clear();
 			this.bm25.clear();
@@ -246,6 +252,7 @@ export class HybridSearchIndex {
 
 			const indexData = {
 				version: INDEX_VERSION,
+				extractorGeneration: EXTRACTOR_GENERATION,
 				updatedAt: new Date().toISOString(),
 				profile: this.config.profile,
 				vectorDim,

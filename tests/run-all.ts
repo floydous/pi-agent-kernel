@@ -15,6 +15,10 @@ const sections: TestEntry[] = [
 		loader: () => import("./section-36-tree-sitter-wasm"),
 	},
 	{
+		name: "37. Post-Fix Verification Audit Suite",
+		loader: () => import("./section-37-audit-verification"),
+	},
+	{
 		name: "1. AST Extraction",
 		loader: () => import("./section-01-ast-extraction"),
 	},

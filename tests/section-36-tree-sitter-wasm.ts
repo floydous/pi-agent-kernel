@@ -106,6 +106,8 @@ async function main(): Promise<void> {
 			const engine = TreeSitterEngine.getInstance();
 			const initSuccess = await engine.init();
 			assertPass("TreeSitterEngine polyglot initialization", initSuccess);
+			const allExts = engine.getSupportedExtensions();
+			await engine.loadLanguages(allExts);
 			logPass(`TreeSitterEngine initialized with ${engine.getSupportedExtensions().length} active parsers!`);
 
 			for (const testCase of POLYGLOT_CASES) {

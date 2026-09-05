@@ -257,6 +257,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	pi.registerCommand("repomap", {
 		description: "Display the Tree-Sitter AST & PageRank ranked repository map",
 		handler: async (args: string, ctx: any) => {
+			await TreeSitterEngine.getInstance().init();
 			const budget = args ? parseInt(args, 10) : 1024;
 			const map = computeRepoMap(
 				ctx.cwd,
