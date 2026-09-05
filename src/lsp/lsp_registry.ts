@@ -7,7 +7,29 @@ import { getPiHomeDir, loadKernelConfig, saveGlobalKernelConfig } from "../confi
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 
-export const PI_LSP_BIN_DIR = path.join(getPiHomeDir(), "lsp", "bin");
+export function getExtensionLspBinDir(): string {
+  // Confined to extensions/agent-kernel/bin/lsp by default
+  const candidate1 = path.join(__dirname, "..", "..", "bin", "lsp");
+  const candidate2 = path.join(process.cwd(), "bin", "lsp");
+  const candidate = fs.existsSync(candidate1) ? candidate1 : fs.existsSync(candidate2) ? candidate2 : candidate1;
+
+  // Test write permission; if read-only (e.g. system-wide npm global install), fall back to ~/.pi/lsp/bin
+  try {
+    fs.mkdirSync(candidate, { recursive: true });
+    const probe = path.join(candidate, ".write_test");
+    fs.writeFileSync(probe, "");
+    fs.unlinkSync(probe);
+    return candidate;
+  } catch {
+    const userFallback = path.join(getPiHomeDir(), "lsp", "bin");
+    try {
+      fs.mkdirSync(userFallback, { recursive: true });
+    } catch {}
+    return userFallback;
+  }
+}
+
+export const PI_LSP_BIN_DIR = getExtensionLspBinDir();
 
 export const PI_LSP_CONFIG_FILE = path.join(
   getPiHomeDir(),

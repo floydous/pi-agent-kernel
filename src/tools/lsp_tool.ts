@@ -533,9 +533,11 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					let refs = await client.findReferences(absPath, line0, col0);
 					if (refs.length > 0) {
 						refs = filterRefs(refs);
-						return {
-							content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
-						};
+						if (refs.length > 0) {
+							return {
+								content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
+							};
+						}
 					}
 					const ext = path.extname(absPath).toLowerCase();
 					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];

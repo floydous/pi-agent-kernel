@@ -80,7 +80,10 @@ export function extractSymbolContent(
 			}
 		}
 
-		if (ext === ".py") {
+		if (def.endLine && def.endLine >= def.line) {
+			// Ground-truth AST range provided directly by Tree-sitter
+			endIdx = Math.min(lines.length - 1, def.endLine - 1);
+		} else if (ext === ".py") {
 			// Python indentation based boundary detection
 			const defLine = lines[startIdx];
 			const matchIndent = defLine.match(/^(\s*)/);
@@ -146,7 +149,7 @@ export function extractSymbolContent(
 				endIdx = i;
 			}
 		} else {
-			// Brace-based languages (TS, JS, Go, Rust, C++, Java, C#)
+			// Brace-based languages (fallback if AST endLine is unavailable)
 			let braceCount = 0;
 			let foundOpenBrace = false;
 

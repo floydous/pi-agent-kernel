@@ -18,6 +18,9 @@ import {
 } from "./search_config";
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
+import { TreeSitterEngine } from "./tree_sitter_engine";
+
+const INDEX_VERSION = 2;
 
 export interface SearchHit {
 	chunk: CodeChunk;
@@ -120,7 +123,7 @@ export class HybridSearchIndex {
 			const raw = fs.readFileSync(indexPath, "utf-8");
 			const data = JSON.parse(raw);
 
-			if (data.version !== 1) return false;
+			if (data.version !== INDEX_VERSION) return false;
 
 			this.chunks.clear();
 			this.bm25.clear();
@@ -242,7 +245,7 @@ export class HybridSearchIndex {
 				.digest("hex");
 
 			const indexData = {
-				version: 1,
+				version: INDEX_VERSION,
 				updatedAt: new Date().toISOString(),
 				profile: this.config.profile,
 				vectorDim,
@@ -389,6 +392,15 @@ export class HybridSearchIndex {
 
 			onProgress?.("Scanning workspace files...");
 
+			// Ensure Tree-sitter parsers are warm for languages present in this workspace
+			const chunkableFiles = findChunkableFiles(this.cwd);
+			const workspaceExts = new Set<string>();
+			for (const f of chunkableFiles) {
+				const ext = path.extname(f).toLowerCase();
+				if (ext) workspaceExts.add(ext);
+			}
+			await TreeSitterEngine.getInstance().loadLanguages(Array.from(workspaceExts));
+
 			// Read each file once and derive both its chunks and hash from that same
 			// snapshot. A second read could pair old chunks with a new hash and make
 			// the final freshness check falsely accept stale content.
@@ -396,7 +408,7 @@ export class HybridSearchIndex {
 				string,
 				{ hash: string; chunks: CodeChunk[] }
 			>();
-			for (const absPath of findChunkableFiles(this.cwd)) {
+			for (const absPath of chunkableFiles) {
 				const relPath = path.relative(this.cwd, absPath).replace(/\\/g, "/");
 				try {
 					const content = fs.readFileSync(absPath, "utf-8");

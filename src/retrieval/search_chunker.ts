@@ -106,7 +106,10 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 			currentClass = def.name;
 		}
 
-		if (ext === ".py") {
+		if (def.endLine && def.endLine >= def.line) {
+			// Exact AST node boundaries from Tree-sitter
+			endIdx = Math.min(lines.length - 1, def.endLine - 1);
+		} else if (ext === ".py") {
 			// Python scope
 			const defLine = lines[startIdx];
 			const matchIndent = defLine.match(/^(\s*)/);
@@ -123,7 +126,7 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 				endIdx = j;
 			}
 		} else {
-			// Brace based scope
+			// Brace based scope (fallback)
 			let braceCount = 0;
 			let foundOpenBrace = false;
 

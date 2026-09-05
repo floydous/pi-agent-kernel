@@ -11,6 +11,10 @@ interface TestEntry {
 
 const sections: TestEntry[] = [
 	{
+		name: "36. Tree-Sitter WASM AST Engine",
+		loader: () => import("./section-36-tree-sitter-wasm"),
+	},
+	{
 		name: "1. AST Extraction",
 		loader: () => import("./section-01-ast-extraction"),
 	},

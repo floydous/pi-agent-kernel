@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { TreeSitterEngine } from "./tree_sitter_engine";
 
 export interface SymbolDef {
 	name: string;
@@ -15,6 +16,7 @@ export interface SymbolDef {
 		| "alias";
 	signature: string;
 	line: number;
+	endLine?: number;
 	aliasedFrom?: {
 		module?: string;
 		originalName: string;
@@ -182,10 +184,19 @@ function extractBalancedSig(
 
 // Fast AST & Signature tag extractor with multi-line support
 export function extractFileTags(filePath: string, content: string): FileTags {
+	const tsEngine = TreeSitterEngine.getInstance();
+	if (tsEngine.isSupported(filePath)) {
+		const treeTags = tsEngine.extractTags(filePath, content);
+		if (treeTags) {
+			return treeTags;
+		}
+	}
+
 	const ext = path.extname(filePath).toLowerCase();
 	const lines = content.split("\n");
 	const definitions: SymbolDef[] = [];
 	const references = new Set<string>();
+	let braceDepth = 0;
 
 	// Extract identifier references (words matching [a-zA-Z_][a-zA-Z0-9_]*)
 	const idRegex = /\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/g;
@@ -286,11 +297,11 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 				}
 			}
 
-			// const variable / constant declaration: const FOO = ... or const FOO: string = ...
+			// const variable / constant declaration: const FOO = ... or const FOO: string = ... (only top-level declarations)
 			const constDecl = line.match(
 				/^(?:export\s+)?const\s+([a-zA-Z0-9_]+)(?:\s*:\s*([^=]+))?\s*=/,
 			);
-			if (constDecl) {
+			if (constDecl && braceDepth === 0) {
 				const isAllUpper = /^[A-Z0-9_]{2,}$/.test(constDecl[1]);
 				definitions.push({
 					name: constDecl[1],
@@ -571,6 +582,11 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 				});
 				continue;
 			}
+		}
+
+		for (const ch of line) {
+			if (ch === "{") braceDepth++;
+			else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
 		}
 	}
 

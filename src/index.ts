@@ -18,6 +18,7 @@ import { registerCodeSearchTool } from "./tools/code_search_tool";
 import { registerReadTool } from "./tools/read_tool";
 import { registerEditTool } from "./tools/edit_tool";
 import { registerLspTool } from "./tools/lsp_tool";
+import { TreeSitterEngine } from "./retrieval/tree_sitter_engine";
 
 /**
  * Resolve the current session id from a handler context, or fall back to a
@@ -79,6 +80,11 @@ import {
 } from "./lsp";
 
 export default async function unifiedHybridExtension(pi: ExtensionAPI) {
+	// Initialize TreeSitter WASM engine eagerly in background
+	TreeSitterEngine.getInstance().init().catch((err) => {
+		kernelDebug(`TreeSitter background init error: ${err}`);
+	});
+
 	// 0. Auto-Sanitize Session Files (Repairs pre-existing incomplete usage metadata)
 	try {
 		sanitizeSessionFiles();
