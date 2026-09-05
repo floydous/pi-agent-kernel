@@ -6,7 +6,9 @@ A Pi extension for code retrieval, surgical editing, safety checks, and language
 
 The video compares Pi, OMP, and Pi + Agent-Kernel running the same code-analysis task side by side.
 
-<video src="static/comparison.mp4" controls muted loop width="100%"></video>
+[![Pi, OMP, and Pi + Agent-Kernel comparison](static/comparison.gif)](static/comparison.mp4)
+
+[Download or open the full-resolution comparison video](static/comparison.mp4).
 
 ## Design priorities
 
