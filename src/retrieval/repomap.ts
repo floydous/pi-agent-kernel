@@ -27,6 +27,7 @@ export interface FileTags {
 	filePath: string;
 	definitions: SymbolDef[];
 	references: Set<string>;
+	hasSyntaxError?: boolean;
 }
 
 const IGNORED_DIRS = new Set([

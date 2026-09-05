@@ -888,6 +888,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 		// Cache repo-map across turns with a 15-second TTL to avoid scanning/PageRanking entire repo on every turn
 		if (!cachedRepoMap || cachedRepoMapCwd !== currentCwd || now - lastRepoMapCheck > 15000) {
+			await TreeSitterEngine.getInstance().init();
 			cachedRepoMap = computeRepoMap(
 				currentCwd,
 				getConfig(currentCwd).retrieval.repo_map_budget,

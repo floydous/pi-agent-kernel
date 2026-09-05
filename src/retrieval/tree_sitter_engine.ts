@@ -188,14 +188,9 @@ export class TreeSitterEngine {
 		try {
 			tree = parser.parse(content);
 			const root = tree.rootNode;
+			const hasSyntaxError = root.hasError;
 			const definitions: SymbolDef[] = [];
 			const references = new Set<string>();
-
-			const idRegex = /\b([a-zA-Z_][a-zA-Z0-9_]{2,})\b/g;
-			let match: RegExpExecArray | null;
-			while ((match = idRegex.exec(content)) !== null) {
-				references.add(match[1]);
-			}
 
 			function getCleanSignature(node: any): string {
 				const body = node.childForFieldName("body");
@@ -676,10 +671,26 @@ export class TreeSitterEngine {
 
 			visit(root, false);
 
+			// Extract clean AST identifiers for PageRank graph (skips comments, docstrings, and strings)
+			function collectAstReferences(n: any) {
+				const t = n.type;
+				if (t === "identifier" || t === "property_identifier" || t === "type_identifier" || t === "field_identifier" || t === "word") {
+					const text = n.text;
+					if (text && text.length >= 3 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(text)) {
+						references.add(text);
+					}
+				}
+				for (const child of n.namedChildren) {
+					collectAstReferences(child);
+				}
+			}
+			collectAstReferences(root);
+
 			return {
 				filePath,
 				definitions,
 				references,
+				hasSyntaxError: hasSyntaxError || undefined,
 			};
 		} catch (e) {
 			kernelDebug(`TreeSitterEngine extractTags error on ${filePath}: ${e}`);
