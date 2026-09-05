@@ -45,6 +45,7 @@ def main():
 export function createTestWorkspace(
 	prefix: string = "pi_kernel_test_",
 ): TestWorkspace {
+	const originalCwd = process.cwd();
 	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 	const calculatorPath = path.join(tempDir, "calculator.py");
 	const mainPath = path.join(tempDir, "main.py");
@@ -56,6 +57,11 @@ export function createTestWorkspace(
 		calculatorPath,
 		mainPath,
 		cleanup: () => {
+			try {
+				process.chdir(originalCwd);
+			} catch {
+				// Restore the test process directory before removing the workspace.
+			}
 			try {
 				fs.rmSync(tempDir, { recursive: true, force: true });
 			} catch {
