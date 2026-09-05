@@ -261,7 +261,12 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						const refs = findSymbolReferences(ctx.cwd, targetSym);
 						if (refs.length > 0) {
 							const formatted = refs
-								.map((r) => `${r.filePath}:${r.line}:${r.column}`)
+								.map((r) => {
+									const col0 = Math.max(0, r.column - 1);
+									const endCol0 = col0 + targetSym.length;
+									const snippet = windowAround(r.lineText, col0, endCol0, 50);
+									return `${r.filePath}:${r.line}:${r.column}: ${snippet}`;
+								})
 								.join("\n");
 							return {
 								content: [
