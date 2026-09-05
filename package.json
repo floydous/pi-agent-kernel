@@ -45,5 +45,8 @@
     "LICENSE",
     "config.toml",
     "CHANGELOG.md"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }
