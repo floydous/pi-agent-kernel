@@ -241,7 +241,9 @@ export function formatHover(hover: LspHover | null | undefined): string {
   };
 
   const rawText = extractText(hover.contents).trim();
-  return rawText || "No hover information available.";
+  // Strip transient LSP loading state markers (e.g. tsserver / vtsls prefixing "(loading...) ")
+  const cleanText = rawText.replace(/\(loading\.\.\.\)\s*/g, "").trim();
+  return cleanText || "No hover information available.";
 }
 
 /**
