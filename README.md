@@ -4,19 +4,9 @@ A Pi extension for code retrieval, surgical editing, safety checks, and language
 
 ## Pi with and without agent-kernel
 
-The screenshots compare a Pi session with agent-kernel to one without it. The agent-kernel run uses fewer tool calls and fits in one screenshot. The run without agent-kernel takes three screenshots, shown in order from top to bottom.
+The video compares Pi, OMP, and Pi + Agent-Kernel running the same code-analysis task side by side.
 
-### With agent-kernel
-
-![Pi session with agent-kernel](static/with-agent-kernel.png)
-
-### Without agent-kernel
-
-![Pi session without agent-kernel, top](static/without-agent-kernel-1.png)
-
-![Pi session without agent-kernel, middle](static/without-agent-kernel-2.png)
-
-![Pi session without agent-kernel, bottom](static/without-agent-kernel-3.png)
+<video src="static/comparison.mp4" controls muted loop width="100%"></video>
 
 ## Design priorities
 
