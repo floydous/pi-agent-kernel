@@ -417,8 +417,14 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							],
 						};
 					}
+					const relPath = path.relative(ctx.cwd, absPath).replace(/\\/g, "/") || absPath;
 					return {
-						content: [],
+						content: [
+							{
+								type: "text",
+								text: `${relPath} clean`,
+							},
+						],
 					};
 				}
 

@@ -651,7 +651,14 @@ export class EpistemicGuard {
 			};
 		}
 
-		// A new file has no prior contents to inspect. Containment still applies.
+		if (!exists && operation === "edit") {
+			return {
+				allowed: false,
+				reason: `[EPISTEMIC GUARD]: Target '${filePath}' does not exist.`,
+			};
+		}
+
+		// A new file has no prior contents to inspect. Containment still applies for write.
 		if (!enforceInspection || !exists) return { allowed: true };
 
 		const normalized = this.normalize(resolvedPath, workspace);
