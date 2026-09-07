@@ -5,11 +5,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { POLYGLOT_FIXTURES } from "./polyglot_fixtures";
 
 export interface TestWorkspace {
 	tempDir: string;
 	calculatorPath: string;
 	mainPath: string;
+	files: Map<string, string>;
 	cleanup: () => void;
 }
 
@@ -52,10 +54,15 @@ export function createTestWorkspace(
 	fs.writeFileSync(calculatorPath, PY_CODE, "utf8");
 	fs.writeFileSync(mainPath, MAIN_CODE, "utf8");
 
+	const files = new Map<string, string>();
+	files.set("calculator.py", calculatorPath);
+	files.set("main.py", mainPath);
+
 	return {
 		tempDir,
 		calculatorPath,
 		mainPath,
+		files,
 		cleanup: () => {
 			try {
 				process.chdir(originalCwd);
@@ -69,6 +76,25 @@ export function createTestWorkspace(
 			}
 		},
 	};
+}
+
+/**
+ * Create a rich polyglot workspace populated with source files across all
+ * 12 supported languages.
+ */
+export function createPolyglotWorkspace(
+	prefix: string = "pi_kernel_polyglot_",
+): TestWorkspace {
+	const ws = createTestWorkspace(prefix);
+
+	for (const [relPath, content] of Object.entries(POLYGLOT_FIXTURES)) {
+		const fullPath = path.join(ws.tempDir, relPath);
+		fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+		fs.writeFileSync(fullPath, content, "utf8");
+		ws.files.set(relPath, fullPath);
+	}
+
+	return ws;
 }
 
 /**

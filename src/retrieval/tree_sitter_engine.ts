@@ -502,7 +502,7 @@ export class TreeSitterEngine {
 					}
 					return;
 				} else if (type === "const_item" || type === "static_item") {
-					const isTopLevel = node.parent?.type === "source_file";
+					const isTopLevel = node.parent?.type === "source_file" || node.parent?.type === "declaration_list";
 					if (isTopLevel) {
 						const nameNode = node.childForFieldName("name");
 						if (nameNode) {
