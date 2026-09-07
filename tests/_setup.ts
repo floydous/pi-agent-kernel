@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { POLYGLOT_FIXTURES } from "./polyglot_fixtures";
+import { getPolyglotFixture, POLYGLOT_FIXTURE_FILES } from "./polyglot_fixtures";
 
 export interface TestWorkspace {
 	tempDir: string;
@@ -15,29 +15,18 @@ export interface TestWorkspace {
 	cleanup: () => void;
 }
 
+const FIXTURE_ROOT = path.join(__dirname, "fixtures", "workspace");
+
+function loadFixture(name: string): string {
+	return fs.readFileSync(path.join(FIXTURE_ROOT, name), "utf8");
+}
+
 /**
- * The standard Python code used by workspace-dependent tests.
- * Provides the standard fixture shared by workspace-dependent sections.
+ * Backwards-compat re-exports for tests that still reference the inline
+ * constants. New code should call `loadFixture` directly to read from disk.
  */
-export const PY_CODE = `
-class Calculator:
-    def __init__(self, precision: int = 2):
-        self.precision = precision
-
-    def calculate_tax(self, subtotal: float) -> float:
-        """Calculate tax based on subtotal."""
-        return subtotal * 0.08
-
-    def process_discount(self, subtotal: float, discount: float) -> float:
-        return subtotal - discount
-`;
-
-export const MAIN_CODE = `from calculator import Calculator
-
-def main():
-    calc = Calculator()
-    print(calc.calculate_tax(100.0))
-`;
+export const PY_CODE = loadFixture("calculator.py");
+export const MAIN_CODE = loadFixture("main.py");
 
 /**
  * Create a fresh temporary workspace populated with the standard test
@@ -51,8 +40,8 @@ export function createTestWorkspace(
 	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 	const calculatorPath = path.join(tempDir, "calculator.py");
 	const mainPath = path.join(tempDir, "main.py");
-	fs.writeFileSync(calculatorPath, PY_CODE, "utf8");
-	fs.writeFileSync(mainPath, MAIN_CODE, "utf8");
+	fs.writeFileSync(calculatorPath, loadFixture("calculator.py"), "utf8");
+	fs.writeFileSync(mainPath, loadFixture("main.py"), "utf8");
 
 	const files = new Map<string, string>();
 	files.set("calculator.py", calculatorPath);
@@ -79,18 +68,20 @@ export function createTestWorkspace(
 }
 
 /**
- * Create a rich polyglot workspace populated with source files across all
- * 12 supported languages.
+ * Create a rich polyglot workspace populated with real source files committed
+ * to the repository at tests/fixtures/polyglot/. This is purely a file copy
+ * (no synthetic content generation), so reviewers can see the exact files
+ * the production parsers will see.
  */
 export function createPolyglotWorkspace(
 	prefix: string = "pi_kernel_polyglot_",
 ): TestWorkspace {
 	const ws = createTestWorkspace(prefix);
 
-	for (const [relPath, content] of Object.entries(POLYGLOT_FIXTURES)) {
+	for (const relPath of POLYGLOT_FIXTURE_FILES) {
 		const fullPath = path.join(ws.tempDir, relPath);
 		fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-		fs.writeFileSync(fullPath, content, "utf8");
+		fs.writeFileSync(fullPath, getPolyglotFixture(relPath), "utf8");
 		ws.files.set(relPath, fullPath);
 	}
 

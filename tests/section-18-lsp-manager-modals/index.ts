@@ -4,8 +4,8 @@ import { runSection } from "../_setup";
 import { testLspManagerLifecycle } from "./manager_lifecycle_test";
 
 export async function runSection18(): Promise<void> {
-	await runSection("18. LSP Manager & Modals Suite", () => {
-		testLspManagerLifecycle();
+	await runSection("18. LSP Manager & Modals Suite", async () => {
+		await testLspManagerLifecycle();
 	});
 }
 
