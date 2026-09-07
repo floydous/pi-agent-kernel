@@ -585,6 +585,128 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 			}
 		}
 
+		// Java / C# / C++ fallback regex scanner when TreeSitter is cold
+		if (ext === ".java" || ext === ".cs") {
+			// Class / interface / enum
+			const jClass = line.match(
+				/^(?:public|private|protected|internal|abstract|static|final|\s)*\s*(class|interface|enum)\s+([a-zA-Z0-9_]+)/,
+			);
+			if (jClass) {
+				definitions.push({
+					name: jClass[2],
+					kind: jClass[1] === "interface" ? "interface" : jClass[1] === "enum" ? "enum" : "class",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
+			// Method (requires return type and parentheses)
+			const jMethod = line.match(
+				/^(?:public|private|protected|internal|static|final|synchronized|async|virtual|override|\s)+\s+([a-zA-Z0-9_<>\[\],\s]+)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)/,
+			);
+			if (jMethod && !jMethod[1].includes("class") && !jMethod[1].includes("return")) {
+				definitions.push({
+					name: jMethod[2],
+					kind: "method",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+		}
+
+		// C / C++
+		if (ext === ".c" || ext === ".cpp" || ext === ".cc" || ext === ".h" || ext === ".hpp") {
+			const cClass = line.match(/^(?:class|struct)\s+([a-zA-Z0-9_]+)/);
+			if (cClass) {
+				definitions.push({
+					name: cClass[1],
+					kind: "class",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
+			const cFn = line.match(
+				/^(?:[a-zA-Z0-9_&*]+\s+)+([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*(?:const)?\s*[{;]?$/,
+			);
+			if (cFn && !cFn[1].match(/^(if|for|while|switch|return)$/)) {
+				definitions.push({
+					name: cFn[1],
+					kind: "function",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+		}
+
+		// Ruby
+		if (ext === ".rb") {
+			const rbClass = line.match(/^(?:class|module)\s+([a-zA-Z0-9_:]+)/);
+			if (rbClass) {
+				definitions.push({
+					name: rbClass[1],
+					kind: "class",
+					signature: line.trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
+			const rbMethod = line.match(/^\s*def\s+([a-zA-Z0-9_!?=.]+)/);
+			if (rbMethod) {
+				definitions.push({
+					name: rbMethod[1],
+					kind: "method",
+					signature: line.trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+		}
+
+		// PHP
+		if (ext === ".php") {
+			const phpClass = line.match(/^(?:abstract\s+|final\s+)?(class|interface|trait)\s+([a-zA-Z0-9_]+)/);
+			if (phpClass) {
+				definitions.push({
+					name: phpClass[2],
+					kind: phpClass[1] === "interface" ? "interface" : "class",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
+			const phpFn = line.match(/^(?:public|private|protected|static|\s)*function\s+([a-zA-Z0-9_]+)\s*\(/);
+			if (phpFn) {
+				definitions.push({
+					name: phpFn[1],
+					kind: "function",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+		}
+
+		// Bash / Shell
+		if (ext === ".sh" || ext === ".bash") {
+			const shFn = line.match(/^(?:function\s+)?([a-zA-Z0-9_]+)\s*\(\)\s*\{?/);
+			if (shFn) {
+				definitions.push({
+					name: shFn[1],
+					kind: "function",
+					signature: `${shFn[1]}()`,
+					line: i + 1,
+				});
+				continue;
+			}
+		}
+
 		for (const ch of line) {
 			if (ch === "{") braceDepth++;
 			else if (ch === "}") braceDepth = Math.max(0, braceDepth - 1);
