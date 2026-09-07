@@ -1,0 +1,10 @@
+# Python bytecode caches
+__pycache__/
+*.pyc
+*.pyo
+
+# Node modules
+node_modules/
+
+# Test output caches
+.pi/cache/
