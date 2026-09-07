@@ -29,13 +29,13 @@ export async function testPolyglotSymbolReader(): Promise<void> {
 			{ s: rsRes.symbols[0] }
 		);
 
-		// 3. Java method
+		// 3. Java method (new fixture has commit/refund/rollbackAsync, no executeTransaction)
 		const javaPath = path.join(ws.tempDir, "src/PaymentService.java");
-		const javaRes = extractSymbolContent(javaPath, "executeTransaction");
-		assertPass("Java extracts 'executeTransaction' method", javaRes.found && javaRes.symbols.length === 1, { javaRes });
+		const javaRes = extractSymbolContent(javaPath, "commit");
+		assertPass("Java extracts 'commit' method", javaRes.found && javaRes.symbols.length === 1, { javaRes });
 		assertPass(
-			"Java 'executeTransaction' has valid content",
-			javaRes.symbols[0].content.includes("public void executeTransaction"),
+			"Java 'commit' has valid synchronized content",
+			javaRes.symbols[0].content.includes("public synchronized boolean commit"),
 			{ s: javaRes.symbols[0] }
 		);
 
