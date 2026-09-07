@@ -178,12 +178,7 @@ export function extractSymbolContent(
 		const finalStart = Math.max(0, actualStartIdx - extra);
 		const finalEnd = Math.min(lines.length - 1, endIdx + extra);
 
-		// Format with line numbers (e.g. "  1420 | def handle(...):")
-		const formattedLines = [];
-		for (let i = finalStart; i <= finalEnd; i++) {
-			const lineNumStr = String(i + 1).padStart(5, " ");
-			formattedLines.push(`${lineNumStr} | ${lines[i]}`);
-		}
+		const rawContent = lines.slice(finalStart, finalEnd + 1).join("\n");
 
 		matches.push({
 			name: def.name,
@@ -191,7 +186,7 @@ export function extractSymbolContent(
 			signature: def.signature,
 			startLine: finalStart + 1,
 			endLine: finalEnd + 1,
-			content: formattedLines.join("\n"),
+			content: rawContent,
 			filePath: resolvedPath,
 		});
 	}
