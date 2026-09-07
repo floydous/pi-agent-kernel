@@ -1,63 +1,71 @@
 # Tests
 
-The agent-kernel test suite is split into one file per logical test under this directory.
-
-The suite supports the project's core priorities: bare-minimum token usage,
-maximum performance, and reliable agent behavior. Tests emphasize bounded
-outputs, deterministic verification, read-before-write safety, and isolated
-execution.
+The agent-kernel test suite is organized by behavior. Each suite owns an
+`index.ts` entry point and may contain focused test modules and static fixtures.
 
 ## Running tests
 
 ```sh
 # Run the full suite
-npx tsx tests/run-all.ts
+npm test
 
-# Run a single test in isolation
-npx tsx tests/section-13-epistemic-guard.ts
+# Run a single suite
+npx tsx tests/run-all.ts epistemic-guard
 ```
 
-## File layout
+## Shared files
 
-- `_setup.ts` — shared helpers (`createTestWorkspace`, `assertPass`, `logPass`, `runSection`).
-- `run-all.ts` — orchestrator. Imports each section in order, catches failures, prints a summary.
-- `section-XX-name.ts` — one test per file. Each test creates its own temp workspace, so tests are fully independent.
+- `_setup.ts` — temporary workspaces, assertions, fixture loading, and suite runner.
+- `polyglot_fixtures.ts` — loads committed source fixtures from `fixtures/`.
+- `run-all.ts` — imports all normal suites in a deterministic order.
 
-## Test files
+## Suites
 
-| File | What it tests |
+| Suite | Coverage |
 | --- | --- |
-| `section-01-ast-extraction.ts` | `extractFileTags` for Python class/method extraction |
-| `section-03-repo-map.ts` | `computeRepoMap` and PageRank ranking on a real workspace |
-| `section-04-symbol-reader.ts` | `extractSymbolContent` for absolute and relative paths on large files |
-| `section-05-single-block-patch.ts` | `applySurgicalPatch` with path-agnostic search/replace |
-| `section-06-multi-block-patch.ts` | `applyMultiBlockPatch` with disjoint edit blocks |
-| `section-07-syntax-verification.ts` | `checkSyntax` detects valid and broken Python |
-| `section-09-session-repair.ts` | `sanitizeSessionFiles` heals missing `usage.cost.total` |
-| `section-10-hybrid-search.ts` | `HybridSearchIndex` chunking, search, and indexing fallback |
-| `section-11-output-clamping.ts` | `clampCommandOutput` and `isDiscoveryCommand` |
+| `ast-extraction` | Polyglot AST extraction |
+| `repo-map` | Repository map and PageRank |
+| `symbol-reader` | Targeted symbol extraction |
+| `single-block-patch` | Surgical single-block edits |
+| `multi-block-patch` | Disjoint multi-block edits |
+| `syntax-verification` | Syntax validation |
+| `session-repair` | Session-file repair |
+| `hybrid-search` | Hybrid search, chunking, cache, and abstention |
+| `output-clamping` | Output clamping and discovery-command detection |
+| `ui-width-safety` | TUI output-width regression |
+| `epistemic-guard` | Read-before-write safety and session isolation |
+| `unified-footer` | Footer formatting |
+| `lsp-uri-and-detection` | LSP URI and language detection |
+| `lsp-formatters` | Diagnostics, definitions, references, hover, and symbols |
+| `lsp-manager` | LSP manager lifecycle and modals |
+| `ast-fallback` | AST fallback extensions |
+| `aliased-re-exports` | Aliased re-exports and dotted lookups |
+| `typescript-ast` | TypeScript AST and parameter-scope hover |
+| `rust-ast` | Rust AST and bleed defense |
+| `toml-config` | TOML configuration |
+| `extension-lifecycle` | Extension API lifecycle |
+| `post-edit-verification` | Post-edit verification and diagnostic gates |
+| `cache-retrieval` | Embedder cache and search-index retention |
+| `end-to-end` | Cross-feature integration checks |
+| `content-dedup` | Content-addressed deduplication |
+| `recall-tool` | Recall validation and lookup |
+| `dedup-hook` | End-to-end deduplication hook chain |
+| `mutation-continuity` | Epistemic guard mutation continuity |
+| `lsp-clean-and-filters` | Clean diagnostics and reference filters |
+| `lsp-reference-snippets` | Reference snippet windowing |
+| `ast-search-formatter` | Hierarchical AST search formatting |
+| `tree-sitter` | Tree-sitter WASM engine |
+| `audit-verification` | Cache and executable lookup verification |
+| `cold-process-ast` | Fresh-process AST fallback contracts across 11 languages |
 
+## Diagnostics and benchmarks
 
-| `section-13-epistemic-guard.ts` | `EpistemicGuard` blocking, per-session scope, case-sensitivity |
-| `section-15-unified-footer.ts` | `renderFooter` produces a properly formatted line with TrueColor codes |
-| `section-16-lsp-uri-and-detection.ts` | LSP URI/Path roundtrip, language detection, workspace root |
-| `section-17-lsp-formatters.ts` | LSP diagnostics, definitions, references, hover, document symbols |
-| `section-18-lsp-manager-modals.ts` | `LspManager` lifecycle, `LspControlModal`, `LspDownloadModal` |
-| `section-19-ast-fallback-extensions.ts` | `extractDocumentSymbols`, `findSymbolReferences`, `extractLocalSymbolHover` |
-| `section-20-aliased-re-exports.ts` | Aliased re-exports, multi-line signatures, dotted lookups |
-| `section-21-typescript-ast.ts` | TypeScript full AST, parameter scope hover |
-| `section-22-rust-ast.ts` | Rust full AST, struct bleed defense, comment filtering |
-| `section-23-toml-config.ts` | TOML parser, serializer, kernel config loader |
-| `section-24-extension-lifecycle.ts` | Extension API lifecycle, custom prompt preservation, tool registration |
-| `section-25-post-edit-verification.ts` | Compact post-edit verification, syntax failure rendering, diagnostic gates |
-| `section-29-dedup-content-store.ts` | Exact content-addressed deduplication store, LRU eviction, session isolation |
-| `section-30-recall-tool.ts` | Recall tool validation, shortRef lookup, error reporting |
-| `section-31-e2e-dedup-hook.ts` | End-to-end tool output deduplication hook, compaction safety |
-| `section-33-mutation-continuity.ts` | Epistemic guard mutation continuity, sequential edit tracking |
-| `section-34-lsp-clean-and-filters.ts` | Token-minimal clean diagnostics (`<path> clean`), `exclude_tests`, `exclude_declaration` |
-| `section-35-lsp-reference-snippets.ts` | Reference snippet windowing, 0-based to 1-based indexing seams |
+`diagnostics/cold-process-reproduction.ts` verifies first-process Tree-sitter
+fallback behavior in isolated child processes. It fails if a required fixture
+symbol, kind, or scope contract is wrong. It runs as part of `npm test`.
 
-## Notes
+`benchmarks/retrieval.ts` is a manual performance/token benchmark and is not
+part of `npm test`.
 
-- Each test file creates its own isolated temporary workspace where needed. Tests are fully independent — you can run them in any order, in parallel, or skip individual ones.
-- `assertPass` throws on failure (rather than calling `process.exit`) so the runner can catch and continue with the next section.
+Tests use isolated temporary workspaces where needed. A single suite can be
+selected with `npx tsx tests/run-all.ts <suite-key>`.

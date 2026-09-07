@@ -1,6 +1,6 @@
 // Shared test setup utilities.
 // Provides a temporary workspace and assertion helpers used by all
-// section-XX-*.ts files in this directory.
+// suite files in this directory.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -112,7 +112,7 @@ export class AssertionError extends Error {
 /**
  * Assert a condition. If false, prints a labelled error to stderr and throws
  * an AssertionError. Throwing (instead of process.exit) lets the test runner
- * catch the failure and continue with other sections.
+ * catch the failure and continue with other suites.
  */
 export function assertPass(
 	label: string,
@@ -133,10 +133,10 @@ export function logPass(label: string): void {
 }
 
 /**
- * Run a section function with consistent error handling.
+ * Run a suite function with consistent error handling.
  * If the section throws, the error is printed and the process exits 1.
  */
-export async function runSection(
+export async function runSuite(
 	name: string,
 	fn: () => void | Promise<void>,
 ): Promise<void> {
@@ -144,7 +144,7 @@ export async function runSection(
 	try {
 		await fn();
 	} catch (err) {
-		console.error(`✗ Section ${name} threw:`, err);
+		console.error(`✗ Suite ${name} threw:`, err);
 		process.exitCode = 1;
 		throw err;
 	}

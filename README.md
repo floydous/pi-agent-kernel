@@ -27,7 +27,7 @@ The table compares this extension with an unconstrained harness that dumps whole
 | **Codebase Search** (Lexical / BM25 Query) | Linear `grep`/`find` disk scan | Inverted In-Memory BM25 Index | **0 MB** background RAM (Lean) | ~0.03 ms / query |
 | **Pre-Commit Safety** (Broken syntax gate) | Allowed to commit broken code | Local Fast AST Delimiter Gate | **Deterministic** failure block | Instant |
 
-*These measurements come from `tests/benchmark_metrics.ts`, using this codebase with 45 source files and about 92.8k raw tokens.*
+*These measurements come from `benchmarks/retrieval.ts`, using this codebase with 45 source files and about 92.8k raw tokens.*
 
 ## Architecture and directory layout
 

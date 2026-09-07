@@ -9,7 +9,6 @@
   "author": "floydous https://github.com/floydous",
   "scripts": {
     "test": "npx tsx tests/run-all.ts",
-    "test:focused": "npx tsx tests/run-all.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

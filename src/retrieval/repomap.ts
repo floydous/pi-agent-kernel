@@ -298,11 +298,45 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 				}
 			}
 
+			// Class methods and accessors are the important cold-state fallback case.
+			// Tree-sitter normally supplies these nested declarations; keep the
+			// synchronous fallback useful before a grammar has been loaded.
+			const tsJsGenericMethod = line.match(
+				/^(?:(?:public|private|protected|static|abstract|override|readonly|async)\s+)*(?:[A-Za-z_$][\w$]*(?:<[^{};]*>)?\s+)*([A-Za-z_$][\w$]*)\s*<[^{};]*>\s*\([^{}]*\)\s*(?::\s*[^{};]+)?\s*\{/,
+			);
+			const tsJsMethod = tsJsGenericMethod || line.match(
+				/^(?:(?:public|private|protected|static|abstract|override|readonly|async)\s+)*(?:[A-Za-z_$][\w$]*(?:<[^>]*>)?(?:\[\])?\??\s+)*([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^)]*\)\s*(?::\s*[^={;]+)?(?:\{|;)/,
+			);
+			const controlOrExpression = /^(?:if|for|while|switch|catch|return|throw|await|new|super|this|const|let|var)\b/;
+			const indentation = rawLine.match(/^\s*/)?.[0].length ?? 0;
+			if (tsJsMethod && indentation > 0 && indentation <= 4 && !controlOrExpression.test(line)) {
+				definitions.push({
+					name: tsJsMethod[1],
+					kind: "method",
+					signature: line.split("{")[0].trim().replace(/;$/, ""),
+					line: i + 1,
+				});
+				continue;
+			}
+
+			const tsJsAccessor = line.match(
+				/^(?:(?:public|private|protected|static|abstract|override|readonly|async)\s+)*(?:get|set)\s+([A-Za-z_$][\w$]*)\s*(?:\([^)]*\))?\s*(?::\s*[^={;]+)?\s*(?:\{|;)/,
+			);
+			if (tsJsAccessor && indentation > 0 && indentation <= 4) {
+				definitions.push({
+					name: tsJsAccessor[1],
+					kind: "method",
+					signature: line.split("{")[0].trim().replace(/;$/, ""),
+					line: i + 1,
+				});
+				continue;
+			}
+
 			// const variable / constant declaration: const FOO = ... or const FOO: string = ... (only top-level declarations)
 			const constDecl = line.match(
 				/^(?:export\s+)?const\s+([a-zA-Z0-9_]+)(?:\s*:\s*([^=]+))?\s*=/,
 			);
-			if (constDecl && braceDepth === 0) {
+			if (constDecl && braceDepth === 0 && rawLine === rawLine.trimStart()) {
 				const isAllUpper = /^[A-Z0-9_]{2,}$/.test(constDecl[1]);
 				definitions.push({
 					name: constDecl[1],
@@ -544,27 +578,28 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 
 		// Go
 		if (ext === ".go") {
-			const goFn = line.match(/^func\s+(?:\([^)]+\)\s+)?([a-zA-Z0-9_]+)/);
+			const goFn = line.match(/^func\s+(\([^)]+\)\s+)?([a-zA-Z0-9_]+)/);
 			if (goFn) {
 				const sig =
 					extractBalancedSig(lines, i, "go_fn") || line.split("{")[0].trim();
 				definitions.push({
-					name: goFn[1],
-					kind: "function",
+					name: goFn[2],
+					kind: goFn[1] ? "method" : "function",
 					signature: sig,
 					line: i + 1,
 				});
 				continue;
 			}
 
-			const goType = line.match(/^type\s+([a-zA-Z0-9_]+)\s+(struct|interface)/);
+			const goType = line.match(/^type\s+([a-zA-Z0-9_]+)\s+(.+)/);
 			if (goType) {
+				const typeBody = goType[2].trim();
 				const sig =
 					extractBalancedSig(lines, i, "go_type") ||
-					`type ${goType[1]} ${goType[2]}`;
+					line.replace(/\s*\{\s*$/, "").trim();
 				definitions.push({
 					name: goType[1],
-					kind: "class",
+					kind: typeBody.startsWith("interface") ? "interface" : "class",
 					signature: sig,
 					line: i + 1,
 				});
@@ -587,6 +622,21 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 
 		// Java / C# / C++ fallback regex scanner when TreeSitter is cold
 		if (ext === ".java" || ext === ".cs") {
+			// Methods may be expression-bodied (`... FindById(...) => ...`) and
+			// therefore have no opening brace for the balanced-signature helper.
+			const expressionMethod = line.match(
+				/^(?:public|private|protected|internal|static|final|synchronized|async|virtual|override|sealed|readonly|new|partial|unsafe|extern|\s)+\s+([A-Za-z0-9_<>,.?\[\]\s]+?)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*=>/,
+			);
+			if (expressionMethod) {
+				definitions.push({
+					name: expressionMethod[2],
+					kind: "method",
+					signature: line.split("=>")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
 			// Class / interface / enum
 			const jClass = line.match(
 				/^(?:public|private|protected|internal|abstract|static|final|\s)*\s*(class|interface|enum)\s+([a-zA-Z0-9_]+)/,
@@ -618,6 +668,19 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 
 		// C / C++
 		if (ext === ".c" || ext === ".cpp" || ext === ".cc" || ext === ".h" || ext === ".hpp") {
+			const cExpressionFn = line.match(
+				/^(?:[A-Za-z_][A-Za-z0-9_:<>*&\s]+?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{/,
+			);
+			if (cExpressionFn && !cExpressionFn[1].match(/^(if|for|while|switch|return)$/)) {
+				definitions.push({
+					name: cExpressionFn[1],
+					kind: rawLine !== rawLine.trimStart() ? "method" : "function",
+					signature: line.split("{")[0].trim(),
+					line: i + 1,
+				});
+				continue;
+			}
+
 			const cClass = line.match(/^(?:class|struct)\s+([a-zA-Z0-9_]+)/);
 			if (cClass) {
 				definitions.push({
@@ -635,7 +698,7 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 			if (cFn && !cFn[1].match(/^(if|for|while|switch|return)$/)) {
 				definitions.push({
 					name: cFn[1],
-					kind: "function",
+					kind: rawLine !== rawLine.trimStart() ? "method" : "function",
 					signature: line.split("{")[0].trim(),
 					line: i + 1,
 				});
@@ -685,7 +748,7 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 			if (phpFn) {
 				definitions.push({
 					name: phpFn[1],
-					kind: "function",
+					kind: braceDepth > 0 ? "method" : "function",
 					signature: line.split("{")[0].trim(),
 					line: i + 1,
 				});

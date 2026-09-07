@@ -1,163 +1,212 @@
-// Runner that imports and executes each section-XX-*.ts file in order.
+// Runner that imports and executes each suite directory in order.
 // Run with: `npx tsx tests/run-all.ts`
 //
-// Each test file is also independently runnable via `npx tsx tests/section-XX-*.ts`.
+// Select a suite with `npx tsx tests/run-all.ts <suite-key>`.
+
+async function runSuiteModule(load: () => Promise<{ run?: () => void | Promise<void> }>): Promise<void> {
+	const mod = await load();
+	if (typeof mod.run !== "function") {
+		throw new Error("Suite entry point does not export run()");
+	}
+	await mod.run();
+}
 
 interface TestEntry {
 	name: string;
-	// Section modules execute their tests through import side effects.
+	key: string;
+	// Suite modules expose an explicit run() entry point.
 	loader: () => Promise<unknown>;
 }
 
-const sections: TestEntry[] = [
+const suites: TestEntry[] = [
 	{
-		name: "36. Tree-Sitter WASM AST Engine",
-		loader: () => import("./section-36-tree-sitter-wasm"),
+		name: "Tree-Sitter WASM AST Engine",
+		key: "tree-sitter",
+		loader: () => runSuiteModule(() => import("./tree-sitter")),
 	},
 	{
-		name: "37. Post-Fix Verification Audit Suite",
-		loader: () => import("./section-37-audit-verification"),
+		name: "Cold-Process AST Extraction",
+		key: "cold-process-ast",
+		loader: () => runSuiteModule(() => import("./diagnostics/cold-process-reproduction")),
 	},
 	{
-		name: "1. AST Extraction",
-		loader: () => import("./section-01-ast-extraction"),
+		name: "Post-Fix Verification Audit Suite",
+		key: "audit-verification",
+		loader: () => runSuiteModule(() => import("./audit-verification")),
 	},
 	{
-		name: "3. Repository Map & PageRank",
-		loader: () => import("./section-03-repo-map"),
+		name: "AST Extraction",
+		key: "ast-extraction",
+		loader: () => runSuiteModule(() => import("./ast-extraction")),
 	},
 	{
-		name: "4. Targeted Symbol Reader",
-		loader: () => import("./section-04-symbol-reader"),
+		name: "Repository Map & PageRank",
+		key: "repo-map",
+		loader: () => runSuiteModule(() => import("./repo-map")),
 	},
 	{
-		name: "5. Single-Block Patching",
-		loader: () => import("./section-05-single-block-patch"),
+		name: "Targeted Symbol Reader",
+		key: "symbol-reader",
+		loader: () => runSuiteModule(() => import("./symbol-reader")),
 	},
 	{
-		name: "6. Multi-Block Patching",
-		loader: () => import("./section-06-multi-block-patch"),
+		name: "Single-Block Patching",
+		key: "single-block-patch",
+		loader: () => runSuiteModule(() => import("./single-block-patch")),
 	},
 	{
-		name: "7. Syntax Verification",
-		loader: () => import("./section-07-syntax-verification"),
+		name: "Multi-Block Patching",
+		key: "multi-block-patch",
+		loader: () => runSuiteModule(() => import("./multi-block-patch")),
 	},
 	{
-		name: "9. Session File Repair",
-		loader: () => import("./section-09-session-repair"),
+		name: "Syntax Verification",
+		key: "syntax-verification",
+		loader: () => runSuiteModule(() => import("./syntax-verification")),
 	},
 	{
-		name: "10. Hybrid AST Code Search",
-		loader: () => import("./section-10-hybrid-search"),
+		name: "Session File Repair",
+		key: "session-repair",
+		loader: () => runSuiteModule(() => import("./session-repair")),
 	},
 	{
-		name: "11. Tool Output Clamping",
-		loader: () => import("./section-11-output-clamping"),
+		name: "Hybrid AST Code Search",
+		key: "hybrid-search",
+		loader: () => runSuiteModule(() => import("./hybrid-search")),
 	},
 	{
-		name: "13. Epistemic Guard",
-		loader: () => import("./section-13-epistemic-guard"),
+		name: "Tool Output Clamping",
+		key: "output-clamping",
+		loader: () => runSuiteModule(() => import("./output-clamping")),
 	},
 	{
-		name: "15. Unified Footer",
-		loader: () => import("./section-15-unified-footer"),
+		name: "UI Width Safety",
+		key: "ui-width-safety",
+		loader: () => runSuiteModule(() => import("./ui-width-safety")),
 	},
 	{
-		name: "16. LSP URI/Path & Detection",
-		loader: () => import("./section-16-lsp-uri-and-detection"),
+		name: "Epistemic Guard",
+		key: "epistemic-guard",
+		loader: () => runSuiteModule(() => import("./epistemic-guard")),
 	},
 	{
-		name: "17. LSP Formatters",
-		loader: () => import("./section-17-lsp-formatters"),
+		name: "Unified Footer",
+		key: "unified-footer",
+		loader: () => runSuiteModule(() => import("./unified-footer")),
 	},
 	{
-		name: "18. LSP Manager & Modals",
-		loader: () => import("./section-18-lsp-manager-modals"),
+		name: "LSP URI/Path & Detection",
+		key: "lsp-uri-and-detection",
+		loader: () => runSuiteModule(() => import("./lsp-uri-and-detection")),
 	},
 	{
-		name: "19. AST Fallback Extensions",
-		loader: () => import("./section-19-ast-fallback-extensions"),
+		name: "LSP Formatters",
+		key: "lsp-formatters",
+		loader: () => runSuiteModule(() => import("./lsp-formatters")),
 	},
 	{
-		name: "20. Aliased Re-exports",
-		loader: () => import("./section-20-aliased-re-exports"),
+		name: "LSP Manager & Modals",
+		key: "lsp-manager",
+		loader: () => runSuiteModule(() => import("./lsp-manager")),
 	},
 	{
-		name: "21. TypeScript Full AST",
-		loader: () => import("./section-21-typescript-ast"),
-	},
-	{ name: "22. Rust Full AST", loader: () => import("./section-22-rust-ast") },
-	{
-		name: "23. TOML Configuration",
-		loader: () => import("./section-23-toml-config"),
+		name: "AST Fallback Extensions",
+		key: "ast-fallback",
+		loader: () => runSuiteModule(() => import("./ast-fallback")),
 	},
 	{
-		name: "24. Extension Lifecycle",
-		loader: () => import("./section-24-extension-lifecycle"),
+		name: "Aliased Re-exports",
+		key: "aliased-re-exports",
+		loader: () => runSuiteModule(() => import("./aliased-re-exports")),
 	},
 	{
-		name: "25. Compact Post-Edit Verification",
-		loader: () => import("./section-25-post-edit-verification"),
+		name: "TypeScript Full AST",
+		key: "typescript-ast",
+		loader: () => runSuiteModule(() => import("./typescript-ast")),
+	},
+	{ name: "Rust Full AST", key: "rust-ast", loader: () => runSuiteModule(() => import("./rust-ast")) },
+	{
+		name: "TOML Configuration",
+		key: "toml-config",
+		loader: () => runSuiteModule(() => import("./toml-config")),
 	},
 	{
-		name: "26. Cache & KV Retention Optimization",
-		loader: async () => {
-			const mod: any = await import("./intensive_cache_test");
-			if (mod.runPromise) await mod.runPromise;
-		},
+		name: "Extension Lifecycle",
+		key: "extension-lifecycle",
+		loader: () => runSuiteModule(() => import("./extension-lifecycle")),
 	},
 	{
-		name: "27. End-to-End Enhancement Verification",
-		loader: async () => {
-			const mod: any = await import("./end_to_end_enhancements_test");
-			if (mod.runPromise) await mod.runPromise;
-		},
+		name: "Compact Post-Edit Verification",
+		key: "post-edit-verification",
+		loader: () => runSuiteModule(() => import("./post-edit-verification")),
 	},
 	{
-		name: "29. Content-Addressed Dedup",
-		loader: () => import("./section-29-dedup-content-store"),
+		name: "Cache & KV Retention Optimization",
+		key: "cache-retrieval",
+		loader: () => runSuiteModule(() => import("./cache-retrieval")),
 	},
 	{
-		name: "30. Recall Tool Decision Logic",
-		loader: () => import("./section-30-recall-tool"),
+		name: "End-to-End Enhancement Verification",
+		key: "end-to-end",
+		loader: () => runSuiteModule(() => import("./end-to-end")),
 	},
 	{
-		name: "31. End-to-End Dedup Hook Chain",
-		loader: () => import("./section-31-e2e-dedup-hook"),
+		name: "Content-Addressed Dedup",
+		key: "content-dedup",
+		loader: () => runSuiteModule(() => import("./content-dedup")),
 	},
 	{
-		name: "33. Epistemic Guard Mutation Continuity",
-		loader: () => import("./section-33-mutation-continuity"),
+		name: "Recall Tool Decision Logic",
+		key: "recall-tool",
+		loader: () => runSuiteModule(() => import("./recall-tool")),
 	},
 	{
-		name: "34. LSP Clean Diagnostics & Reference Filtering",
-		loader: () => import("./section-34-lsp-clean-and-filters"),
+		name: "End-to-End Dedup Hook Chain",
+		key: "dedup-hook",
+		loader: () => runSuiteModule(() => import("./dedup-hook")),
 	},
 	{
-		name: "35. LSP Reference Snippets & Seam Tests",
-		loader: () => import("./section-35-lsp-reference-snippets"),
+		name: "Epistemic Guard Mutation Continuity",
+		key: "mutation-continuity",
+		loader: () => runSuiteModule(() => import("./mutation-continuity")),
 	},
 	{
-		name: "38. Hierarchical AST Search Formatter Suite",
-		loader: () => import("./ast_search_formatter_test"),
+		name: "LSP Clean Diagnostics & Reference Filtering",
+		key: "lsp-clean-and-filters",
+		loader: () => runSuiteModule(() => import("./lsp-clean-and-filters")),
+	},
+	{
+		name: "LSP Reference Snippets & Seam Tests",
+		key: "lsp-reference-snippets",
+		loader: () => runSuiteModule(() => import("./lsp-reference-snippets")),
+	},
+	{
+		name: "Hierarchical AST Search Formatter Suite",
+		key: "ast-search-formatter",
+		loader: () => runSuiteModule(() => import("./ast-search-formatter")),
 	},
 ];
 
 async function main(): Promise<void> {
 	console.log("=== Running Pi Agent Kernel Verification Suite ===\n");
 
+	const requestedKey = process.argv[2];
+	const selectedSuites = requestedKey ? suites.filter((suite) => suite.key === requestedKey) : suites;
+	if (requestedKey && selectedSuites.length === 0) {
+		throw new Error(`Unknown suite: ${requestedKey}`);
+	}
+
 	const startTime = Date.now();
 	let passed = 0;
 	let failed = 0;
 
-	for (const entry of sections) {
+	for (const entry of selectedSuites) {
 		try {
-			// Each section file runs its own main() at module load time via side effects.
-			// We just need to import it; the file handles its own pass/fail and exits non-zero on failure.
+			// Suite modules expose an explicit run() entry point; importing alone does not run tests.
 			await entry.loader();
 			passed++;
 		} catch (err) {
-			console.error(`\n✗ Section '${entry.name}' threw:`, err);
+			console.error(`\n✗ Suite '${entry.name}' threw:`, err);
 			failed++;
 		}
 	}

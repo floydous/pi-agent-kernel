@@ -10,7 +10,7 @@ All changes since version [0.2.0] (2026-09-05).
 - Inline layout for singleton symbol kinds and bulleted listings for multi-item kind groups in AST search results.
 - Bounded body previews with 4-space indentation and explicit `[... body preview truncated at line N]` notices for truncated bodies.
 - Polyglot regex fallback extractors in `repomap.ts` for Java, C#, C++, Ruby, PHP, and Bash when Tree-sitter WASM is in an uninitialized or cold state.
-- Suite Section 38 (`ast_search_formatter_test.ts`) integrated into `tests/run-all.ts` verifying grouping layouts, signature cleaning, alias preservation, and epistemic guard recording.
+- Suite AST search formatter (`ast-search-formatter/index.ts`) integrated into `tests/run-all.ts` verifying grouping layouts, signature cleaning, alias preservation, and epistemic guard recording.
 - Automated GitHub Actions CI workflow (`.github/workflows/ci.yml`) and release publishing workflow (`.github/workflows/release.yml`).
 
 ### Changed
