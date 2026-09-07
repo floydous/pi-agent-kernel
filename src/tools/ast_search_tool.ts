@@ -3,7 +3,9 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import { searchAstSymbols } from "../retrieval/ast_search";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
+import { TreeSitterEngine } from "../retrieval/tree_sitter_engine";
 import type { SessionDeps } from "./context";
+import { formatAstSearchResults } from "./ast_search_formatter";
 
 /** Extracted from index.ts — registers the `ast_search` tool. */
 export function registerAstSearchTool(
@@ -54,6 +56,15 @@ export function registerAstSearchTool(
 					{ type: "text", text: `Searching AST for "${params.name || "*"}"...` },
 				],
 			});
+
+			// If query specifies a filePattern with an extension, ensure its grammar is loaded
+			if (params.filePattern) {
+				const ext = (params.filePattern.match(/\.[a-zA-Z0-9]+$/) || [])[0]?.toLowerCase();
+				if (ext && TreeSitterEngine.getInstance().isSupported(ext)) {
+					await TreeSitterEngine.getInstance().loadLanguages([ext]);
+				}
+			}
+
 			const results = searchAstSymbols(ctx.cwd, {
 				name: params.name,
 				kind: params.kind,
@@ -88,21 +99,17 @@ export function registerAstSearchTool(
 				};
 			}
 
-			const formatted = results.slice(0, 30).map((r) => {
-				const normPath = r.filePath.replace(/\\/g, "/");
-				const span = r.endLine && r.endLine !== r.line ? `${r.line}-${r.endLine}` : `${r.line}`;
-				let str = `${normPath}:${span} [${r.kind}] ${r.signature || r.name}`;
-				if (r.codeBlock) {
-					str += `\n${r.codeBlock}`;
-				}
-				return str;
-			});
+			const displayedResults = results.slice(0, 30);
+			const formatted = formatAstSearchResults(
+				displayedResults,
+				params.includeBody ?? false,
+			);
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: formatted.join("\n"),
+						text: formatted,
 					},
 				],
 				details: { count: results.length },

@@ -137,6 +137,10 @@ const sections: TestEntry[] = [
 		name: "35. LSP Reference Snippets & Seam Tests",
 		loader: () => import("./section-35-lsp-reference-snippets"),
 	},
+	{
+		name: "38. Hierarchical AST Search Formatter Suite",
+		loader: () => import("./ast_search_formatter_test"),
+	},
 ];
 
 async function main(): Promise<void> {
