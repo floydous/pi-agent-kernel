@@ -1,30 +1,28 @@
 # Changelog
 
-## [Unreleased]
-
-All changes since version [0.2.0] (2026-09-05).
+## [0.3.0] - 2026-09-07
 
 ### Added
 
-- Hierarchical grouped formatting for `ast_search` tool output: groups results by normalized file path and symbol kind, eliminating repetitive file path tokens (~34% token reduction).
-- Inline layout for singleton symbol kinds and bulleted listings for multi-item kind groups in AST search results.
-- Bounded body previews with 4-space indentation and explicit `[... body preview truncated at line N]` notices for truncated bodies.
-- Polyglot regex fallback extractors in `repomap.ts` for Java, C#, C++, Ruby, PHP, and Bash when Tree-sitter WASM is in an uninitialized or cold state.
-- Suite AST search formatter (`ast-search-formatter/index.ts`) integrated into `tests/run-all.ts` verifying grouping layouts, signature cleaning, alias preservation, and epistemic guard recording.
-- Automated GitHub Actions CI workflow (`.github/workflows/ci.yml`) and release publishing workflow (`.github/workflows/release.yml`).
+- Hierarchical grouped formatting for AST code search: search results are now cleanly organized by file and category, eliminating repetitive file path noise and significantly cutting down token usage.
+- Bounded symbol body previews with clear truncation markers when previewing symbol contents.
+- Strict cold-start symbol fallback coverage across 11 programming languages (TypeScript, JavaScript, Python, Rust, Go, Java, C#, C/C++, Ruby, PHP, and Bash), ensuring accurate symbol indexing even before syntax engines are fully loaded.
+- Automated GitHub Actions CI workflow and release publishing workflows.
 
 ### Changed
 
-- `cleanSignature` strips redundant declaration words (`export`, `public`, `private`, `protected`, `function`, `def`, `fn`, `func`, `class`, `interface`, `type`, `struct`, `trait`, accessors `get`/`set`, and `abstract`) while preserving semantic modifiers (`async`, `static`, `readonly`, `unsafe`, `const`, `mut`) and complete parameter and return type signatures.
-- On-demand grammar preloading in `ast_search` when targeted queries specify a recognized language file extension.
+- Cleaner, copy-paste-ready symbol reading: reading specific code symbols now outputs clean code directly without line number prefixes, saving ~21% tokens per read and making edits directly applicable.
+- Condensed AST search signatures: cleaned redundant keywords (like `function`, `public`, `def`) while preserving important modifiers (like `async`, `static`, `readonly`) and parameter types.
+- Unified testing workflow: streamlined the entire test suite under a single command (`npm test`) organized by clear functional areas instead of numbered sections.
 
 ### Fixed
 
-- Eliminated heuristic text-based alias guessing that previously misclassified typed method return types (e.g. `public void run()`) and accessor keywords as aliases. Alias annotations (`[alias of original]`) now strictly require explicit `aliasedFrom` AST metadata.
-- Ensured truncation markers are consistently emitted on bounded previews even when the code block preview is empty.
-- Stripped redundant kind keywords following preserved semantic modifiers (e.g. `pub unsafe fn` -> `unsafe`, `static function` -> `static`).
-- Included code snippet windows in AST reference fallback when LSP server returns empty or declaration-only references.
-- Ensured test workspace fixtures properly restore `process.cwd()` upon teardown to prevent working directory leaks across test runs.
+- Fixed missing methods and functions in cold-state project indexing for TypeScript, JavaScript, C#, and C++.
+- Fixed incorrect classification of Go receiver methods and PHP class methods during cold-state scans.
+- Prevented internal local variables from mistakenly leaking into project symbol maps.
+- Fixed misleading alias tags on typed methods and property getters/setters.
+- Fixed temporary loading artifacts showing up in language server hover documentation.
+- Improved code reference snippets when language servers return empty results.
 
 ## [0.2.0] - 2026-09-05
 
@@ -55,4 +53,5 @@ This release replaces the old line-based symbol extraction path with a Tree-sitt
 - Syntax errors are reported on extracted file tags.
 - LSP reference filtering preserves the intended fallback behavior.
 
+[0.3.0]: https://github.com/floydous/pi-agent-kernel/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/floydous/pi-agent-kernel/releases/tag/v0.2.0
