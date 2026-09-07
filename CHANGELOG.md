@@ -2,24 +2,29 @@
 
 ## [Unreleased]
 
+All changes since version [0.2.0] (2026-09-05).
+
 ### Added
 
-- Hierarchical grouped formatting for `ast_search` tool output: groups results by normalized file path and symbol kind, reducing repeated token overhead by ~34%.
-- Support for inline singleton layout and multi-item bulleted lists in AST search results.
-- Bounded body preview indentation and explicit `[... body preview truncated at line N]` markers.
-- Polyglot regex fallback extractors in `repomap.ts` for Java, C#, C++, Ruby, PHP, and Bash when Tree-sitter is in a cold/uninitialized state.
-- Suite Section 38 (`ast_search_formatter_test.ts`) integrated into `tests/run-all.ts` verifying hierarchical grouping, polyglot signature cleaning, alias metadata preservation, and epistemic guard recording coverage.
+- Hierarchical grouped formatting for `ast_search` tool output: groups results by normalized file path and symbol kind, eliminating repetitive file path tokens (~34% token reduction).
+- Inline layout for singleton symbol kinds and bulleted listings for multi-item kind groups in AST search results.
+- Bounded body previews with 4-space indentation and explicit `[... body preview truncated at line N]` notices for truncated bodies.
+- Polyglot regex fallback extractors in `repomap.ts` for Java, C#, C++, Ruby, PHP, and Bash when Tree-sitter WASM is in an uninitialized or cold state.
+- Suite Section 38 (`ast_search_formatter_test.ts`) integrated into `tests/run-all.ts` verifying grouping layouts, signature cleaning, alias preservation, and epistemic guard recording.
+- Automated GitHub Actions CI workflow (`.github/workflows/ci.yml`) and release publishing workflow (`.github/workflows/release.yml`).
 
 ### Changed
 
-- `cleanSignature` strips redundant declaration words (`export`, `public`, `private`, `protected`, `function`, `def`, `fn`, `func`, `class`, `interface`, `type`, `struct`, `trait`, accessors `get`/`set`, and `abstract`) while preserving semantic modifiers (`async`, `static`, `readonly`, `unsafe`, `const`, `mut`) and complete parameter/return type structures.
-- On-demand grammar preloading in `ast_search` when targeted file queries specify a recognized language extension.
+- `cleanSignature` strips redundant declaration words (`export`, `public`, `private`, `protected`, `function`, `def`, `fn`, `func`, `class`, `interface`, `type`, `struct`, `trait`, accessors `get`/`set`, and `abstract`) while preserving semantic modifiers (`async`, `static`, `readonly`, `unsafe`, `const`, `mut`) and complete parameter and return type signatures.
+- On-demand grammar preloading in `ast_search` when targeted queries specify a recognized language file extension.
 
 ### Fixed
 
 - Eliminated heuristic text-based alias guessing that previously misclassified typed method return types (e.g. `public void run()`) and accessor keywords as aliases. Alias annotations (`[alias of original]`) now strictly require explicit `aliasedFrom` AST metadata.
-- Ensured truncation markers are consistently attached to body previews even when the code preview is empty or a single-line stub.
-- Stripped redundant kind keywords following semantic modifiers (e.g. `pub unsafe fn` -> `unsafe`, `static function` -> `static`).
+- Ensured truncation markers are consistently emitted on bounded previews even when the code block preview is empty.
+- Stripped redundant kind keywords following preserved semantic modifiers (e.g. `pub unsafe fn` -> `unsafe`, `static function` -> `static`).
+- Included code snippet windows in AST reference fallback when LSP server returns empty or declaration-only references.
+- Ensured test workspace fixtures properly restore `process.cwd()` upon teardown to prevent working directory leaks across test runs.
 
 ## [0.2.0] - 2026-09-05
 
