@@ -9,14 +9,14 @@ export function testPythonMultiBlock(): void {
 		process.chdir(ws.tempDir);
 		const multiBlocks = [
 			{
-				search: "self.precision = precision",
-				replace: "self.precision = precision\n        self.currency = 'USD'",
+				search: "self.tax_rate = tax_rate",
+				replace: "self.tax_rate = tax_rate\n        self.currency = 'USD'",
 			},
 			{
 				search:
-					"def process_discount(self, subtotal: float, discount: float) -> float:\n        return subtotal - discount",
+					"def process_discount(self, subtotal: float, discount: float) -> float:\n        \"\"\"Subtract a discount from the subtotal, guarding against negatives.\"\"\"\n        if discount < 0:",
 				replace:
-					"def process_discount(self, subtotal: float, discount: float) -> float:\n        # Safeguard discount\n        return max(0.0, subtotal - discount)",
+					"def process_discount(self, subtotal: float, discount: float) -> float:\n        # Safeguard discount\n        if discount < 0:",
 			},
 		];
 

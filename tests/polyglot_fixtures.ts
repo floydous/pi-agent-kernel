@@ -12,6 +12,7 @@ const FIXTURE_ROOT = path.join(__dirname, "fixtures", "polyglot");
 
 export const POLYGLOT_FIXTURE_FILES: string[] = [
 	"src/app.ts",
+	"src/http.js",
 	"src/worker.rs",
 	"src/router.go",
 	"src/PaymentService.java",

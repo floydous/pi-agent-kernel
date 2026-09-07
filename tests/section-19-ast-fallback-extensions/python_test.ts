@@ -31,7 +31,8 @@ export function testPythonAstExtensions(): void {
 			{ symbolRefs },
 		);
 
-		const localHover = extractLocalSymbolHover(samplePath, 7, 15, "subtotal");
+		// The realistic fixture has calculate_tax starting at line 41
+		const localHover = extractLocalSymbolHover(samplePath, 42, 30, "subtotal");
 		assertPass(
 			"extractLocalSymbolHover for parameter subtotal",
 			!!localHover && localHover.includes("subtotal"),

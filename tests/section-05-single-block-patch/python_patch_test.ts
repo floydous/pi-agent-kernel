@@ -7,10 +7,11 @@ export function testPythonSingleBlock(): void {
 	const ws = createTestWorkspace("patch_py_");
 	try {
 		process.chdir(ws.tempDir);
-		const searchBlock = `
-  def calculate_tax(self, subtotal: float) -> float:
-      """Calculate tax based on subtotal."""
-      return subtotal * 0.08
+		const searchBlock = `    def calculate_tax(self, subtotal: float) -> float:
+        """Calculate tax based on subtotal."""
+        if subtotal < 0:
+            raise CalculatorError("subtotal cannot be negative")
+        return round(subtotal * self.tax_rate, self.precision)
 `;
 		const replaceBlock = `    def calculate_tax(self, subtotal: float) -> float:
         """Calculate tax based on subtotal."""
