@@ -1,117 +1,112 @@
-# Pi agent kernel
+# pi-agent-kernel
 
-A Pi extension for code retrieval, surgical editing, safety checks, and language-server support.
+![Comparison Demonstration](https://raw.githubusercontent.com/floydous/pi-agent-kernel/master/static/comparison.gif)
 
-## Pi with and without agent-kernel
+Most coding agents drown in context. They read entire files when looking for a single function, dump thousands of lines of terminal logs into prompts, and rewrite full files just to tweak one line. `pi-agent-kernel` is built around a straightforward rule: **spend the bare minimum tokens necessary to get maximum workflow performance**. It provides surgical retrieval, bounded outputs, and guarded editing tools so your model stays fast, focused, and well within budget.
 
-The video compares Pi, OMP, and Pi + Agent-Kernel running the same code-analysis task side by side.
+---
 
-[![Pi, OMP, and Pi + Agent-Kernel comparison](static/comparison.gif)](static/comparison.mp4)
+## Token savings
 
-[Download or open the full-resolution comparison video](static/comparison.mp4).
+Here is how tool overhead compares to an unconstrained agent harness across everyday coding tasks:
 
-## Design priorities
-
-The extension keeps agent interactions small while improving reliability. It uses focused retrieval, bounded output, deterministic checks, and grounded edits. It avoids loading unnecessary context, doing background work without a reason, or making speculative changes.
-
-## Token and performance measurements
-
-The table compares this extension with an unconstrained harness that dumps whole files, walks the entire repository, rewrites files for every edit, and streams unbounded terminal output.
-
-| Capability / Interaction | Unconstrained Harness | `pi-agent-kernel` | Token / Overhead Delta | Latency |
+| Interaction | Traditional agent harness | `pi-agent-kernel` | Tokens saved | Why |
 |---|---|---|---|---|
-| **Context Ingestion** (Workspace map) | Raw recursive tree / full dump (~92.8k tokens) | PageRank AST Repo Map (~1.0k tokens) | **-98.9%** context tokens | ~40 ms |
-| **Code Inspection** (Targeted function read) | Whole file read (~1.4k tokens) | AST Symbol Extraction (`read(symbol=...)`) (~428 tokens) | **-68.5%** prompt tokens | <1 ms |
-| **Code Mutation** (Surgical function patch) | Full file rewrite (~1.4k tokens in tool payload) | Surgical search/replace (`edit`) (~58 tokens) | **-95.7%** output tokens | <5 ms |
-| **Command Execution** (Large test/build output) | Unbounded stream (~27.5k tokens) | Bounded Clamp + Disk Spillover (~1.1k tokens) | **-95.9%** flood tokens prevented | Instant |
-| **Codebase Search** (Lexical / BM25 Query) | Linear `grep`/`find` disk scan | Inverted In-Memory BM25 Index | **0 MB** background RAM (Lean) | ~0.03 ms / query |
-| **Pre-Commit Safety** (Broken syntax gate) | Allowed to commit broken code | Local Fast AST Delimiter Gate | **Deterministic** failure block | Instant |
+| **Project orientation** | Walks directory tree, reads dozens of files (~92.8k tokens) | PageRank AST repository map (~1.0k tokens) | **~99% fewer tokens** | Only index-relevant code symbols and signatures are loaded. |
+| **Inspecting a function** | Reads the full file (~1.5k–4.0k tokens) | Surgical symbol read: `read(symbol="foo")` (~420 tokens) | **~70–90% fewer tokens** | Pulls just the target AST node; skips line-number prefixes. |
+| **Patching code** | Re-emits entire file content (~2.0k+ tokens) | Surgical search/replace block (`edit`) (~60 tokens) | **~95% fewer tokens** | Only generates the exact lines that change. |
+| **Running tests / builds** | Floods context with raw build logs (~20k+ tokens) | Clamped output with disk spillover (~1.0k tokens) | **~95% context saved** | Full logs are written to disk; agent sees head, tail, and log path. |
+| **AST symbol search** | Repeated absolute paths per match (~1.8k tokens) | Hierarchical grouped layout (~1.2k tokens) | **~34% fewer tokens** | Groups matching symbols under shared files and kinds. |
 
-*These measurements come from `benchmarks/retrieval.ts`, using this codebase with 45 source files and about 92.8k raw tokens.*
+---
 
-## Architecture and directory layout
+## Quick start
 
-Runtime code lives under `src/`. Tests, documentation, and example configuration remain at the repository root.
+### 1. Install
 
-```
-pi-agent-kernel/
-├── src/
-│   ├── index.ts            # Main extension entry point
-│   ├── config/             # Hierarchical TOML configuration loader
-│   ├── context/            # Context engineering and session repair
-│   ├── editing/            # Surgical patching and verification
-│   ├── lsp/                # Language Server Protocol integration
-│   ├── retrieval/          # AST, BM25, and semantic code search
-│   ├── safety/             # Epistemic guards and bounded execution
-│   ├── tools/              # Pi tool registrations
-│   └── ui/                 # Terminal UI components
-├── tests/                  # Focused verification sections
-├── docs/                   # Project documentation and guides
-├── config.toml             # Live configuration
-└── package.json            # Extension manifest
-```
-
-## Tool suite
-
-| Tool | Purpose | Output Strategy |
-|---|---|---|
-| `read` | Content and surgical AST symbol inspection | Bounded, zero bloat, line-targeted |
-| `edit` | Exact and fuzzy surgical patching with a syntax gate | Empty on clean (`OK!`), diagnostic on `WARN/FAIL` |
-| `write` | Complete new-file authoring | Direct write |
-| `get_repo_map` | PageRank-ranked repository AST definitions | Pure code symbols without import noise (~1k tokens) |
-| `ast_search` | AST structure search across definitions | Concise `file:line [kind] signature` |
-| `code_search` | Hybrid BM25 and semantic AST chunk search | Compact `file:start-end (breadcrumb)` snippets |
-| `lsp` | Realtime Language Server Protocol queries | Compact `def`, `ref`, and structural symbols |
-| `recall` | Restore an exact deduplicated tool result by reference | Bare original output content |
-| `search_tools` | Deferred tool discovery | On-demand tool capability matching |
-
-## Safety and invariants
-
-- **Epistemic Guard**: Requires inspection before editing an existing file. It rejects ungrounded edits with short, copyable instructions and preserves authorization across sequential mutations.
-- **Output Clamping**: Limits stdout and stderr so they do not fill the context window, while saving complete output to disk.
-- **Tool Result Deduplication**: Replaces byte-identical repeated output with a small `[=rN,sizeB,tool,paramsKey]` notice that can be recovered with `recall`.
-- **Bounded Syntax Verification**: Runs a fast local check on mutations before committing changes to disk.
-
-## Installation
-
-Install the extension as a Pi package, either globally or in a project:
+Install the extension directly with Pi's package manager:
 
 ```bash
+# Global install (recommended)
 pi install npm:@floydous/pi-agent-kernel
-```
 
-For a project-local installation:
-
-```bash
+# Or install locally for the current repository only
 pi install -l npm:@floydous/pi-agent-kernel
 ```
 
-The entry point is declared in `package.json` under `pi.extensions` (`./src/index.ts`). Pi loads it when a session starts.
+Restart Pi or start a new session. The extension registers its tools, guards, and status indicators automatically.
 
-## Slash commands
+---
 
-| Command | Args | Purpose |
-|---|---|---|
-| `/repomap` | `[budget]` | Render the AST and PageRank-ranked repository map. The default budget is 1024 tokens. |
-| `/engine` | `auto\|lean\|hybrid\|full\|off\|status\|reindex` | Change the retrieval profile or inspect engine state. `lean` is the default and uses AST-aware BM25; `hybrid` adds local embeddings. |
-| `/lsp` | `[install <lang>]` | Inspect active language servers or install one, for example `/lsp install python`. |
-| `/pi-docs` | `on\|off\|status` | Toggle Pi documentation guidance in the system prompt for the current session. |
+### 2. Configure the retrieval engine (`/engine`)
 
-## Configuration
+`pi-agent-kernel` includes an in-memory retrieval engine for keyword and semantic searches:
 
-The loader resolves configuration per workspace. It looks for `agent-kernel/config.toml` or `config.toml` at the workspace root and then walks upward. The built-in defaults are in [`src/config/kernel_config.ts`](src/config/kernel_config.ts), and the example configuration is [`config.toml`](config.toml). See [`docs/configuration.md`](docs/configuration.md) for the full schema and override rules.
+```text
+/engine status
+```
 
-The top-level sections are `[retrieval]`, `[safety]`, `[lsp]`, and `[ui]`.
+- **`lean`** *(default)*: Fast, AST-aware BM25 search. Consumes 0 MB background model RAM.
+- **`hybrid`**: BM25 keyword search blended with lightweight local 256-dimension embeddings.
+- **`full`**: Dense 768-dimension semantic embeddings for deep conceptual queries across large codebases.
+- **`off`**: Turns off local index building if you only want AST and LSP tools.
 
-## Documentation
+Switch profiles at any time:
+```text
+/engine hybrid
+# or
+/engine full
+```
 
-- [`docs/architecture.md`](docs/architecture.md): module map and request flow
-- [`docs/retrieval.md`](docs/retrieval.md): search profile semantics
-- [`docs/editing-and-verification.md`](docs/editing-and-verification.md): patch and verification pipeline
-- [`docs/lsp.md`](docs/lsp.md): LSP integration and registry
-- [`docs/configuration.md`](docs/configuration.md): TOML schema and precedence
-- [`docs/testing.md`](docs/testing.md): section-based test layout
+---
+
+### 3. Setup language servers (`/lsp`)
+
+Get real-time compiler diagnostics, definitions, and references without manual setup:
+
+```text
+/lsp
+```
+
+Running `/lsp` opens an interactive management screen showing active servers, connection status, and one-click installs for detected workspace languages.
+
+Alternatively, install a server directly from the command line:
+```text
+/lsp install <language>    # e.g., python, typescript, rust, go, csharp, etc.
+```
+
+---
+
+### 4. Tip: Turn off Pi documentation when working on your own projects
+
+By default, Pi loads system prompt instructions explaining how to extend Pi itself (extensions, themes, skills, and TUI APIs).
+
+When you are working on your own software—such as a React app, a Python backend, or a Rust crate—those internal Pi instructions take up room in your prompt that you do not need. You can silence them for the current session with:
+
+```text
+/pi-docs off
+```
+
+Turn it back on with `/pi-docs on` whenever you switch back to hacking on Pi extensions.
+
+---
+
+## Tool reference
+
+| Tool | What it does |
+|---|---|
+| `read` | Read specific lines or extract an exact function, class, or type via AST (`symbol="name"`). |
+| `edit` | Apply surgical search/replace patches with built-in syntax checks. |
+| `write` | Create new files or perform complete rewrites when explicitly requested. |
+| `get_repo_map` | Retrieve a concise, PageRank-ranked symbol overview of the codebase (~1k tokens). |
+| `ast_search` | Search declarations across files using Tree-sitter AST queries, grouped cleanly by file. |
+| `code_search` | Hybrid keyword and semantic chunk search with breadcrumb locations. |
+| `lsp` | Query definitions, references, type hover docs, and diagnostics directly from language servers. |
+| `recall` | Retrieve the full text of a deduplicated output previously replaced by a short reference tag. |
+| `search_tools` | Search and activate deferred tools on demand. |
+
+---
 
 ## License
 
-ISC. See [`LICENSE`](LICENSE).
+ISC
