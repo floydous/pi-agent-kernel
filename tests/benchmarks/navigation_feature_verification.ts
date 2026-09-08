@@ -122,8 +122,17 @@ export async function run(): Promise<void> {
 		undefined,
 		ctx,
 	);
+	const bareDefinition = await lsp.execute(
+		"lsp-bare-definition",
+		{ action: "definition", symbol: "withConnection" },
+		undefined,
+		undefined,
+		ctx,
+	);
 	assertTextContains("definition result path", text(definition), "src/app.ts");
 	assert.ok(/:27(?::18)?/.test(text(definition)), `definition should resolve line 27: ${text(definition)}`);
+	assertTextContains("bare definition result path", text(bareDefinition), "src/app.ts");
+	assertTextContains("bare definition unique match", text(bareDefinition), "unique match for 'withConnection'");
 	assertTextContains("conservative diagnostics", text(diagnostics), "LSP");
 	assert.ok(
 		directoryDiagnostics.isError || /directory|file/i.test(text(directoryDiagnostics)),
@@ -198,6 +207,7 @@ export async function run(): Promise<void> {
 			},
 			lsp: {
 				definitionBytes: bytes(text(definition)),
+				bareDefinitionBytes: bytes(text(bareDefinition)),
 				diagnosticsBytes: bytes(text(diagnostics)),
 				directoryDiagnostics: text(directoryDiagnostics),
 			},

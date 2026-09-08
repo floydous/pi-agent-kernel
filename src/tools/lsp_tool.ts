@@ -46,7 +46,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				description:
 					"LSP operation: 'definition' | 'references' | 'hover' | 'document_symbols' | 'diagnostics'",
 			}),
-			path: Type.String({ description: "File path (absolute or relative)" }),
+			path: Type.Optional(Type.String({ description: "File path (absolute or relative; optional for definition when symbol is provided)" })),
 			line: Type.Optional(
 				Type.Number({
 					description:
@@ -84,27 +84,17 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 			if (
 				!params ||
 				typeof params !== "object" ||
-				typeof params.path !== "string" ||
-				!params.path.trim() ||
 				!["definition", "references", "hover", "document_symbols", "diagnostics"].includes(params.action)
 			) {
 				return {
-					content: [{ type: "text", text: "[LSP ERROR] Invalid action or file path." }],
+					content: [{ type: "text", text: "[LSP ERROR] Invalid action or parameters." }],
 					isError: true,
 				};
 			}
 			const action = params.action;
-			const targetPath = params.path;
-			if (
-				typeof targetPath !== "string" ||
-				!targetPath.trim() ||
-				!["definition", "references", "hover", "document_symbols", "diagnostics"].includes(action)
-			) {
-				return {
-					content: [{ type: "text", text: "[LSP ERROR] Invalid action or file path." }],
-					isError: true,
-				};
-			}
+			const targetPath = typeof params.path === "string" ? params.path.trim() : "";
+			const requestedSymbol = typeof params.symbol === "string" ? params.symbol.trim() : "";
+
 			const result = (
 				text: string,
 				source?: "lsp" | "tree-sitter" | "syntax-check",
@@ -115,6 +105,74 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				details: { action, ...(source ? { source } : {}), ...extra },
 				...(isError ? { isError: true } : {}),
 			});
+
+			// Bare-symbol definition lookup: path is omitted, resolve workspace-wide
+			if (!targetPath) {
+				if (action !== "definition") {
+					return result(
+						`[LSP ERROR] 'path' is required for action '${action}'.`,
+						undefined,
+						{ error: "missing_path" },
+						true,
+					);
+				}
+				if (!requestedSymbol) {
+					return result(
+						"[LSP ERROR] 'symbol' is required for workspace definition lookup when 'path' is omitted.",
+						undefined,
+						{ error: "missing_symbol" },
+						true,
+					);
+				}
+
+				// Resolve workspace-wide using searchAstSymbols with exact match first
+				let astHits = searchAstSymbols(ctx.cwd, {
+					name: requestedSymbol,
+					exactMatch: true,
+				});
+				if (astHits.length === 0) {
+					astHits = searchAstSymbols(ctx.cwd, {
+						name: requestedSymbol,
+						exactMatch: false,
+					});
+				}
+
+				if (astHits.length === 0) {
+					return result(
+						`Definition not found for symbol '${requestedSymbol}' in workspace.`,
+						"tree-sitter",
+						{ count: 0, symbol: requestedSymbol },
+					);
+				}
+
+				if (astHits.length === 1) {
+					const hit = astHits[0];
+					const aliasInfo = hit.aliasedFrom
+						? `\n     (aliased from '${hit.aliasedFrom.originalName}' in ${hit.aliasedFrom.module || "workspace"})`
+						: "";
+					return result(
+						`[Tree-sitter AST Definition - unique match for '${requestedSymbol}']\n  → [${hit.kind}] ${hit.name} (${hit.filePath}:${hit.line})\n     Signature: ${hit.signature}${aliasInfo}`,
+						"tree-sitter",
+						{ count: 1, symbol: requestedSymbol },
+					);
+				}
+
+				// Ambiguous matches: bounded candidate list (up to 5 candidates)
+				const formatted = astHits
+					.slice(0, 5)
+					.map((h) => {
+						const aliasInfo = h.aliasedFrom
+							? `\n     (aliased from '${h.aliasedFrom.originalName}' in ${h.aliasedFrom.module || "workspace"})`
+							: "";
+						return `  → [${h.kind}] ${h.name} (${h.filePath}:${h.line})\n     Signature: ${h.signature}${aliasInfo}`;
+					})
+					.join("\n");
+				return result(
+					`[Tree-sitter AST Definition - ${astHits.length} matches for '${requestedSymbol}']\n${formatted}`,
+					"tree-sitter",
+					{ count: astHits.length, symbol: requestedSymbol },
+				);
+			}
 			const absPath = path.isAbsolute(targetPath)
 				? targetPath
 				: path.resolve(ctx.cwd, targetPath);
@@ -148,7 +206,6 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 			// Intentionally no epistemic read record: the source buffer is an
 			// implementation input, not content returned by the LSP operation.
 
-			const requestedSymbol = typeof params.symbol === "string" ? params.symbol.trim() : "";
 			let line0 = Math.max(0, (params.line || 1) - 1);
 			let col0 = Math.max(0, (params.character || 1) - 1);
 
