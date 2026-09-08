@@ -4,11 +4,13 @@
 import { runSuite } from "../_setup";
 import { testPolyglotSymbolReader } from "./polyglot_symbols_test";
 import { testMonolithicPythonFile } from "./monolithic_test";
+import { testSymbolSuggestions } from "./symbol_suggestion_test";
 
 export async function run(): Promise<void> {
 	await runSuite("Targeted Symbol Reader Suite", async () => {
 		await testPolyglotSymbolReader();
 		testMonolithicPythonFile();
+		await testSymbolSuggestions();
 	});
 }
 

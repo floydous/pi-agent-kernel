@@ -928,3 +928,108 @@ export function searchAstSymbols(
 
 	return deduped;
 }
+
+export function levenshteinDistance(a: string, b: string): number {
+	if (a === b) return 0;
+	if (!a.length) return b.length;
+	if (!b.length) return a.length;
+	const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+	for (let i = 1; i <= a.length; i++) {
+		let prev = row[0];
+		row[0] = i;
+		for (let j = 1; j <= b.length; j++) {
+			const next = row[j];
+			row[j] = Math.min(
+				row[j] + 1,
+				row[j - 1] + 1,
+				prev + (a[i - 1] === b[j - 1] ? 0 : 1),
+			);
+			prev = next;
+		}
+	}
+	return row[b.length];
+}
+
+export interface SymbolSuggestion {
+	name: string;
+	filePath: string;
+	line: number;
+	kind: string;
+	signature: string;
+}
+
+export function findSymbolSuggestions(
+	cwd: string,
+	targetFilePath: string,
+	query: string,
+	maxCandidates = 3,
+): SymbolSuggestion[] {
+	if (!query || !query.trim()) return [];
+	const qTrim = query.trim();
+	const qLower = qTrim.toLowerCase();
+	const relTarget = path.relative(cwd, targetFilePath).replace(/\\/g, "/");
+
+	// 1. Search AST symbols across workspace matching query substring
+	let hits = searchAstSymbols(cwd, { name: qTrim, exactMatch: false });
+
+	// 2. If no hits, search symbols in the target file specifically (handles substitutions/transpositions)
+	if (hits.length === 0) {
+		hits = searchAstSymbols(cwd, { filePattern: relTarget || targetFilePath, exactMatch: false });
+	}
+
+	if (hits.length === 0) return [];
+
+	const maxDistance =
+		qLower.length <= 3 ? 1 : qLower.length <= 6 ? 2 : Math.max(3, Math.floor(qLower.length * 0.35));
+
+	const scored = hits
+		.filter((h) => {
+			const nameLower = h.name.toLowerCase();
+			if (nameLower === qLower) return true;
+			if (nameLower.includes(qLower) || qLower.includes(nameLower)) return true;
+			const dist = levenshteinDistance(qLower, nameLower);
+			return dist <= maxDistance;
+		})
+		.map((h) => {
+			const nameLower = h.name.toLowerCase();
+			const dist = levenshteinDistance(qLower, nameLower);
+			const normHitPath = h.filePath.replace(/\\/g, "/");
+			const isSameFile =
+				normHitPath === relTarget ||
+				path.resolve(cwd, normHitPath) === path.resolve(cwd, targetFilePath);
+			const exactCaseSub = h.name.includes(qTrim);
+			return {
+				hit: h,
+				dist,
+				isSameFile,
+				exactCaseSub,
+				lengthDiff: Math.abs(h.name.length - qTrim.length),
+			};
+		})
+		.sort((a, b) => {
+			if (a.isSameFile !== b.isSameFile) return a.isSameFile ? -1 : 1;
+			if (a.dist !== b.dist) return a.dist - b.dist;
+			if (a.exactCaseSub !== b.exactCaseSub) return a.exactCaseSub ? -1 : 1;
+			if (a.lengthDiff !== b.lengthDiff) return a.lengthDiff - b.lengthDiff;
+			return a.hit.line - b.hit.line;
+		});
+
+	const seen = new Set<string>();
+	const results: SymbolSuggestion[] = [];
+	for (const item of scored) {
+		const normPath = item.hit.filePath.replace(/\\/g, "/");
+		const key = `${normPath}:${item.hit.name}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		results.push({
+			name: item.hit.name,
+			filePath: normPath,
+			line: item.hit.line,
+			kind: item.hit.kind,
+			signature: item.hit.signature,
+		});
+		if (results.length >= maxCandidates) break;
+	}
+
+	return results;
+}

@@ -4,6 +4,7 @@ import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { extractSymbolContent } from "../retrieval/symbol_reader";
+import { findSymbolSuggestions } from "../retrieval/ast_search";
 import {
 	globalEpistemicGuard,
 	resolveUserPath,
@@ -107,15 +108,37 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				);
 
 				if (!res.found) {
+					const suggestions = findSymbolSuggestions(
+						ctx.cwd,
+						resolvedPath,
+						sym,
+					);
+					let errorText: string;
+					if (res.error) {
+						errorText = res.error;
+					} else if (suggestions.length > 0) {
+						const formattedSuggestions = suggestions
+							.map(
+								(s) =>
+									`- ${s.name} (${s.filePath}:${s.line}) [${s.kind}] ${s.signature}`,
+							)
+							.join("\n");
+						errorText = `Symbol '${sym}' not found in ${params.path}.\nDid you mean:\n${formattedSuggestions}`;
+					} else {
+						errorText = `Symbol '${sym}' not found in ${params.path}. Use 'ast_search' to locate symbols or 'rg' in bash to search text.`;
+					}
 					return {
-						content: [
-							{
-								type: "text",
-								text:
-									res.error ||
-									`Symbol '${sym}' not found in ${params.path}. Use 'ast_search' to locate symbols or 'rg' in bash to search text.`,
-							},
-						],
+						content: [{ type: "text", text: errorText }],
+						details: {
+							error: "symbol_not_found",
+							query: sym,
+							candidates: suggestions.map((s) => ({
+								name: s.name,
+								filePath: s.filePath,
+								line: s.line,
+								kind: s.kind,
+							})),
+						},
 						isError: true,
 					};
 				}
