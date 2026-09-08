@@ -105,17 +105,30 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					isError: true,
 				};
 			}
+			const result = (
+				text: string,
+				source?: "lsp" | "tree-sitter" | "syntax-check",
+				extra: Record<string, unknown> = {},
+				isError = false,
+			) => ({
+				content: [{ type: "text", text }],
+				details: { action, ...(source ? { source } : {}), ...extra },
+				...(isError ? { isError: true } : {}),
+			});
 			const absPath = path.isAbsolute(targetPath)
 				? targetPath
 				: path.resolve(ctx.cwd, targetPath);
 
 			if (!fs.existsSync(absPath)) {
-				return {
-					content: [
-						{ type: "text", text: `[LSP ERROR] File not found: ${targetPath}` },
-					],
-					isError: true,
-				};
+				return result(`[LSP ERROR] File not found: ${targetPath}`, undefined, { error: "file_not_found" }, true);
+			}
+			if (fs.statSync(absPath).isDirectory()) {
+				return result(
+					`[LSP ERROR] Diagnostics requires a file, not directory: ${targetPath}`,
+					undefined,
+					{ error: "directory_path" },
+					true,
+				);
 			}
 
 			// Read the source only for local cursor/symbol resolution. An LSP query
@@ -125,12 +138,12 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 			try {
 				observedContent = fs.readFileSync(absPath);
 			} catch (error: any) {
-				return {
-					content: [
-						{ type: "text", text: `[LSP ERROR] Unable to read ${targetPath}: ${error.message}` },
-					],
-					isError: true,
-				};
+				return result(
+					`[LSP ERROR] Unable to read ${targetPath}: ${error.message}`,
+					undefined,
+					{ error: "read_failed" },
+					true,
+				);
 			}
 			// Intentionally no epistemic read record: the source buffer is an
 			// implementation input, not content returned by the LSP operation.
@@ -235,23 +248,13 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						const formatted = docSyms
 							.map((s) => `${s.line}: [${s.kind}] ${s.name} - ${s.signature}`)
 							.join("\n");
-						return {
-							content: [
-								{
-									type: "text",
-									text: formatted,
-								},
-							],
-						};
+						return result(formatted, "tree-sitter", { count: docSyms.length });
 					}
-					return {
-						content: [
-							{
-								type: "text",
-								text: `No symbols found in ${path.basename(absPath)}.`,
-							},
-						],
-					};
+					return result(
+						`No symbols found in ${path.basename(absPath)}.`,
+						"tree-sitter",
+						{ count: 0 },
+					);
 				}
 
 				if (action === "references") {
@@ -268,19 +271,10 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 									return `${r.filePath}:${r.line}:${r.column}: ${snippet}`;
 								})
 								.join("\n");
-							return {
-								content: [
-									{
-										type: "text",
-										text: formatted,
-									},
-								],
-							};
+							return result(formatted, "tree-sitter", { count: refs.length });
 						}
 					}
-					return {
-						content: [{ type: "text", text: "No references found in workspace." }],
-					};
+					return result("No references found in workspace.", "tree-sitter", { count: 0 });
 				}
 
 				if (action === "hover") {
@@ -294,7 +288,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							targetSym,
 						);
 						if (localHover) {
-							return { content: [{ type: "text", text: localHover }] };
+							return result(localHover, "tree-sitter");
 						}
 						const astHits = searchAstSymbols(ctx.cwd, {
 							name: targetSym,
@@ -303,24 +297,13 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						});
 						if (astHits.length > 0) {
 							const hit = astHits[0];
-							return {
-								content: [
-									{
-										type: "text",
-										text: `[Tree-sitter AST Hover - ${hit.kind} ${hit.name}]\n${hit.signature}\nDeclared in ${hit.filePath}:${hit.line}`,
-									},
-								],
-							};
+							return result(
+								`[Tree-sitter AST Hover - ${hit.kind} ${hit.name}]\n${hit.signature}\nDeclared in ${hit.filePath}:${hit.line}`,
+								"tree-sitter",
+							);
 						}
 					}
-					return {
-						content: [
-							{
-								type: "text",
-								text: "No hover information available at this position.",
-							},
-						],
-					};
+					return result("No hover information available at this position.", "tree-sitter");
 				}
 
 				if (action === "definition") {
@@ -341,14 +324,10 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						for (const cand of candidates) {
 							if (fs.existsSync(cand) && cand !== absPath) {
 								const rel = path.relative(ctx.cwd, cand).replace(/\\/g, "/");
-								return {
-									content: [
-										{
-											type: "text",
-											text: `[Tree-sitter AST Definition - module '${targetSym}']\n  → [module] ${targetSym} (${rel}:1)\n     Module file in workspace`,
-										},
-									],
-								};
+								return result(
+									`[Tree-sitter AST Definition - module '${targetSym}']\n  → [module] ${targetSym} (${rel}:1)\n     Module file in workspace`,
+									"tree-sitter",
+								);
 							}
 						}
 
@@ -389,70 +368,48 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 									return `  → [${h.kind}] ${h.name} (${h.filePath}:${h.line})\n     Signature: ${h.signature}${aliasInfo}`;
 								})
 								.join("\n");
-							return {
-								content: [
-									{
-										type: "text",
-										text: `[Tree-sitter AST Definition - ${astHits.length} match(es) for '${targetSym}']\n${formatted}`,
-									},
-								],
-							};
+							return result(
+								`[Tree-sitter AST Definition - ${astHits.length} match(es) for '${targetSym}']\n${formatted}`,
+								"tree-sitter",
+								{ count: astHits.length },
+							);
 						}
 					}
-					return {
-						content: [{ type: "text", text: "Definition not found." }],
-					};
+					return result("Definition not found.", "tree-sitter", { count: 0 });
 				}
 
 				if (action === "diagnostics") {
 					const syn = checkSyntax(absPath);
 					if (!syn.valid) {
 						const status = syn.status || "failed";
-						return {
-							content: [
-								{
-									type: "text",
-									text: `- [1:1] [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
-								},
-							],
-						};
+						return result(
+							`- [1:1] [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
+							"syntax-check",
+							{ status },
+						);
 					}
 					const relPath = path.relative(ctx.cwd, absPath).replace(/\\/g, "/") || absPath;
-					return {
-						content: [
-							{
-								type: "text",
-								text: `${relPath} clean`,
-							},
-						],
-					};
+					return result(`${relPath} clean`, "syntax-check", { status: "clean" });
 				}
 
-				return {
-					content: [
-						{
-							type: "text",
-							text: `[LSP Notice] No installed LSP server found for ${path.basename(absPath)}. Use 'ast_search' or run '/lsp install' to configure an LSP server.`,
-						},
-					],
-				};
+				return result(
+					`[LSP Notice] No installed LSP server found for ${path.basename(absPath)}. Use 'ast_search' or run '/lsp install' to configure an LSP server.`,
+					"tree-sitter",
+					{ status: "unavailable" },
+				);
 			}
 
 			try {
 				if (action === "definition") {
 					const defs = await client.gotoDefinition(absPath, line0, col0);
 					if (defs.length > 0) {
-						return {
-							content: [{ type: "text", text: formatDefinitions(defs, ctx.cwd) }],
-						};
+						return result(formatDefinitions(defs, ctx.cwd), "lsp", { count: defs.length });
 					}
 					// Only fallback to Tree-sitter AST for programming languages when LSP is unavailable or errored
 					const ext = path.extname(absPath).toLowerCase();
 					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
 					if (nonCodeExts.includes(ext)) {
-						return {
-							content: [{ type: "text", text: formatDefinitions(defs, ctx.cwd) }],
-						};
+						return result(formatDefinitions(defs, ctx.cwd), "lsp", { count: defs.length });
 					}
 
 					// Tree-sitter fallback with exact symbol ranking
@@ -491,20 +448,15 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 									return `  → [${h.kind}] ${h.name} (${h.filePath}:${h.line})\n     Signature: ${h.signature}${aliasInfo}`;
 								})
 								.join("\n");
-							return {
-								content: [
-									{
-										type: "text",
-										text: `[Tree-sitter AST Fallback - ${astHits.length} declaration match(es) for '${targetSym}']\n${formatted}`,
-									},
-								],
-							};
+							return result(
+								`[Tree-sitter AST Local Fallback - ${astHits.length} declaration match(es) for '${targetSym}']\n${formatted}`,
+								"tree-sitter",
+								{ count: astHits.length },
+							);
 						}
 					}
 
-					return {
-						content: [{ type: "text", text: formatDefinitions(defs, ctx.cwd) }],
-					};
+					return result(formatDefinitions(defs, ctx.cwd), "lsp", { count: defs.length });
 				}
 
 				if (action === "references") {
@@ -545,17 +497,13 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					if (refs.length > 0) {
 						refs = filterRefs(refs);
 						if (refs.length > 0) {
-							return {
-								content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
-							};
+							return result(formatReferences(refs, ctx.cwd), "lsp", { count: refs.length });
 						}
 					}
 					const ext = path.extname(absPath).toLowerCase();
 					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
 					if (nonCodeExts.includes(ext)) {
-						return {
-							content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
-						};
+						return result(formatReferences(refs, ctx.cwd), "lsp", { count: refs.length });
 					}
 
 					// Workspace-wide symbol reference search fallback
@@ -598,19 +546,10 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 									return `${r.filePath}:${r.line}:${r.column}: ${snippet}`;
 								})
 								.join("\n");
-							return {
-								content: [
-									{
-										type: "text",
-										text: formatted,
-									},
-								],
-							};
+							return result(formatted, "tree-sitter", { count: astRefs.length });
 						}
 					}
-					return {
-						content: [{ type: "text", text: formatReferences(refs, ctx.cwd) }],
-					};
+					return result(formatReferences(refs, ctx.cwd), "lsp", { count: refs.length });
 				}
 
 				if (action === "hover") {
@@ -638,32 +577,31 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 								const candidateHover = await candidateClient.hover(candidatePath, candidateLine, candidateColumn);
 								const candidateHoverText = formatHover(candidateHover);
 								if (candidateHover && !candidateHoverText.startsWith("No hover information")) {
-									return { content: [{ type: "text", text: candidateHoverText }] };
+									return result(candidateHoverText, "lsp");
 								}
 							}
-							return {
-								content: [{ type: "text", text: `[AST Hover] ${candidate.kind} ${candidate.name}\n${candidate.signature}\nDeclared in ${candidate.filePath}:${candidate.line}` }],
-							};
+							return result(
+								`[AST Hover] ${candidate.kind} ${candidate.name}\n${candidate.signature}\nDeclared in ${candidate.filePath}:${candidate.line}`,
+								"tree-sitter",
+							);
 						}
 						if (candidates.length > 1) {
-							return {
-								content: [{ type: "text", text: `Multiple declarations found for '${requestedSymbol}':\n${candidates.slice(0, 10).map((candidate) => `- ${candidate.filePath}:${candidate.line} [${candidate.kind}] ${candidate.signature}`).join("\n")}` }],
-							};
+							return result(
+								`Multiple declarations found for '${requestedSymbol}':\n${candidates.slice(0, 10).map((candidate) => `- ${candidate.filePath}:${candidate.line} [${candidate.kind}] ${candidate.signature}`).join("\n")}`,
+								"tree-sitter",
+								{ count: candidates.length },
+							);
 						}
 					}
 					const h = await client.hover(absPath, line0, col0);
 					const hoverText = formatHover(h);
 					if (h && !hoverText.startsWith("No hover information")) {
-						return {
-							content: [{ type: "text", text: hoverText }],
-						};
+						return result(hoverText, "lsp");
 					}
 					const ext = path.extname(absPath).toLowerCase();
 					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
 					if (nonCodeExts.includes(ext)) {
-						return {
-							content: [{ type: "text", text: hoverText }],
-						};
+						return result(hoverText, "lsp");
 					}
 
 					// Tree-sitter local variable / parameter / symbol hover fallback
@@ -677,7 +615,7 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 							targetSym,
 						);
 						if (localHover) {
-							return { content: [{ type: "text", text: localHover }] };
+							return result(localHover, "tree-sitter");
 						}
 						const astHits = searchAstSymbols(ctx.cwd, {
 							name: targetSym,
@@ -685,116 +623,79 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						});
 						if (astHits.length > 0) {
 							const hit = astHits[0];
-							return {
-								content: [
-									{
-										type: "text",
-										text: `[Tree-sitter AST Hover - ${hit.kind} ${hit.name}]\n${hit.signature}\nDeclared in ${hit.filePath}:${hit.line}`,
-									},
-								],
-							};
+							return result(
+								`[Tree-sitter AST Hover - ${hit.kind} ${hit.name}]\n${hit.signature}\nDeclared in ${hit.filePath}:${hit.line}`,
+								"tree-sitter",
+							);
 						}
 					}
 
-					return {
-						content: [{ type: "text", text: hoverText }],
-					};
+					return result(hoverText, "lsp");
 				}
 
 				if (action === "document_symbols") {
 					const syms = await client.documentSymbol(absPath);
 					if (syms.length > 0) {
-						return {
-							content: [{ type: "text", text: formatDocumentSymbols(syms) }],
-						};
+						return result(formatDocumentSymbols(syms), "lsp", { count: syms.length });
 					}
 					const ext = path.extname(absPath).toLowerCase();
 					const nonCodeExts = [".md", ".markdown", ".json", ".jsonc", ".yaml", ".yml", ".toml", ".proto", ".txt"];
 					if (nonCodeExts.includes(ext)) {
-						return {
-							content: [{ type: "text", text: formatDocumentSymbols(syms) }],
-						};
+						return result(formatDocumentSymbols(syms), "lsp", { count: syms.length });
 					}
 					const docSyms = extractDocumentSymbols(absPath);
 					if (docSyms.length > 0) {
 						const formatted = docSyms
 							.map((s) => `• [${s.kind}] ${s.name} (line ${s.line}) - ${s.signature}`)
 							.join("\n");
-						return {
-							content: [
-								{
-									type: "text",
-									text: `[Tree-sitter AST Document Symbols - ${docSyms.length} symbol(s)]\n${formatted}`,
-								},
-							],
-						};
+						return result(
+							`[Tree-sitter AST Document Symbols - ${docSyms.length} symbol(s)]\n${formatted}`,
+							"tree-sitter",
+							{ count: docSyms.length },
+						);
 					}
-					return {
-						content: [
-							{
-								type: "text",
-								text: `[Tree-sitter AST] No symbols found in ${path.basename(absPath)}.`,
-							},
-						],
-					};
+					return result(
+						`[Tree-sitter AST] No symbols found in ${path.basename(absPath)}.`,
+						"tree-sitter",
+						{ count: 0 },
+					);
 				}
 
 				if (action === "diagnostics") {
 					const diagnosticResult = await client.getDiagnosticsResult(absPath);
 					if (diagnosticResult.diagnostics.length > 0) {
-						return {
-							content: [
-								{ type: "text", text: formatDiagnostics(diagnosticResult.diagnostics, absPath, ctx.cwd) },
-							],
-						};
+						return result(
+							formatDiagnostics(diagnosticResult.diagnostics, absPath, ctx.cwd),
+							"lsp",
+							{ status: diagnosticResult.status, count: diagnosticResult.diagnostics.length },
+						);
 					}
 
 					const syn = checkSyntax(absPath);
 					if (!syn.valid) {
 						const status = syn.status || "failed";
-						return {
-							content: [
-								{
-									type: "text",
-									text: `- [1:1] [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
-								},
-							],
-						};
+						return result(
+							`- [1:1] [${status.toUpperCase()}] Syntax validation: ${syn.error}`,
+							"syntax-check",
+							{ status },
+						);
 					}
 
 					if (diagnosticResult.status !== "clean") {
-						return {
-							content: [
-								{
-									type: "text",
-									text: `[LSP ${diagnosticResult.status.toUpperCase()}] No definitive diagnostics result for ${path.relative(ctx.cwd, absPath)} (syntax validation passed).`,
-								},
-							],
-						};
+						return result(
+							`[LSP ${diagnosticResult.status.toUpperCase()}] No definitive diagnostics result for ${path.relative(ctx.cwd, absPath)} (syntax validation passed).`,
+							"lsp",
+							{ status: diagnosticResult.status, count: 0 },
+						);
 					}
 
 					const relPath = path.relative(ctx.cwd, absPath).replace(/\\/g, "/") || absPath;
-					return {
-						content: [
-							{
-								type: "text",
-								text: `${relPath} clean`,
-							},
-						],
-					};
+					return result(`${relPath} clean`, "lsp", { status: "clean", count: 0 });
 				}
 
-				return {
-					content: [
-						{ type: "text", text: `[LSP ERROR] Unsupported action: ${action}` },
-					],
-					isError: true,
-				};
+				return result(`[LSP ERROR] Unsupported action: ${action}`, undefined, { error: "unsupported_action" }, true);
 			} catch (err: any) {
-				return {
-					content: [{ type: "text", text: `[LSP ERROR] ${err.message}` }],
-					isError: true,
-				};
+				return result(`[LSP ERROR] ${err.message}`, undefined, { error: "query_failed" }, true);
 			}
 		},
 		renderCall(args: any, theme: any, context: any) {
