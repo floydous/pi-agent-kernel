@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
-import * as path from "node:path";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
+import { formatCodeSearchResults, CODE_SEARCH_MODES, type CodeSearchMode } from "./code_search_output";
 import type { SearchDeps } from "./context";
 
 /** Extracted from index.ts — registers the `code_search` tool. */
@@ -15,7 +15,7 @@ export function registerCodeSearchTool(
 		name: "code_search",
 		label: "Codebase Search",
 		description:
-			"Search the codebase using hybrid BM25 and semantic ranking across AST-bounded code chunks with hierarchical breadcrumbs. Ideal for conceptual queries, keywords, and finding relevant functions.",
+			"Search the codebase using hybrid BM25 and semantic ranking across AST-bounded code chunks. Automatic output preserves compact, query-focused context; use mode 'full' for complete bodies, and scope 'all' or 'prose' to include documentation.",
 		promptSnippet:
 			"Search codebase conceptually or by keywords via hybrid AST index",
 		renderShell: "default",
@@ -41,6 +41,16 @@ export function registerCodeSearchTool(
 					description: "Optional RRF smoothing constant from 1 to 200 (default: 60)",
 				}),
 			),
+			mode: Type.Optional(
+				Type.Union(CODE_SEARCH_MODES.map((mode) => Type.Literal(mode))),
+			),
+			scope: Type.Optional(
+				Type.Union([
+					Type.Literal("code"),
+					Type.Literal("all"),
+					Type.Literal("prose"),
+				]),
+			),
 		}),
 		async execute(
 			_toolCallId: string,
@@ -53,6 +63,30 @@ export function registerCodeSearchTool(
 			if (!query) {
 				return {
 					content: [{ type: "text", text: "[ERROR] Search query cannot be empty." }],
+					details: { count: 0 },
+					isError: true,
+				};
+			}
+
+			const requestedMode = params.mode ?? "auto";
+			if (!(CODE_SEARCH_MODES as readonly string[]).includes(requestedMode)) {
+				return {
+					content: [{
+						type: "text",
+						text: `[ERROR] Invalid mode "${String(requestedMode)}". Use auto, full, preview, or summary.`,
+					}],
+					details: { count: 0 },
+					isError: true,
+				};
+			}
+
+			const scope = params.scope ?? "code";
+			if (!["code", "all", "prose"].includes(scope)) {
+				return {
+					content: [{
+						type: "text",
+						text: `[ERROR] Invalid scope "${String(scope)}". Use code, all, or prose.`,
+					}],
 					details: { count: 0 },
 					isError: true,
 				};
@@ -72,6 +106,7 @@ export function registerCodeSearchTool(
 				limit,
 				filePattern: params.file_pattern,
 				rrfK: params.rrf_k,
+				scope,
 			});
 
 			const sessionId = deps.getSessionId(ctx);
@@ -100,22 +135,25 @@ export function registerCodeSearchTool(
 				};
 			}
 
-			const formatted = hits.map((hit) => {
-				const chunk = hit.chunk;
-				const normPath = chunk.filePath.replace(/\\/g, "/");
-				const lang = path.extname(chunk.filePath).slice(1) || "text";
-				return `${normPath}:${chunk.startLine}-${chunk.endLine} [${chunk.kind}] ${chunk.symbolName} (${chunk.breadcrumb}):\n\`\`\`${lang}\n${chunk.content}\n\`\`\``;
-			});
+			const formatted = formatCodeSearchResults(
+				hits,
+				query,
+				requestedMode as CodeSearchMode,
+			);
 
 			return {
 				content: [
 					{
 						type: "text",
-						text: formatted.join("\n\n"),
+						text: formatted.text,
 					},
 				],
 				details: {
 					count: hits.length,
+					mode: formatted.mode,
+					requestedMode,
+					scope,
+					truncated: formatted.truncated,
 					hits: hits.map((h) => ({
 						id: h.chunk.id,
 						score: h.rrfScore,

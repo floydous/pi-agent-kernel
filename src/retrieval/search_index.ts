@@ -7,6 +7,7 @@ import {
 	chunkFile,
 	computeHash,
 	findChunkableFiles,
+	isProseFilePath,
 } from "./search_chunker";
 import { BM25Engine } from "./search_bm25";
 import { LocalEmbedder } from "./search_embedder";
@@ -571,6 +572,8 @@ export class HybridSearchIndex {
 			profile?: SearchProfile;
 			/** Bounded RRF smoothing constant; defaults to 60. */
 			rrfK?: number;
+			/** Search scope. Code is the default; all/prose are explicit opt-ins. */
+			scope?: "code" | "all" | "prose";
 		} = {},
 	): Promise<SearchHit[]> {
 		// Do not return the previous snapshot while a background synchronization
@@ -589,12 +592,27 @@ export class HybridSearchIndex {
 
 		const limit = options.limit || 5;
 		const k = Math.max(1, Math.min(Math.floor(options.rrfK ?? 60), 200));
+		const scope = options.scope ?? "code";
+		const isProsePath = isProseFilePath;
+		const matchesScope = (chunk: CodeChunk): boolean => {
+			const isProse = isProsePath(chunk.filePath);
+			return scope === "all" || (scope === "prose" ? isProse : !isProse);
+		};
+		const matchesFilePattern = (chunk: CodeChunk): boolean =>
+			!options.filePattern ||
+			chunk.filePath
+				.replace(/\\/g, "/")
+				.toLowerCase()
+				.includes(options.filePattern.replace(/\\/g, "/").toLowerCase());
 		const activeConfig = options.profile
 			? getSearchConfig(options.profile)
 			: this.config;
 
 		// 1. BM25 Search (Instant AST-tokenized lexical retrieval)
-		const bm25Results = this.bm25.search(query, 100);
+		const bm25Results = this.bm25.search(query, 100, (chunkId) => {
+			const chunk = this.chunks.get(chunkId);
+			return !!chunk && matchesScope(chunk) && matchesFilePattern(chunk);
+		});
 		const bm25RankMap = new Map<
 			string,
 			{ rank: number; score: number; matches: string[] }
@@ -620,6 +638,8 @@ export class HybridSearchIndex {
 			if (queryVec) {
 				const vecScores: { chunkId: string; score: number }[] = [];
 				for (const [chunkId, vec] of this.vectors.entries()) {
+					const chunk = this.chunks.get(chunkId);
+					if (!chunk || !matchesScope(chunk) || !matchesFilePattern(chunk)) continue;
 					const score = LocalEmbedder.cosineSimilarity(queryVec, vec);
 					vecScores.push({ chunkId, score });
 				}
@@ -649,15 +669,6 @@ export class HybridSearchIndex {
 			const chunk = this.chunks.get(chunkId);
 			if (!chunk) continue;
 
-			if (
-				options.filePattern &&
-				!chunk.filePath
-					.replace(/\\/g, "/")
-					.toLowerCase()
-					.includes(options.filePattern.replace(/\\/g, "/").toLowerCase())
-			) {
-				continue;
-			}
 
 			const bmData = bm25RankMap.get(chunkId);
 			const vecData = vectorRankMap.get(chunkId);

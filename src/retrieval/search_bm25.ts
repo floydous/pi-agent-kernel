@@ -149,7 +149,11 @@ export class BM25Engine {
 	/**
 	 * Search the BM25 index with a query string.
 	 */
-	public search(query: string, limit = 50): BM25SearchResult[] {
+	public search(
+		query: string,
+		limit = 50,
+		filter?: (chunkId: string) => boolean,
+	): BM25SearchResult[] {
 		if (this.totalDocs === 0) return [];
 		const queryTokens = Array.from(new Set(tokenizeCode(query)));
 		if (queryTokens.length === 0) return [];
@@ -166,6 +170,7 @@ export class BM25Engine {
 			if (!matchingChunkIds) continue;
 
 			for (const chunkId of matchingChunkIds) {
+				if (filter && !filter(chunkId)) continue;
 				const tfMap = this.docTermFreqs.get(chunkId);
 				if (!tfMap) continue;
 				const tf = tfMap.get(term) || 0;

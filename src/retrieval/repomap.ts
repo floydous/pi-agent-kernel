@@ -850,6 +850,41 @@ function getPathDemotion(relPath: string): number {
 	return 1;
 }
 
+function isTrivialDataDefinition(def: SymbolDef): boolean {
+	if (def.kind !== "constant" && def.kind !== "variable") return false;
+	const signature = def.signature.toLowerCase();
+	return (
+		signature.includes("color::rgb") ||
+		signature.includes("lazylock") ||
+		signature.includes("regex") ||
+		signature.includes("hashset") ||
+		signature.includes("mimetype") ||
+		signature.includes("mime") ||
+		signature.includes("once_lock") ||
+		signature.includes("mutex") ||
+		(signature.includes("static") && signature.includes("table"))
+	);
+}
+
+/**
+ * Return a stable orientation priority for common executable and routing
+ * anchors. PageRank is still used for the rest of the map, but declaration
+ * density must not hide the entry point behind UI palette constants.
+ */
+function entryPointPriority(relPath: string, def: SymbolDef): number | null {
+	const normalizedPath = relPath.replace(/\\/g, "/").toLowerCase();
+	const fileName = path.basename(normalizedPath, path.extname(normalizedPath));
+	const name = def.name.toLowerCase();
+
+	if (name === "main") return 0;
+	if (name === "router") return 1;
+	if (name === "startup" || name === "start") return 2;
+	if (fileName === "main" && (def.kind === "function" || def.kind === "method")) return 3;
+	if ((fileName === "index" || fileName === "mod") && name === "createapp") return 4;
+	if (name === "run" && (normalizedPath.includes("/bin/") || normalizedPath.includes("/cmd/"))) return 5;
+	return null;
+}
+
 // Compute Graph PageRank for files and their symbols
 export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 	const sourceFiles = findSourceFiles(rootDir);
@@ -868,6 +903,7 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 	void TreeSitterEngine.getInstance().loadLanguages(Array.from(detectedExts));
 
 	const fileTagsMap = new Map<string, FileTags>();
+	const fileLineCounts = new Map<string, number>();
 	const defToFile = new Map<string, Set<string>>();
 
 	for (const file of sourceFiles) {
@@ -875,6 +911,7 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 			const content = fs.readFileSync(file, "utf8");
 			const tags = extractFileTags(file, content);
 			fileTagsMap.set(file, tags);
+			fileLineCounts.set(file, content.split("\n").length);
 
 			for (const def of tags.definitions) {
 				if (!defToFile.has(def.name)) {
@@ -939,42 +976,81 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 		rank = nextRank;
 	}
 
-	// Sort files by effective rank descending (raw PageRank demoted for
-	// test/benchmark/example paths so production code leads the map).
+	// Sort files by anchor priority first, then effective PageRank. This keeps
+	// executable/router entry points visible on cold start while retaining the
+	// graph ranking for the rest of the repository.
 	const rankedFiles = files
-		.map((f, idx) => ({
-			file: f,
-			effectiveRank: rank[idx] * getPathDemotion(path.relative(rootDir, f)),
-			tags: fileTagsMap.get(f)!,
-		}))
-		.sort((a, b) => b.effectiveRank - a.effectiveRank);
+		.map((f, idx) => {
+			const relPath = path.relative(rootDir, f).replace(/\\/g, "/");
+			const tags = fileTagsMap.get(f)!;
+			const anchorPriorities = tags.definitions
+				.map((def) => entryPointPriority(relPath, def))
+				.filter((priority): priority is number => priority !== null);
+			return {
+				file: f,
+				effectiveRank: rank[idx] * getPathDemotion(relPath),
+				tags,
+				anchorPriority: anchorPriorities.length > 0 ? Math.min(...anchorPriorities) : Number.POSITIVE_INFINITY,
+			};
+		})
+		.sort((a, b) =>
+			a.anchorPriority - b.anchorPriority || b.effectiveRank - a.effectiveRank,
+		);
 
-	// Pack symbols into token budget (~4 chars per token)
-	const charBudget = tokenBudget * 4;
+	// Pack symbols into token budget (~4 chars per token).
+	const charBudget = Math.max(80, tokenBudget * 4);
 	let currentChars = 0;
 	const lines: string[] = [];
+	const addLine = (line: string): boolean => {
+		const extra = lines.length > 0 ? 1 : 0;
+		if (currentChars + extra + line.length > charBudget) return false;
+		lines.push(line);
+		currentChars += extra + line.length;
+		return true;
+	};
 
-	lines.push("Repository Map (Tree-Sitter AST & PageRank Ranked):");
+	addLine("Repository Map (Tree-Sitter AST & PageRank Ranked):");
+
+	// A compact orientation strip gives a cold-start caller the files it is most
+	// likely to need without requiring a separate `ls`/`wc` shell round trip.
+	if (charBudget >= 512) {
+		const anchors = rankedFiles
+			.flatMap((item) => {
+				const relPath = path.relative(rootDir, item.file).replace(/\\/g, "/");
+				return item.tags.definitions
+					.map((def) => ({ def, priority: entryPointPriority(relPath, def), relPath }))
+					.filter((entry): entry is { def: SymbolDef; priority: number; relPath: string } => entry.priority !== null);
+			})
+			.sort((a, b) => a.priority - b.priority)
+			.slice(0, 8)
+			.map((entry) => `${entry.relPath}::${entry.def.name}`);
+		if (anchors.length > 0) addLine(`Entry points: ${anchors.join(", ")}`);
+	}
+
+	if (charBudget >= 1024) {
+		const sizeList = files
+			.slice()
+			.sort((a, b) => (fileLineCounts.get(b) || 0) - (fileLineCounts.get(a) || 0))
+			.slice(0, 12)
+			.map((file) => `${path.relative(rootDir, file).replace(/\\/g, "/")}(${fileLineCounts.get(file) || 0})`);
+		if (sizeList.length > 0) addLine(`Files by size: ${sizeList.join(", ")}`);
+	}
 
 	for (const item of rankedFiles) {
 		const relPath = path.relative(rootDir, item.file).replace(/\\/g, "/");
-		const fileHeader = `\n${relPath}:`;
-		if (currentChars + fileHeader.length > charBudget) break;
+		const fileHeader = `${relPath}:`;
+		if (currentChars + fileHeader.length + 1 > charBudget) break;
 
-		const defs = item.tags.definitions.filter((d) => d.kind !== "alias");
+		const nonAliasDefs = item.tags.definitions.filter((d) => d.kind !== "alias");
+		const meaningfulDefs = nonAliasDefs.filter((d) => !isTrivialDataDefinition(d));
+		const defs = meaningfulDefs.length > 0 ? meaningfulDefs : nonAliasDefs;
 		if (defs.length === 0) continue;
 
-		lines.push(fileHeader);
-		currentChars += fileHeader.length;
-
+		if (!addLine(fileHeader)) break;
 		for (const def of defs) {
 			const cleanSig = def.signature.replace(/\s+/g, " ").trim();
 			const sigLine = `  ${cleanSig}`;
-			if (currentChars + sigLine.length > charBudget) {
-				break;
-			}
-			lines.push(sigLine);
-			currentChars += sigLine.length;
+			if (!addLine(sigLine)) break;
 		}
 	}
 

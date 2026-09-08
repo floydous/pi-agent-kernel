@@ -19,12 +19,19 @@ export interface CodeChunk {
 }
 
 const SUPPORTED_EXTENSIONS = new Set([
-	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql", ".md"
+	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql", ".md", ".mdx", ".txt", ".rst"
 ]);
 
 const IGNORED_DIRS = new Set([
 	".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "coverage", ".pi", ".hermes", ".next", ".turbo", ".cache", "target", "vendor"
 ]);
+
+/** Prose extensions are excluded from the default code-search scope. */
+export const PROSE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".rst"]);
+
+export function isProseFilePath(filePath: string): boolean {
+	return PROSE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
 
 /**
  * Compute SHA-256 hash of a string.
