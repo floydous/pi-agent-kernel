@@ -75,6 +75,16 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./hybrid-search")),
 	},
 	{
+		name: "Adaptive Code Search Output",
+		key: "code-search-output",
+		loader: () => runSuiteModule(() => import("./code-search-output")),
+	},
+	{
+		name: "Session Benchmark Metrics",
+		key: "session-benchmarks",
+		loader: () => runSuiteModule(() => import("./benchmarks")),
+	},
+	{
 		name: "Tool Output Clamping",
 		key: "output-clamping",
 		loader: () => runSuiteModule(() => import("./output-clamping")),
