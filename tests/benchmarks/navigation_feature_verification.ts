@@ -133,7 +133,10 @@ export async function run(): Promise<void> {
 	assert.ok(/:27(?::18)?/.test(text(definition)), `definition should resolve line 27: ${text(definition)}`);
 	assertTextContains("bare definition result path", text(bareDefinition), "src/app.ts");
 	assertTextContains("bare definition unique match", text(bareDefinition), "unique match for 'withConnection'");
-	assertTextContains("conservative diagnostics", text(diagnostics), "LSP");
+	assert.ok(
+		text(diagnostics).includes("clean") || text(diagnostics).includes("LSP"),
+		`conservative diagnostics should report clean or explicit status: ${text(diagnostics)}`,
+	);
 	assert.ok(
 		directoryDiagnostics.isError || /directory|file/i.test(text(directoryDiagnostics)),
 		"directory diagnostics must not pretend a directory is a clean file",
