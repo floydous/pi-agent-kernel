@@ -68,14 +68,12 @@ export function registerRecallTool(pi: ExtensionAPI, deps: RecallDeps): void {
 		name: "recall",
 		label: "Recall Dedup'd Result",
 		description:
-			"Retrieve the full text of a tool result that was replaced by a dedup reference like [=rN,sizeB,tool,paramsKey]. The `ref` is the rN identifier from a prior tool result. Returns the bare original text and the tool name and paramsKey so the caller can decide what to do next.",
-		promptSnippet:
-			"Recover the full text of a tool result that was dedup'd, by its rN reference",
+			"Recover full text of tool result replaced by dedup reference [=rN,...].",
+		promptSnippet: "Recover full text of a dedup'd tool result by 'rN' ref",
 		renderShell: "default",
 		parameters: Type.Object({
 			ref: Type.String({
-				description:
-					"The reference identifier, e.g. 'r1', 'r2'. Comes from a [=rN,sizeB,tool,paramsKey] dedup notice in a prior tool result.",
+				description: "The reference identifier (e.g. 'r1', 'r2')",
 			}),
 		}),
 		async execute(

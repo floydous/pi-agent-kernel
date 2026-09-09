@@ -10,8 +10,7 @@ export function registerRepoMapTool(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "get_repo_map",
 		label: "Get Repository Map",
-		description:
-			"Get a concise, PageRank-ranked AST map of classes, functions, and symbols across the entire repository (~1k tokens).",
+		description: "Get PageRank-ranked AST map of symbols across repository.",
 		promptSnippet: "Inspect repository AST symbol graph and signatures",
 		renderShell: "default",
 		parameters: Type.Object({

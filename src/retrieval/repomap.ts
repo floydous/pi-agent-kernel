@@ -817,12 +817,10 @@ export function findSourceFiles(rootDir: string, maxFiles = 300): string[] {
 	return results;
 }
 
-// Classify a file path into a PageRank demotion factor. Test suites form
-// dense mutual-reference clusters that otherwise dominate raw PageRank —
-// mirrors the test-path penalties in ast_search.computeSymbolRankScore.
-function getPathDemotion(relPath: string): number {
+// Check if a path corresponds to a test file or test directory
+export function isTestPath(relPath: string): boolean {
 	const p = relPath.replace(/\\/g, "/").toLowerCase();
-	const isTestPath =
+	return (
 		p.includes("/test/") ||
 		p.includes("/tests/") ||
 		p.includes("/__tests__/") ||
@@ -834,8 +832,65 @@ function getPathDemotion(relPath: string): number {
 		p.includes("test_") ||
 		p.includes("_test.") ||
 		p.includes(".test.") ||
-		p.includes(".spec.");
-	if (isTestPath) return 0.25; // strong demotion
+		p.includes(".spec.")
+	);
+}
+
+export interface CodebaseMetrics {
+	implFiles: number;
+	implBytes: number;
+	testFiles: number;
+	testBytes: number;
+	isLight: boolean;
+}
+
+// Evaluate codebase scale by separating non-test implementation code from test suites.
+// A codebase is light only if both implementation file count and byte mass are small.
+export function evaluateCodebaseMetrics(
+	rootDir: string,
+	minImplFiles = 10,
+	minImplBytes = 50 * 1024,
+): CodebaseMetrics {
+	const allFiles = findSourceFiles(rootDir);
+	let implFiles = 0;
+	let implBytes = 0;
+	let testFiles = 0;
+	let testBytes = 0;
+
+	for (const file of allFiles) {
+		const rel = path.relative(rootDir, file);
+		let size = 0;
+		try {
+			size = fs.statSync(file).size;
+		} catch {
+			// skip unreadable
+		}
+
+		if (isTestPath(rel)) {
+			testFiles++;
+			testBytes += size;
+		} else {
+			implFiles++;
+			implBytes += size;
+		}
+	}
+
+	const isLight = implFiles <= minImplFiles && implBytes < minImplBytes;
+	return {
+		implFiles,
+		implBytes,
+		testFiles,
+		testBytes,
+		isLight,
+	};
+}
+
+// Classify a file path into a PageRank demotion factor. Test suites form
+// dense mutual-reference clusters that otherwise dominate raw PageRank —
+// mirrors the test-path penalties in ast_search.computeSymbolRankScore.
+function getPathDemotion(relPath: string): number {
+	if (isTestPath(relPath)) return 0.25; // strong demotion
+	const p = relPath.replace(/\\/g, "/").toLowerCase();
 	const isBenchmarkOrExample =
 		p.includes("/benchmarks/") ||
 		p.includes("/benchmark/") ||

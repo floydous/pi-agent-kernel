@@ -30,21 +30,20 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		name: "edit",
 		label: "Surgical Code Editor",
 		description:
-			"Surgically edit code using search/replace blocks with multi-strategy fuzzy matching and automatic syntax verification. Supports single search/replace and multi-block edits.",
-		promptSnippet:
-			"Surgically edit code using search/replace blocks with automatic syntax verification",
+			"Surgically edit code using search/replace blocks with syntax verification. Supports single or multi-block edits.",
+		promptSnippet: "Edit code using search/replace blocks",
 		renderShell: "default",
 		parameters: Type.Object({
 			path: Type.String({
-				description: "File path (absolute or relative) to the file to edit",
+				description: "File path to edit",
 			}),
 			search: Type.Optional(
 				Type.String({
-					description: "Exact or near-exact lines of code to replace (single block)",
+					description: "Lines of code to replace (single block)",
 				}),
 			),
 			replace: Type.Optional(
-				Type.String({ description: "New replacement code lines (single block)" }),
+				Type.String({ description: "Replacement code lines (single block)" }),
 			),
 			edits: Type.Optional(
 				Type.Array(
@@ -54,7 +53,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					}),
 					{
 						description:
-							"Optional list of multiple disjoint search/replace blocks to apply atomically",
+							"List of multiple disjoint search/replace blocks to apply atomically",
 					},
 				),
 			),

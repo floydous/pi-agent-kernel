@@ -15,30 +15,26 @@ export function registerCodeSearchTool(
 		name: "code_search",
 		label: "Codebase Search",
 		description:
-			"Search the codebase using hybrid BM25 and semantic ranking across AST-bounded code chunks. Automatic output preserves compact, query-focused context; use mode 'full' for complete bodies, and scope 'all' or 'prose' to include documentation.",
-		promptSnippet:
-			"Search codebase conceptually or by keywords via hybrid AST index",
+			"Search codebase using BM25 and semantic ranking across code chunks. Default scope is 'code' (use 'all' for prose).",
+		promptSnippet: "Search codebase conceptually or by keywords via hybrid AST index",
 		renderShell: "default",
 		parameters: Type.Object({
 			query: Type.String({
-				description:
-					"Search query: natural language concepts, variable names, error messages, or task descriptions",
+				description: "Search query keywords, symbols, or concepts",
 			}),
 			file_pattern: Type.Optional(
 				Type.String({
-					description:
-						"Optional normalized relative path substring (e.g. 'src/auth', '.py', 'test')",
+					description: "Optional relative path substring filter",
 				}),
 			),
 			limit: Type.Optional(
 				Type.Number({
-					description:
-						"Maximum number of code chunks to return (default: 5, max: 15)",
+					description: "Max results (default: 5, max: 15)",
 				}),
 			),
 			rrf_k: Type.Optional(
 				Type.Number({
-					description: "Optional RRF smoothing constant from 1 to 200 (default: 60)",
+					description: "RRF constant (default: 60)",
 				}),
 			),
 			mode: Type.Optional(

@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { computeRepoMap } from "./retrieval/repomap";
+import { computeRepoMap, evaluateCodebaseMetrics } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
 import type { SearchProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
@@ -48,6 +48,7 @@ const PI_DOCS_START =
 	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
 const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
 const piDocsEnabledBySession = new Map<string, boolean>();
+const codebaseProfileBySession = new Map<string, "auto" | "light" | "heavy">();
 
 function withoutPiDocumentation(systemPrompt: string): string {
 	const start = systemPrompt.indexOf(PI_DOCS_START);
@@ -271,6 +272,43 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			} else if (!ctx.hasUI) {
 				console.log("\n" + map + "\n");
 			}
+		},
+	});
+
+	// Slash Command: /profile [auto|smart|light|heavy|status]
+	pi.registerCommand("profile", {
+		description: "Configure codebase scale profile (auto/smart | light | heavy | status)",
+		getArgumentCompletions: (prefix: string) => {
+			const options = [
+				{ value: "auto", label: "auto (smart) - Auto-detect scale from codebase metrics" },
+				{ value: "light", label: "light - Force light profile (suppress auto repo-map)" },
+				{ value: "heavy", label: "heavy - Force heavy profile (always inject repo-map)" },
+				{ value: "status", label: "status - Display current profile & codebase metrics" },
+			];
+			const filtered = options.filter((o) => o.value.startsWith(prefix.toLowerCase()));
+			return filtered.length > 0 ? filtered : null;
+		},
+		handler: async (args: string, ctx: any) => {
+			const sessionId = getSessionId(ctx);
+			const raw = (args || "").trim().toLowerCase();
+			const val = raw === "smart" ? "auto" : raw;
+
+			if (val === "auto" || val === "light" || val === "heavy") {
+				codebaseProfileBySession.set(sessionId, val);
+				cachedRepoMap = "";
+				const msg = `Codebase profile set to '${val}' for this session.`;
+				ctx.ui?.notify?.(msg, "info");
+				if (!ctx.hasUI) console.log(msg);
+				return;
+			}
+
+			const current = codebaseProfileBySession.get(sessionId) ?? getConfig(ctx.cwd).retrieval.codebase_profile;
+			const metrics = evaluateCodebaseMetrics(ctx.cwd);
+			const detected = metrics.isLight ? "light" : "heavy";
+			const effective = current === "auto" ? detected : current;
+			const statusMsg = `Profile: ${current} (effective: ${effective})\nMetrics: ${metrics.implFiles} impl files (${Math.round(metrics.implBytes / 1024)} KB), ${metrics.testFiles} test files (${Math.round(metrics.testBytes / 1024)} KB)`;
+			ctx.ui?.notify?.(statusMsg, "info");
+			if (!ctx.hasUI) console.log("\n" + statusMsg + "\n");
 		},
 	});
 
@@ -886,25 +924,44 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
 		const now = Date.now();
 		const currentCwd = ctx.cwd || process.cwd();
+		const kernelConfig = getConfig(currentCwd);
+		const sessionId = getSessionId(ctx);
+		const profile = codebaseProfileBySession.get(sessionId) ?? kernelConfig.retrieval.codebase_profile ?? "auto";
+
+		let shouldInjectMap = false;
+		if (profile === "heavy") {
+			shouldInjectMap = true;
+		} else if (profile === "light") {
+			shouldInjectMap = false;
+		} else {
+			const metrics = evaluateCodebaseMetrics(
+				currentCwd,
+				kernelConfig.retrieval.repo_map_min_files,
+				kernelConfig.retrieval.repo_map_min_bytes,
+			);
+			shouldInjectMap = !metrics.isLight;
+		}
 
 		// Cache repo-map across turns with a 15-second TTL to avoid scanning/PageRanking entire repo on every turn
 		if (!cachedRepoMap || cachedRepoMapCwd !== currentCwd || now - lastRepoMapCheck > 15000) {
-			await TreeSitterEngine.getInstance().init();
-			cachedRepoMap = computeRepoMap(
-				currentCwd,
-				getConfig(currentCwd).retrieval.repo_map_budget,
-			);
+			if (shouldInjectMap) {
+				await TreeSitterEngine.getInstance().init();
+				cachedRepoMap = computeRepoMap(
+					currentCwd,
+					kernelConfig.retrieval.repo_map_budget,
+				);
+			} else {
+				cachedRepoMap = "";
+			}
 			cachedRepoMapCwd = currentCwd;
 			lastRepoMapCheck = now;
 		}
 
-		const dedupNote = `\nA [=rN,sizeB,tool,paramsKey] reference means the identical result was already provided earlier in this session. It is informational, not an instruction to call recall. Use recall only when the exact content is needed and is no longer visible. For a different range, symbol, or query, run a fresh tool call.\n`;
+		const dedupNote = `A [=rN,sizeB,tool,paramsKey] ref denotes duplicate content. Call recall(ref) only if needed; otherwise run fresh tools.`;
 
-		const runtimeContext = `
-## Available Repository Context:
-${cachedRepoMap}
-${dedupNote}
-`;
+		const runtimeContext = cachedRepoMap
+			? `\n## Available Repository Context:\n${cachedRepoMap}\n${dedupNote}\n`
+			: `\n${dedupNote}\n`;
 		const basePrompt = event.systemPrompt || "";
 		const systemPrompt = piDocsEnabled(ctx)
 			? basePrompt

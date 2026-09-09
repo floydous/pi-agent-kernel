@@ -22,35 +22,31 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		name: "read",
 		label: "Read File / Symbol",
 		description:
-			"Read file contents (text/images) or surgically extract specific AST code symbols (function, class, method, interface, type). Supports optional pagination ('offset', 'limit') or direct surgical extraction via 'symbol'.",
-		promptSnippet:
-			"Read file contents or surgically extract specific AST code symbols via 'symbol'",
+			"Read file contents or surgically extract an AST symbol (function, class, method, type). Supports line paging ('offset', 'limit') or symbol extraction ('symbol').",
+		promptSnippet: "Read file lines or extract an AST symbol via 'symbol'",
 		renderShell: "default",
 		parameters: Type.Object({
 			path: Type.String({
-				description: "Path to the file to read (relative or absolute)",
+				description: "File path (relative or absolute)",
 			}),
 			symbol: Type.Optional(
 				Type.String({
-					description:
-						"Optional name of the function, class, method, or type to extract surgically from the file without paging",
+					description: "Symbol name to extract surgically without paging",
 				}),
 			),
 			offset: Type.Optional(
 				Type.Number({
-					description:
-						"Line number to start reading from (1-indexed, for full file reading)",
+					description: "Start line number (1-indexed)",
 				}),
 			),
 			limit: Type.Optional(
 				Type.Number({
-					description: "Maximum number of lines to read (for full file reading)",
+					description: "Maximum lines to read",
 				}),
 			),
 			surrounding_lines: Type.Optional(
 				Type.Number({
-					description:
-						"Optional extra lines of surrounding context when extracting a symbol (default: 0)",
+					description: "Extra surrounding context lines for symbol (default: 0)",
 				}),
 			),
 		}),

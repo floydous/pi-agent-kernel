@@ -20,6 +20,46 @@ Here is how tool overhead compares to an unconstrained agent harness across ever
 
 ---
 
+## Cross-harness benchmark & reproducibility
+
+`pi-agent-kernel` is continuously evaluated using an 8-task ground-truth benchmark suite derived from real-world bug fixes merged in popular open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`).
+
+All 5 harnesses were evaluated under identical prompts and base commits on **`cx/gpt-5.6-luna:high`** via **`OmniRoute`**:
+
+| Harness | Solved | Success Rate | Total Wall Clock | Cumulative Turn Tokens | Total Tool Calls |
+|---|:---:|:---:|---:|---:|:---:|
+| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **787s (13.1m)** | **1,280,980** | **134** |
+| **Pi (Vanilla)** | **8 / 8** | **100%** | 594s (9.9m) | 953,034 | 103 |
+| **Codex CLI** | **8 / 8** | **100%** | 639s (10.7m) | 1,382,922 | 55 |
+| **OMP** | **8 / 8** | **100%** | 791s (13.2m) | 2,071,885 | 214 |
+| **Claude Code** | 7 / 8 | 88% | 1,128s (18.8m) | 1,911,546 | 109 |
+
+![Benchmark Comparison](agent-kernel-benchmark/benchmark-comparison.png)
+
+### Running the benchmark locally
+
+```bash
+# 1. Copy and customize configuration
+cp agent-kernel-benchmark/.env.example agent-kernel-benchmark/.env
+
+# 2. Run the full benchmark suite
+npm run bench
+
+# Or run a specific task / harness
+npx tsx agent-kernel-benchmark/run.ts task-3
+npx tsx agent-kernel-benchmark/run.ts --harnesses pi-kernel,pi-vanilla
+
+# 3. Clean transient workspaces
+npm run bench:clean
+
+# 4. Generate the comparison chart from benchmark results
+npm run bench:chart
+```
+
+See [`agent-kernel-benchmark/README.md`](agent-kernel-benchmark/README.md) for full configuration details, CLI flags, and task descriptions, and [`agent-kernel-benchmark/BENCHMARK_RESULTS.md`](agent-kernel-benchmark/BENCHMARK_RESULTS.md) for task-by-task forensic analysis.
+
+---
+
 ## Quick start
 
 ### 1. Install
@@ -60,7 +100,25 @@ Switch profiles at any time:
 
 ---
 
-### 3. Setup language servers (`/lsp`)
+### 3. Configure codebase scale profile (`/profile`)
+
+Agent-kernel automatically scales its prompt context to the size of the repository. On light repositories (<10 implementation files, <50 KB code), the 1,024-token PageRank map is suppressed to minimize token usage. On larger projects, the map is injected automatically.
+
+You can view or override this setting at any time:
+```text
+/profile status     # Check current profile and detected codebase metrics
+/profile light      # Force light profile (suppress automatic repo-map injection)
+/profile heavy      # Force heavy profile (always inject PageRank repo map)
+/profile auto       # Auto-detect based on implementation code volume (default)
+```
+Or configure via environment variable:
+```bash
+export PI_CODEBASE_PROFILE=light   # or "heavy", "auto", "smart"
+```
+
+---
+
+### 4. Setup language servers (`/lsp`)
 
 Get real-time compiler diagnostics, definitions, and references without manual setup:
 
@@ -77,7 +135,7 @@ Alternatively, install a server directly from the command line:
 
 ---
 
-### 4. Tip: Turn off Pi documentation when working on your own projects
+### 5. Tip: Turn off Pi documentation when working on your own projects
 
 By default, Pi loads system prompt instructions explaining how to extend Pi itself (extensions, themes, skills, and TUI APIs).
 

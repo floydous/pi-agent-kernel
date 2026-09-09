@@ -30,9 +30,8 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 		name: "lsp",
 		label: "Language Server Protocol (LSP)",
 		description:
-			"Query language server for definitions, references (supports exclude_tests and exclude_declaration), hover docstrings, document symbols, or diagnostics with instant Tree-sitter fallback.",
-		promptSnippet:
-			"Query LSP for definitions, references (with test filtering), hover type signatures, and workspace diagnostics",
+			"LSP definitions, references, hover, document_symbols, or diagnostics with Tree-sitter fallback.",
+		promptSnippet: "Query LSP for definitions, references, hover, and diagnostics",
 		renderShell: "default",
 		parameters: Type.Object({
 			action: Type.String({
@@ -43,34 +42,32 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 					"document_symbols",
 					"diagnostics",
 				],
-				description:
-					"LSP operation: 'definition' | 'references' | 'hover' | 'document_symbols' | 'diagnostics'",
+				description: "LSP operation",
 			}),
-			path: Type.Optional(Type.String({ description: "File path (absolute or relative; optional for definition when symbol is provided)" })),
+			path: Type.Optional(Type.String({ description: "File path (optional for definition if symbol given)" })),
 			line: Type.Optional(
 				Type.Number({
-					description:
-						"1-based line number (required for definition, references, hover)",
+					description: "1-based line number (for definition, references, hover)",
 				}),
 			),
 			character: Type.Optional(
 				Type.Number({
-					description: "1-based character/column number (default: 1)",
+					description: "1-based column number (default: 1)",
 				}),
 			),
 			symbol: Type.Optional(
 				Type.String({
-					description: "Optional symbol name for definition, references, or hover; avoids manual line/character coordinates",
+					description: "Symbol name (avoids line/character coordinates)",
 				}),
 			),
 			exclude_tests: Type.Optional(
 				Type.Boolean({
-					description: "Exclude references located in test files or test modules (default: false)",
+					description: "Exclude references in tests (default: false)",
 				}),
 			),
 			exclude_declaration: Type.Optional(
 				Type.Boolean({
-					description: "Exclude the symbol's own declaration site from references (default: false)",
+					description: "Exclude declaration site from references (default: false)",
 				}),
 			),
 		}),

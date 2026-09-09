@@ -19,6 +19,11 @@ temp_lsp_test/
 .ruff_cache/
 REPORT*.md
 experiments/
+agent-kernel-benchmark/
+feedback/
+PLAN.md
+
+
 
 
 

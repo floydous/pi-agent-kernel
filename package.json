@@ -9,7 +9,10 @@
   "author": "floydous https://github.com/floydous",
   "scripts": {
     "test": "npx tsx tests/run-all.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bench": "npx tsx agent-kernel-benchmark/run.ts",
+    "bench:clean": "npx tsx agent-kernel-benchmark/run.ts --clean",
+    "bench:chart": "PATH=\"$HOME/.local/bin:$HOME/.venv/bin:$PATH\" python3 agent-kernel-benchmark/generate_chart.py"
   },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",

@@ -17,9 +17,8 @@ export function registerAstSearchTool(
 		name: "ast_search",
 		label: "Tree-sitter AST Search",
 		description:
-			"Search symbol declarations (functions, classes, methods, types) by AST structure across the repository. Bypasses comments, strings, and documentation.",
-		promptSnippet:
-			"Search exact code declarations and signatures via Tree-sitter AST",
+			"Search symbol declarations (functions, classes, methods, types) by AST structure across repository.",
+		promptSnippet: "Search code declarations and signatures via Tree-sitter AST",
 		renderShell: "default",
 		parameters: Type.Object({
 			name: Type.Optional(
@@ -28,19 +27,17 @@ export function registerAstSearchTool(
 			kind: Type.Optional(
 				Type.String({
 					description:
-						"Kind: function | class | method | interface | type | struct | trait | enum | impl | alias | variable | constant",
+						"Kind: function | class | method | interface | type | struct | enum | variable | constant",
 				}),
 			),
 			filePattern: Type.Optional(
 				Type.String({
-					description:
-						"Optional normalized relative path substring (e.g. 'src/safety', '.py', 'test')",
+					description: "Optional relative path substring filter",
 				}),
 			),
 			includeBody: Type.Optional(
 				Type.Boolean({
-					description:
-						"Include a bounded preview of up to 25 symbol lines (default: false); use read({ path, symbol }) for the complete body",
+					description: "Include preview of up to 25 lines (default: false)",
 				}),
 			),
 		}),
