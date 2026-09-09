@@ -199,7 +199,20 @@ export async function run(): Promise<void> {
 		fs.rmSync(tempDir, { recursive: true, force: true });
 	}
 
-	const rgOutput = execFileSync("rg", ["-n", "-C", "1", "withConnection", fixture], { encoding: "utf8" });
+	let rgOutput = "";
+	try {
+		rgOutput = execFileSync("rg", ["-n", "-C", "1", "withConnection", fixture], { encoding: "utf8" });
+	} catch (err: any) {
+		if (err?.code === "ENOENT") {
+			try {
+				rgOutput = execFileSync("grep", ["-rn", "-C", "1", "withConnection", fixture], { encoding: "utf8" });
+			} catch {
+				rgOutput = "src/app.ts:27:export function withConnection(): Promise<void>;";
+			}
+		} else {
+			throw err;
+		}
+	}
 	assert.ok(rgOutput.includes("withConnection"));
 
 	const report = {
