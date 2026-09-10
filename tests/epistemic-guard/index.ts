@@ -6,6 +6,8 @@ import { testGuardBasic } from "./basic_test";
 import { testBashInspectionExtraction } from "./bash_extraction_test";
 import { testCaseSensitivity } from "./case_sensitivity_test";
 import { testSessionIsolation } from "./session_isolation_test";
+import { testMultiChannelStressMatrix } from "./multi_channel_stress_test";
+import { testHistoricalSessionReproductions } from "./historical_repro_test";
 
 export async function run(): Promise<void> {
 	await runSuite("Read-Before-Write Epistemic Guard Suite", () => {
@@ -13,6 +15,8 @@ export async function run(): Promise<void> {
 		testBashInspectionExtraction();
 		testCaseSensitivity();
 		testSessionIsolation();
+		testMultiChannelStressMatrix();
+		testHistoricalSessionReproductions();
 	});
 }
 

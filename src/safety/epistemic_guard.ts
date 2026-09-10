@@ -260,7 +260,7 @@ function mergeEvidence(
 	provenance: EvidenceProvenance,
 	query?: string,
 ): InspectionEvidence {
-	if (previous.fingerprint !== fingerprint || previous.kind !== kind) {
+	if (previous.fingerprint !== fingerprint) {
 		return {
 			kind,
 			fingerprint,
@@ -269,12 +269,208 @@ function mergeEvidence(
 			...(query === undefined ? {} : { query }),
 		};
 	}
+	// Once marked read, retain read kind unless reset
+	const mergedKind = previous.kind === "read" || kind === "read" ? "read" : "search";
 	return {
 		...previous,
+		kind: mergedKind,
 		coverage: mergeCoverage(previous.coverage, coverage),
 		provenance,
 		...(query === undefined ? {} : { query }),
 	};
+}
+
+/** Convert a collection of line numbers into sorted, merged 1-based line ranges. */
+export function linesToRanges(lines: Iterable<number>): EvidenceRange[] {
+	const sorted = Array.from(lines)
+		.filter((n) => Number.isFinite(n) && n >= 1)
+		.map((n) => Math.floor(n))
+		.sort((a, b) => a - b);
+	if (sorted.length === 0) return [];
+
+	const ranges: EvidenceRange[] = [];
+	let start = sorted[0];
+	let prev = sorted[0];
+
+	for (let i = 1; i < sorted.length; i++) {
+		const curr = sorted[i];
+		if (curr === prev) continue;
+		if (curr === prev + 1) {
+			prev = curr;
+		} else {
+			ranges.push({ startLine: start, endLine: prev });
+			start = curr;
+			prev = curr;
+		}
+	}
+	ranges.push({ startLine: start, endLine: prev });
+	return ranges;
+}
+
+/** Parse stdout from grep / ripgrep, capturing file paths and line numbers. */
+export function parseGrepOutput(
+	outputText: string,
+	candidateFiles: string[],
+	cwd = process.cwd(),
+): Map<string, number[]> {
+	const fileLinesMap = new Map<string, Set<number>>();
+	if (!outputText || typeof outputText !== "string") return new Map();
+
+	const normalizedCandidates = new Map<string, string>();
+	for (const cand of candidateFiles) {
+		const abs = path.isAbsolute(cand) ? path.normalize(cand) : path.resolve(cwd, cand);
+		normalizedCandidates.set(cand, abs);
+		normalizedCandidates.set(abs, abs);
+		const rel = path.relative(cwd, abs).replace(/\\/g, "/");
+		normalizedCandidates.set(rel, abs);
+	}
+
+	const lines = outputText.split(/\r?\n/);
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed) continue;
+
+		// 1. Single file: "123:code" or "123-context"
+		const singleMatch = line.match(/^(\d+)[:-]/);
+		if (singleMatch && candidateFiles.length === 1) {
+			const lineNum = parseInt(singleMatch[1], 10);
+			const targetPath = normalizedCandidates.get(candidateFiles[0]) || path.resolve(cwd, candidateFiles[0]);
+			if (!fileLinesMap.has(targetPath)) fileLinesMap.set(targetPath, new Set());
+			fileLinesMap.get(targetPath)!.add(lineNum);
+			continue;
+		}
+
+		// 2. Multi-file: "path/to/file.ts:123:code" or "path/to/file.ts-123-context"
+		const multiMatch = line.match(/^([^:\-\n\r]+(?:\.[a-zA-Z0-9]+)?)(?::(\d+):|-(\d+)-)/);
+		if (multiMatch) {
+			const rawPath = multiMatch[1].trim();
+			const lineNum = parseInt(multiMatch[2] || multiMatch[3], 10);
+			let absPath =
+				normalizedCandidates.get(rawPath) ||
+				normalizedCandidates.get(path.resolve(cwd, rawPath)) ||
+				(fs.existsSync(path.resolve(cwd, rawPath)) ? path.resolve(cwd, rawPath) : null);
+
+			if (!absPath) {
+				for (const cand of candidateFiles) {
+					const candNorm = (path.isAbsolute(cand) ? cand : path.resolve(cwd, cand)).replace(/\\/g, "/");
+					if (candNorm.endsWith("/" + rawPath) || candNorm.endsWith(rawPath)) {
+						absPath = candNorm;
+						break;
+					}
+				}
+			}
+
+			if (absPath && Number.isFinite(lineNum) && lineNum >= 1) {
+				if (!fileLinesMap.has(absPath)) fileLinesMap.set(absPath, new Set());
+				fileLinesMap.get(absPath)!.add(lineNum);
+				continue;
+			}
+		}
+
+		// 3. Polyglot compiler error / test runner stack traces
+		// - Rust: " --> src/upstream.rs:736:9"
+		// - Python: "  File \"src/app.py\", line 45, in test"
+		// - Vitest / Jest: " ❯ src/checks.ts:288:61" or " at Object.<anonymous> (file.ts:12:3)"
+		// - Go / GCC: "main.go:12:3: error"
+		// - C# / MSBuild: "file.cs(12,3): error"
+		const traceMatch =
+			line.match(/(?:-->|\s+at|\s+❯|File\s+["']?)\s*([^\s"(),]+\.[a-zA-Z0-9]+)(?:["']?)(?:[:(]|\s*,?\s*line\s+)(\d+)/i) ||
+			line.match(/(?:^|[\s(])([^\s()]+\.[a-zA-Z0-9]+)[:(](\d+)(?:[:,\s)]|$)/);
+
+		if (traceMatch) {
+			const rawPath = traceMatch[1].trim();
+			const lineNum = parseInt(traceMatch[2], 10);
+			let absPath =
+				normalizedCandidates.get(rawPath) ||
+				normalizedCandidates.get(path.resolve(cwd, rawPath)) ||
+				(fs.existsSync(path.resolve(cwd, rawPath)) && fs.statSync(path.resolve(cwd, rawPath)).isFile()
+					? path.resolve(cwd, rawPath)
+					: null);
+
+			if (!absPath) {
+				for (const cand of candidateFiles) {
+					const candNorm = (path.isAbsolute(cand) ? cand : path.resolve(cwd, cand)).replace(/\\/g, "/");
+					if (candNorm.endsWith("/" + rawPath) || candNorm.endsWith(rawPath)) {
+						absPath = candNorm;
+						break;
+					}
+				}
+			}
+
+			if (absPath && Number.isFinite(lineNum) && lineNum >= 1) {
+				if (!fileLinesMap.has(absPath)) fileLinesMap.set(absPath, new Set());
+				// Ingest compiler error line locus and surrounding window [L-2, L+2]
+				for (let i = Math.max(1, lineNum - 2); i <= lineNum + 2; i++) {
+					fileLinesMap.get(absPath)!.add(i);
+				}
+			}
+		}
+	}
+
+	const result = new Map<string, number[]>();
+	for (const [file, set] of fileLinesMap.entries()) {
+		result.set(file, Array.from(set).sort((a, b) => a - b));
+	}
+	return result;
+}
+
+/** Parse shell paging / slicing commands (head, tail, sed). */
+export function parsePagingAndDiffOutput(
+	command: string,
+	outputText: string,
+	candidateFiles: string[],
+	cwd = process.cwd(),
+): Map<string, number[]> {
+	const result = new Map<string, number[]>();
+	if (candidateFiles.length === 0) return result;
+
+	const targetPath = path.isAbsolute(candidateFiles[0])
+		? path.normalize(candidateFiles[0])
+		: path.resolve(cwd, candidateFiles[0]);
+
+	let totalLines = 0;
+	if (fs.existsSync(targetPath)) {
+		try {
+			totalLines = fs.readFileSync(targetPath, "utf8").split(/\r?\n/).length;
+		} catch {
+			totalLines = 0;
+		}
+	}
+
+	// 1. head -n <N>
+	const headMatch = command.match(/\bhead\b.*?-n\s*(\d+)/i);
+	if (headMatch) {
+		const count = Math.min(parseInt(headMatch[1], 10), totalLines || 1000);
+		const lines: number[] = [];
+		for (let i = 1; i <= count; i++) lines.push(i);
+		result.set(targetPath, lines);
+		return result;
+	}
+
+	// 2. tail -n <N>
+	const tailMatch = command.match(/\btail\b.*?-n\s*(\d+)/i);
+	if (tailMatch) {
+		const count = parseInt(tailMatch[1], 10);
+		const start = Math.max(1, (totalLines || count) - count + 1);
+		const end = totalLines || count;
+		const lines: number[] = [];
+		for (let i = start; i <= end; i++) lines.push(i);
+		result.set(targetPath, lines);
+		return result;
+	}
+
+	// 3. sed -n '<start>,<end>p'
+	const sedMatch = command.match(/\bsed\b.*?-n\s*['"]?(\d+),(\d+)p['"]?/i);
+	if (sedMatch) {
+		const start = parseInt(sedMatch[1], 10);
+		const end = parseInt(sedMatch[2], 10);
+		const lines: number[] = [];
+		for (let i = start; i <= end; i++) lines.push(i);
+		result.set(targetPath, lines);
+		return result;
+	}
+
+	return result;
 }
 
 function coversRanges(
@@ -542,41 +738,62 @@ export class EpistemicGuard {
 		outputComplete: boolean,
 		outputText = "",
 	): void {
-		const isSearch = /^\s*(?:grep|rg)(?:\.exe)?(?:\s|$)/i.test(command);
-		const isPlainCat =
-			/^\s*cat(?:\.exe)?\s+[^|;&><]+$/i.test(command) &&
-			!/^\s*cat(?:\.exe)?\s+-/i.test(command);
+		const isGrepOrRg =
+			/^\s*(?:grep|rg)(?:\.exe)?(?:\s|$)/i.test(command) ||
+			/\b(grep|rg)\b/i.test(command);
+		const isPaging = /\b(head|tail|sed)\b/i.test(command);
+		const isCat = /\bcat\b/i.test(command);
+
+		if (isCat) {
+			for (const filePath of files) {
+				try {
+					if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+						const observedContent = fs.readFileSync(filePath, "utf8");
+						if (
+							(outputComplete && files.length === 1 && outputText === observedContent) ||
+							outputText.trim() === observedContent.trim() ||
+							outputText.includes(observedContent.trim())
+						) {
+							this.recordFileRead(filePath, sessionId, cwd, observedContent, {
+								coverage: { complete: true, ranges: [] },
+								provenance: "bash",
+								query: command,
+							});
+						}
+					}
+				} catch (error) {
+					kernelDebug(error);
+				}
+			}
+		}
+
+		let parsed: Map<string, number[]>;
+		if (isPaging) {
+			parsed = parsePagingAndDiffOutput(command, outputText, files, cwd);
+		} else {
+			parsed = parseGrepOutput(outputText, files, cwd);
+		}
+
+		for (const [filePath, lineNumbers] of parsed.entries()) {
+			const ranges = linesToRanges(lineNumbers);
+			if (ranges.length > 0) {
+				this.recordFileRead(filePath, sessionId, cwd, undefined, {
+					coverage: { complete: false, ranges },
+					provenance: "bash",
+					query: command,
+				});
+			}
+		}
+
 		for (const filePath of files) {
-			if (isSearch) {
+			const evidence = this.getSessionEvidence(sessionId).get(this.normalize(filePath, cwd));
+			if (!evidence) {
 				this.recordFileSearched(filePath, sessionId, cwd, {
 					coverage: { complete: false, ranges: [] },
 					provenance: "bash",
 					query: command,
 				});
-				continue;
 			}
-
-			let observedContent: string | undefined;
-			if (isPlainCat && files.length === 1) {
-				try {
-					observedContent = fs.readFileSync(filePath, "utf8");
-				} catch {
-					observedContent = undefined;
-				}
-			}
-			this.recordFileRead(filePath, sessionId, cwd, observedContent, {
-				coverage: {
-					complete:
-						outputComplete &&
-						isPlainCat &&
-						files.length === 1 &&
-						observedContent !== undefined &&
-						outputText === observedContent,
-					ranges: [],
-				},
-				provenance: "bash",
-				query: command,
-			});
 		}
 	}
 
@@ -602,6 +819,18 @@ export class EpistemicGuard {
 				outputText,
 			);
 		}
+		// Also scan outputText for polyglot compiler/test traces across the workspace
+		const traces = parseGrepOutput(outputText, files, cwd);
+		for (const [filePath, lineNumbers] of traces.entries()) {
+			const ranges = linesToRanges(lineNumbers);
+			if (ranges.length > 0) {
+				this.recordFileRead(filePath, sessionId, cwd, undefined, {
+					coverage: { complete: false, ranges },
+					provenance: "bash",
+					query: command,
+				});
+			}
+		}
 		return files;
 	}
 
@@ -618,7 +847,8 @@ export class EpistemicGuard {
 		cwd?: string,
 		enforceInspection = true,
 		targetRanges: EvidenceRange[] = [],
-	): { allowed: boolean; reason?: string } {
+		searchBlocks: string[] = [],
+	): { allowed: boolean; reason?: string; tier?: 1 | 2 } {
 		if (!filePath) {
 			return {
 				allowed: false,
@@ -664,29 +894,65 @@ export class EpistemicGuard {
 		const normalized = this.normalize(resolvedPath, workspace);
 		const evidence = this.getSessionEvidence(sessionId).get(normalized);
 		const relPath = (path.relative(workspace, resolvedPath) || filePath).replace(/\\/g, "/");
-		if (!evidence || evidence.kind !== "read") {
+
+		// 1. Session inspection check
+		if (!evidence) {
 			return {
 				allowed: false,
-				reason: `[BLOCKED: Read before ${operation} -> read({ path: "${relPath}" })]`,
+				reason: `[BLOCKED: Uninspected File] The agent has never inspected '${relPath}' in this session -> read({ path: "${relPath}" })`,
 			};
 		}
 
-		if (!coversRanges(evidence.coverage, targetRanges)) {
-			return {
-				allowed: false,
-				reason: `[BLOCKED: Target lines not covered by visible read -> read({ path: "${relPath}" })]`,
-			};
-		}
-
+		// 2. Stale file drift check
 		const currentFingerprint = this.fingerprint(resolvedPath, workspace);
 		if (!currentFingerprint || currentFingerprint !== evidence.fingerprint) {
 			return {
 				allowed: false,
-				reason: `[BLOCKED: File changed since read -> read({ path: "${relPath}" })]`,
+				reason: `[BLOCKED: Stale File Drift] File '${relPath}' changed on disk since last observed -> read({ path: "${relPath}" })`,
 			};
 		}
 
-		return { allowed: true };
+		// 3. Write operations require prior read or complete coverage
+		if (operation === "write") {
+			if (evidence.kind !== "read" && !evidence.coverage.complete) {
+				return {
+					allowed: false,
+					reason: `[BLOCKED: Read before write -> read({ path: "${relPath}" })]`,
+				};
+			}
+			return { allowed: true };
+		}
+
+		// 4. Edit operations: Dual-Tier Authorization
+		// Tier 1: Strict range coverage
+		if (evidence.kind === "read" && coversRanges(evidence.coverage, targetRanges)) {
+			return { allowed: true, tier: 1 };
+		}
+
+		// Tier 2: Substantive unique block authorization
+		// If range math has gaps (e.g. grep context, compiler traces, symbol extraction boundaries),
+		// authorize if every search block is substantive (>=2 lines and >=35 chars, or >=50 chars).
+		if (searchBlocks && searchBlocks.length > 0) {
+			const allSubstantive = searchBlocks.every((sb) => {
+				const lineCount = sb.replace(/\r\n/g, "\n").split("\n").length;
+				const charCount = sb.length;
+				return (lineCount >= 2 && charCount >= 35) || charCount >= 50;
+			});
+
+			if (allSubstantive) {
+				return { allowed: true, tier: 2 };
+			}
+
+			return {
+				allowed: false,
+				reason: `[BLOCKED: Target lines not covered by visible read and search block is non-substantive (<2 lines / <35 chars) -> read({ path: "${relPath}" })]`,
+			};
+		}
+
+		return {
+			allowed: false,
+			reason: `[BLOCKED: Target lines not covered by visible read -> read({ path: "${relPath}" })]`,
+		};
 	}
 
 	/** Check whether the current session has any inspection evidence for a file. */

@@ -8,6 +8,7 @@ import {
 	applySurgicalPatch,
 	applyMultiBlockPatch,
 	findSurgicalPatchTargetRange,
+	preflightSurgicalPatchBlock,
 } from "../editing/patch";
 import type { EvidenceRange } from "../safety/epistemic_guard";
 import {
@@ -81,6 +82,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			// 1. Read-Before-Write Epistemic Guard Check
 			const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
+			const searchBlocks: string[] = [];
 			const targetRanges: EvidenceRange[] = [];
 			const hasSingleBlock =
 				typeof params.search === "string" && typeof params.replace === "string";
@@ -96,16 +98,64 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					isError: true,
 				};
 			}
+
 			if (hasSingleBlock) {
-				const targetRange = findSurgicalPatchTargetRange(resolvedPath, params.search);
-				if (targetRange) targetRanges.push(targetRange);
+				searchBlocks.push(params.search);
+				const preflight = preflightSurgicalPatchBlock(resolvedPath, params.search);
+				if (!preflight.success) {
+					if (preflight.isAmbiguous) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: `[EDIT FAILED] Ambiguous Search Block: ${preflight.error} Please provide more surrounding context lines to make the match unique.`,
+								},
+							],
+							isError: true,
+						};
+					}
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[EDIT FAILED] Search Block Not Found in '${params.path}'. Check line context and try again.`,
+							},
+						],
+						isError: true,
+					};
+				}
+				if (preflight.targetRange) targetRanges.push(preflight.targetRange);
 			} else {
 				// Multi-block patching reports ranges after applying blocks; preflight
 				// uses the original file's coordinates for each search block.
-				for (const block of params.edits) {
+				for (let i = 0; i < params.edits.length; i++) {
+					const block = params.edits[i];
 					if (!block || typeof block.search !== "string") continue;
-					const targetRange = findSurgicalPatchTargetRange(resolvedPath, block.search);
-					if (targetRange) targetRanges.push(targetRange);
+					searchBlocks.push(block.search);
+					const preflight = preflightSurgicalPatchBlock(resolvedPath, block.search);
+					if (!preflight.success) {
+						if (preflight.isAmbiguous) {
+							return {
+								content: [
+									{
+										type: "text",
+										text: `[EDIT FAILED] Block ${i + 1}/${params.edits.length} is ambiguous: ${preflight.error} Please provide more surrounding context lines.`,
+									},
+								],
+								isError: true,
+							};
+						}
+						return {
+							content: [
+								{
+									type: "text",
+									text: `[EDIT FAILED] Block ${i + 1}/${params.edits.length} not found in '${params.path}'. Check line context and try again.`,
+								},
+							],
+							isError: true,
+						};
+					}
+					if (preflight.targetRange) targetRanges.push(preflight.targetRange);
 				}
 			}
 			const epistemicCheck = globalEpistemicGuard.checkReadPrecondition(
@@ -115,6 +165,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				ctx.cwd,
 				config.safety.enable_epistemic_guard,
 				targetRanges,
+				searchBlocks,
 			);
 			if (!epistemicCheck.allowed) {
 				return {

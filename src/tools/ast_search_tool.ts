@@ -74,14 +74,25 @@ export function registerAstSearchTool(
 				const visibleRange = r.codeBlock && r.visibleEndLine
 					? { startLine: r.line, endLine: r.visibleEndLine }
 					: null;
-				globalEpistemicGuard.recordFileSearched(r.filePath, sessionId, ctx.cwd, {
-					coverage: {
-						complete: false,
-						ranges: visibleRange ? [visibleRange] : [],
-					},
-					provenance: "ast_search",
-					query: params.name,
-				});
+				if (visibleRange) {
+					globalEpistemicGuard.recordFileRead(r.filePath, sessionId, ctx.cwd, undefined, {
+						coverage: {
+							complete: false,
+							ranges: [visibleRange],
+						},
+						provenance: "ast_search",
+						query: params.name,
+					});
+				} else {
+					globalEpistemicGuard.recordFileSearched(r.filePath, sessionId, ctx.cwd, {
+						coverage: {
+							complete: false,
+							ranges: [],
+						},
+						provenance: "ast_search",
+						query: params.name,
+					});
+				}
 			}
 
 			if (results.length === 0) {

@@ -729,7 +729,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// 9. Tool Result Interceptor: Syntax Validation & Output Clamping (ACI)
 	pi.on("tool_result", async (event: any, ctx: any) => {
-		if (event.isError) return;
+		const isBash = event.toolName === "bash";
+		if (event.isError && !isBash) return;
 
 		const toolName = event.toolName;
 		// resultContent === undefined means "no transformation, return event.content as-is".
@@ -769,6 +770,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					.map((c: any) => c.text)
 					.join(""),
 			);
+			if (event.isError) {
+				return resultContent !== undefined
+					? { content: resultContent, isError: true }
+					: undefined;
+			}
 		}
 
 		// 9b. Preserve the host write-tool compatibility path. The custom edit

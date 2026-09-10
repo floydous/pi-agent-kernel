@@ -107,16 +107,34 @@ export function registerCodeSearchTool(
 
 			const sessionId = deps.getSessionId(ctx);
 			for (const hit of hits) {
-				globalEpistemicGuard.recordFileSearched(
-					hit.chunk.absolutePath,
-					sessionId,
-					ctx.cwd,
-					{
-						coverage: { complete: false, ranges: [] },
-						provenance: "code_search",
-						query,
-					},
-				);
+				const chunkRange =
+					Number.isFinite(hit.chunk.startLine) && Number.isFinite(hit.chunk.endLine)
+						? [{ startLine: hit.chunk.startLine, endLine: hit.chunk.endLine }]
+						: [];
+				if (chunkRange.length > 0) {
+					globalEpistemicGuard.recordFileRead(
+						hit.chunk.absolutePath,
+						sessionId,
+						ctx.cwd,
+						undefined,
+						{
+							coverage: { complete: false, ranges: chunkRange },
+							provenance: "code_search",
+							query,
+						},
+					);
+				} else {
+					globalEpistemicGuard.recordFileSearched(
+						hit.chunk.absolutePath,
+						sessionId,
+						ctx.cwd,
+						{
+							coverage: { complete: false, ranges: [] },
+							provenance: "code_search",
+							query,
+						},
+					);
+				}
 			}
 
 			if (hits.length === 0) {

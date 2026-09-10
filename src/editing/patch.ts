@@ -241,6 +241,39 @@ function applySingleBlock(
 	};
 }
 
+export interface PatchPreflightResult {
+	success: boolean;
+	targetRange?: PatchTargetRange;
+	error?: string;
+	isAmbiguous?: boolean;
+}
+
+/**
+ * Preflight a single-block edit without mutating the target. Returns detailed
+ * diagnostics including ambiguity detection and line coordinates.
+ */
+export function preflightSurgicalPatchBlock(
+	filePath: string,
+	search: string,
+): PatchPreflightResult {
+	const resolvedPath = resolvePatchPath(filePath);
+	const target = readPatchTarget(resolvedPath);
+	if ("error" in target) {
+		const err = (target.error as any).error || "Could not read target file";
+		return { success: false, error: err };
+	}
+	const result = applySingleBlock(target.content, search, "");
+	if (!result.success || !result.targetRange) {
+		const isAmbiguous = (result.error?.toLowerCase() || "").includes("ambiguous");
+		return {
+			success: false,
+			error: result.error || "Could not locate SEARCH block.",
+			isAmbiguous,
+		};
+	}
+	return { success: true, targetRange: result.targetRange };
+}
+
 /**
  * Locate a single-block edit without mutating the target. The edit tool uses
  * this narrow preflight to compare the matched span with visible read evidence.
@@ -249,11 +282,8 @@ export function findSurgicalPatchTargetRange(
 	filePath: string,
 	search: string,
 ): PatchTargetRange | null {
-	const resolvedPath = resolvePatchPath(filePath);
-	const target = readPatchTarget(resolvedPath);
-	if ("error" in target) return null;
-	const result = applySingleBlock(target.content, search, "");
-	return result.success ? result.targetRange ?? null : null;
+	const res = preflightSurgicalPatchBlock(filePath, search);
+	return res.success ? res.targetRange ?? null : null;
 }
 
 function resolvePatchPath(filePath: string): string {
