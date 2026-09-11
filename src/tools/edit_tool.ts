@@ -169,8 +169,19 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-			let anchorPreflight: ReturnType<typeof preflightSmartAnchorEdits> | undefined;
-			let anchorBlocks: SmartAnchorEditBlock[] = [];
+			// Standardize edits payload (support old_text/new_text and oldText/newText aliases)
+			if (Array.isArray(params.edits)) {
+				params.edits = params.edits.map((e: any) => {
+					if (!e || typeof e !== "object") return e;
+					const search = e.search ?? e.old_text ?? e.oldText;
+					const replace = e.replace ?? e.new_text ?? e.newText;
+					return {
+						...e,
+						search,
+						replace,
+					};
+				});
+			}
 
 			if (isAnchorMode) {
 				if (hasSingleAnchor) {
