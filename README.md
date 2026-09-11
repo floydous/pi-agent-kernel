@@ -24,19 +24,19 @@ Here is how tool overhead compares to an unconstrained agent harness across ever
 
 `pi-agent-kernel` is continuously evaluated using an 8-task ground-truth benchmark suite derived from real-world bug fixes merged in popular open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`).
 
-### Cross-Harness 8-Task Benchmark on GPT 5.6 Luna Medium (`cx/gpt-5.6-luna:medium`)
+### Cross-Harness 8-Task Benchmark on GPT 5.6 Luna High (`cx/gpt-5.6-luna:high`)
 
-All 5 harnesses were evaluated across all 8 tasks under identical prompts and repository states on **`cx/gpt-5.6-luna:medium`** via **`OmniRoute`**:
+All 5 harnesses were evaluated across all 8 tasks under identical prompts and repository states on **`cx/gpt-5.6-luna:high`** via **`OmniRoute`**:
 
 | Harness | Tasks Solved | Success Rate | Total Time | Cumulative Input Tokens | Output Tokens | Total Turn Tokens | Total Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| **Pi (Vanilla)** | **8 / 8** | **100%** | **504s (8.4m)** | **332,092** | **9,233** | **494,413** | **62** |
-| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **745s (12.4m)** | **373,938** | **14,016** | **727,922** | **92** |
-| **Codex CLI** | **8 / 8** | **100%** | 860s (14.3m) | 1,733,982 | 21,289 | 1,755,271 | 64 |
-| **OMP** | **8 / 8** | **100%** | 849s (14.2m) | 576,233 | 11,921 | 1,978,234 | 194 |
-| **Claude Code** | **8 / 8** | **100%** | 1,332s (22.2m) | 2,080,562 | 58,339 | 2,283,901 | 114 |
+| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **817s (13.6m)** | **393,367** | **16,574** | **587,093** | **100** |
+| **Pi (Vanilla)** | **8 / 8** | **100%** | **777s (12.9m)** | 422,535 | 13,209 | 675,360 | **82** |
+| **Codex CLI** | **8 / 8** | **100%** | 1,028s (17.1m) | 1,528,987 | 22,253 | 1,551,240 | 70 |
+| **Claude Code** | 7 / 8 | 88% | 892s (14.9m) | 2,087,983 | 61,930 | 2,149,913 | 115 |
+| **OMP** | 7 / 8 | 88% | 1,033s (17.2m) | 682,771 | 17,112 | 2,230,763 | 234 |
 
-> **Efficiency Comparison**: Pi harness families (`pi-vanilla` and `pi-agent-kernel`) dramatically outperform external CLIs, consuming **58–78% fewer tokens** and completing tasks in nearly half the wall-clock time compared to Claude Code, Codex, and OMP.
+> **Efficiency Comparison**: **Pi + Agent-Kernel achieves the lowest total token consumption across all 8 tasks (587,093 tokens)**, outperforming Pi Vanilla (675k tokens, **-13.1% fewer tokens**), Codex (1.55M tokens, **-62.2%**), Claude Code (2.15M tokens, **-72.7%**), and OMP (2.23M tokens, **-73.7%**).
 
 ![Benchmark Comparison](agent-kernel-benchmark/benchmark-comparison.png)
 
