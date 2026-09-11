@@ -10,6 +10,11 @@ import {
 	findSurgicalPatchTargetRange,
 	preflightSurgicalPatchBlock,
 } from "../editing/patch";
+import {
+	applySmartAnchorEdits,
+	preflightSmartAnchorEdits,
+	type SmartAnchorEditBlock,
+} from "../editing/smart_anchor";
 import type { EvidenceRange } from "../safety/epistemic_guard";
 import {
 	renderEditFailure,
@@ -26,39 +31,80 @@ import type { SessionDeps } from "./context";
 
 /** Extracted from index.ts — registers the `edit` tool. */
 export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
-	// 7. Tool: `edit` (Unified Surgical Diff & Multi-Block Editor - Replaces stock edit tool)
+	// 7. Tool: `edit` (Unified Surgical Diff, Smart Anchor, & Multi-Block Editor - Replaces stock edit tool)
+	const benchmarkMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
+	const editToolParameters = benchmarkMethod === "line-range"
+		? Type.Object({
+				path: Type.String({ description: "File path to edit" }),
+				start_line: Type.Number({ description: "First 1-based line to replace" }),
+				end_line: Type.Optional(Type.Number({ description: "Last 1-based line to replace, inclusive" })),
+				lines: Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" }),
+			})
+		: benchmarkMethod === "hash-anchor"
+			? Type.Object({
+					path: Type.String({ description: "File path to edit" }),
+					pos: Type.String({ description: "Start anchor copied from read output, e.g. '288#ZH'" }),
+					end: Type.Optional(Type.String({ description: "End anchor copied from read output, e.g. '294#VN'" })),
+					lines: Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" }),
+				})
+				: benchmarkMethod === "search-replace"
+				? Type.Object({
+						path: Type.String({ description: "File path to edit" }),
+						search: Type.String({ description: "Unique exact source block to replace" }),
+						replace: Type.String({ description: "Replacement source block" }),
+					})
+				: benchmarkMethod === "adaptive"
+					? Type.Object({
+							path: Type.String({ description: "File path to edit" }),
+							search: Type.Optional(Type.String({ description: "Unique exact source block to replace" })),
+							replace: Type.Optional(Type.String({ description: "Replacement source block" })),
+							start_line: Type.Optional(Type.Number({ description: "First 1-based line to replace" })),
+							end_line: Type.Optional(Type.Number({ description: "Last 1-based line to replace, inclusive" })),
+							pos: Type.Optional(Type.String({ description: "LINE#HASH anchor copied from read output" })),
+							end: Type.Optional(Type.String({ description: "Ending LINE#HASH anchor" })),
+							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" })),
+						})
+					: Type.Object({
+							path: Type.String({ description: "File path to edit" }),
+							pos: Type.Optional(Type.String({ description: "Start anchor or line number" })),
+							end: Type.Optional(Type.String({ description: "End anchor or line number" })),
+							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines" })),
+							search: Type.Optional(Type.String({ description: "Search block" })),
+							replace: Type.Optional(Type.String({ description: "Replacement block" })),
+							line_hint: Type.Optional(Type.Number({ description: "Line hint" })),
+							start_line: Type.Optional(Type.Number()),
+							end_line: Type.Optional(Type.Number()),
+							edits: Type.Optional(
+								Type.Array(
+									Type.Object({
+										pos: Type.Optional(Type.String()),
+										end: Type.Optional(Type.String()),
+										lines: Type.Optional(Type.Array(Type.String())),
+										search: Type.Optional(Type.String()),
+										replace: Type.Optional(Type.String()),
+										line_hint: Type.Optional(Type.Number()),
+										start_line: Type.Optional(Type.Number()),
+										end_line: Type.Optional(Type.Number()),
+									}),
+								),
+							),
+						});
 	const editToolDefinition: any = {
 		name: "edit",
-		label: "Surgical Code Editor",
+		label: "Code Editor",
 		description:
-			"Surgically edit code using search/replace blocks with syntax verification. Supports single or multi-block edits.",
-		promptSnippet: "Edit code using search/replace blocks",
+			benchmarkMethod === "line-range"
+				? "Edit code with numeric line ranges only: start_line, optional end_line, and replacement lines."
+				: benchmarkMethod === "hash-anchor"
+					? "Edit code with LINE#HASH anchors only, copied from read output."
+					: benchmarkMethod === "search-replace"
+						? "Edit code with a unique exact search block and replacement block only."
+						: benchmarkMethod === "adaptive"
+							? "Edit code with a unique search/replace block or numeric line range; use search first and line range if needed."
+						: "Edit code using smart line anchors or search/replace blocks with syntax verification.",
+		promptSnippet: "Edit code using the selected target method",
 		renderShell: "default",
-		parameters: Type.Object({
-			path: Type.String({
-				description: "File path to edit",
-			}),
-			search: Type.Optional(
-				Type.String({
-					description: "Lines of code to replace (single block)",
-				}),
-			),
-			replace: Type.Optional(
-				Type.String({ description: "Replacement code lines (single block)" }),
-			),
-			edits: Type.Optional(
-				Type.Array(
-					Type.Object({
-						search: Type.String({ description: "Search block" }),
-						replace: Type.String({ description: "Replacement block" }),
-					}),
-					{
-						description:
-							"List of multiple disjoint search/replace blocks to apply atomically",
-					},
-				),
-			),
-		}),
+		parameters: editToolParameters,
 		async execute(
 			_toolCallId: string,
 			params: any,
@@ -84,24 +130,89 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
 			const searchBlocks: string[] = [];
 			const targetRanges: EvidenceRange[] = [];
+
+			const hasSingleAnchor =
+				(params.pos !== undefined || params.start_line !== undefined) &&
+				Array.isArray(params.lines);
+			const hasAnchorEdits =
+				Array.isArray(params.edits) &&
+				params.edits.length > 0 &&
+				params.edits.some(
+					(e: any) =>
+						e &&
+						(e.pos !== undefined ||
+							e.start_line !== undefined ||
+							(Array.isArray(e.lines) && typeof e.search !== "string")),
+				);
+			const isAnchorMode = hasSingleAnchor || hasAnchorEdits;
+
 			const hasSingleBlock =
 				typeof params.search === "string" && typeof params.replace === "string";
 			const hasMultiBlock = Array.isArray(params.edits) && params.edits.length > 0;
-			if (!hasSingleBlock && !hasMultiBlock) {
+
+			if (benchmarkMethod === "adaptive" && !isAnchorMode && !hasSingleBlock) {
+				return {
+					content: [{ type: "text", text: "[EDIT ERROR] Adaptive mode requires search/replace or a numeric/hashed line range." }],
+					isError: true,
+				};
+			}
+
+			if (!isAnchorMode && !hasSingleBlock && !hasMultiBlock) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: "[EDIT ERROR] Must provide either 'search' and 'replace' strings, or an 'edits' array of search/replace blocks.",
+							text: "[EDIT ERROR] Must provide either smart anchors ('pos' and 'lines', or 'edits' with anchors) or 'search' and 'replace' blocks.",
 						},
 					],
 					isError: true,
 				};
 			}
 
-			if (hasSingleBlock) {
+			let anchorPreflight: ReturnType<typeof preflightSmartAnchorEdits> | undefined;
+			let anchorBlocks: SmartAnchorEditBlock[] = [];
+
+			if (isAnchorMode) {
+				if (hasSingleAnchor) {
+					anchorBlocks = [
+						{
+							pos: params.pos ?? params.start_line,
+							end: params.end ?? params.end_line,
+							lines: params.lines,
+						},
+					];
+				} else {
+					anchorBlocks = params.edits;
+				}
+
+				let fileContent: string;
+				try {
+					fileContent = fs.readFileSync(resolvedPath, "utf8");
+				} catch (err: any) {
+					return {
+						content: [{ type: "text", text: `[EDIT ERROR] Unable to read '${params.path}': ${err.message}` }],
+						isError: true,
+					};
+				}
+
+				anchorPreflight = preflightSmartAnchorEdits(fileContent, anchorBlocks);
+				if (!anchorPreflight.success) {
+					return {
+						content: [{ type: "text", text: anchorPreflight.error || "[EDIT FAILED] Invalid anchor edit." }],
+						isError: true,
+					};
+				}
+				if (anchorPreflight.targetRanges) {
+					targetRanges.push(...anchorPreflight.targetRanges);
+				}
+			} else if (hasSingleBlock) {
 				searchBlocks.push(params.search);
-				const preflight = preflightSurgicalPatchBlock(resolvedPath, params.search);
+				const singleOpt = {
+					startLine: params.start_line,
+					endLine: params.end_line,
+					lineHint: params.line_hint,
+				};
+				const preflight = preflightSurgicalPatchBlock(resolvedPath, params.search, singleOpt);
 				if (!preflight.success) {
 					if (preflight.isAmbiguous) {
 						return {
@@ -132,7 +243,12 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					const block = params.edits[i];
 					if (!block || typeof block.search !== "string") continue;
 					searchBlocks.push(block.search);
-					const preflight = preflightSurgicalPatchBlock(resolvedPath, block.search);
+					const blockOpt = {
+						startLine: block.start_line,
+						endLine: block.end_line,
+						lineHint: block.line_hint,
+					};
+					const preflight = preflightSurgicalPatchBlock(resolvedPath, block.search, blockOpt);
 					if (!preflight.success) {
 						if (preflight.isAmbiguous) {
 							return {
@@ -163,7 +279,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				"edit",
 				deps.getSessionId(ctx),
 				ctx.cwd,
-				config.safety.enable_epistemic_guard,
+				config?.safety?.enable_epistemic_guard ?? true,
 				targetRanges,
 				searchBlocks,
 			);
@@ -185,18 +301,20 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			});
 
 			let patchRes: ReturnType<typeof applySurgicalPatch>;
-			if (hasMultiBlock) {
+			if (isAnchorMode) {
+				patchRes = applySmartAnchorEdits(resolvedPath, anchorBlocks);
+			} else if (hasMultiBlock) {
 				patchRes = applyMultiBlockPatch(resolvedPath, params.edits);
 			} else if (hasSingleBlock) {
-				patchRes = applySurgicalPatch(resolvedPath, params.search, params.replace);
+				const singleOpt = {
+					startLine: params.start_line,
+					endLine: params.end_line,
+					lineHint: params.line_hint,
+				};
+				patchRes = applySurgicalPatch(resolvedPath, params.search, params.replace, singleOpt);
 			} else {
 				return {
-					content: [
-						{
-							type: "text",
-							text: `[EDIT ERROR] Must provide either 'search' and 'replace' strings, or an 'edits' array of search/replace blocks.`,
-						},
-					],
+					content: [{ type: "text", text: `[EDIT ERROR] Must provide either smart anchors or 'search' and 'replace' strings.` }],
 					isError: true,
 				};
 			}
@@ -224,7 +342,12 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			// Calculate net line count difference from the edit blocks
 			let deltaLines = 0;
-			if (hasSingleBlock) {
+			if (isAnchorMode && anchorPreflight?.resolvedSpans) {
+				for (const span of anchorPreflight.resolvedSpans) {
+					const deletedCount = span.endLine - span.startLine + 1;
+					deltaLines += span.replacementLines.length - deletedCount;
+				}
+			} else if (hasSingleBlock) {
 				const searchLines = params.search.replace(/\r\n/g, "\n").split("\n").length;
 				const replaceLines = params.replace.replace(/\r\n/g, "\n").split("\n").length;
 				deltaLines = replaceLines - searchLines;

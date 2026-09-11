@@ -47,9 +47,6 @@ npx tsx tests/run-all.ts epistemic-guard
 | `post-edit-verification` | Post-edit verification and diagnostic gates |
 | `cache-retrieval` | Embedder cache and search-index retention |
 | `end-to-end` | Cross-feature integration checks |
-| `content-dedup` | Content-addressed deduplication |
-| `recall-tool` | Recall validation and lookup |
-| `dedup-hook` | End-to-end deduplication hook chain |
 | `mutation-continuity` | Epistemic guard mutation continuity |
 | `lsp-clean-and-filters` | Clean diagnostics and reference filters |
 | `lsp-reference-snippets` | Reference snippet windowing |

@@ -121,9 +121,18 @@ function renderTemplate(id: number): string {
 	assert.strictEqual(clamped.truncated, true, "Large output must be truncated");
 	assert.ok(clamped.spilloverPath, "Spillover path must be generated");
 
-	const remaining = fs.readdirSync(tempDir).filter((f) => f.startsWith("pi_bash_spillover_"));
-	// When pre-count > 20, clamp prunes down to 20 then writes 1 new file: remaining <= 21
-	assert.ok(remaining.length <= 21, `Spillover log files must be pruned to max 21 (actual: ${remaining.length})`);
+	// When pre-count > 20, clamp prunes unlinked files down to 20 then writes 1 new file.
+	// Filter for files owned by current user that were eligible for deletion.
+	const myRemaining = fs.readdirSync(tempDir).filter((f) => {
+		if (!f.startsWith("pi_bash_spillover_")) return false;
+		try {
+			const st = fs.statSync(path.join(tempDir, f));
+			return st.uid === process.getuid();
+		} catch {
+			return false;
+		}
+	});
+	assert.ok(myRemaining.length <= 21, `Spillover log files must be pruned to max 21 (actual: ${myRemaining.length})`);
 
 	// Clean up test spillover files
 	for (const f of createdFiles) {

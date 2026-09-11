@@ -9,7 +9,6 @@ import { registerCodeSearchTool } from "../../src/tools/code_search_tool";
 import { registerReadTool } from "../../src/tools/read_tool";
 import { registerEditTool } from "../../src/tools/edit_tool";
 import { registerLspTool } from "../../src/tools/lsp_tool";
-import { registerRecallTool } from "../../src/dedup/recall_tool";
 
 export async function testAdaptiveRepoMapThreshold(): Promise<void> {
 	const ws = createTestWorkspace("repomap_adaptive_");
@@ -76,9 +75,8 @@ export async function testAdaptiveRepoMapThreshold(): Promise<void> {
 		registerReadTool(mockPi, { getSessionId: () => "test", getConfig: () => cfg });
 		registerEditTool(mockPi, { getSessionId: () => "test", getConfig: () => cfg, invalidateSearchFile: () => {} });
 		registerLspTool(mockPi, { getSessionId: () => "test", getConfig: () => cfg });
-		registerRecallTool(mockPi, { getSessionId: () => "test", getDedupStore: () => ({} as any) });
 
-		assertPass("All 7 tools registered", tools.length === 7);
+		assertPass("All 6 tools registered", tools.length === 6);
 
 		for (const t of tools) {
 			assertPass(`Tool ${t.name} has description and promptSnippet`, !!t.description && !!t.promptSnippet);

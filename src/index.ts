@@ -68,8 +68,6 @@ function piDocsEnabled(ctx: any): boolean {
 import { clampCommandOutput } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { renderFooter } from "./ui/footer";
-import { DedupStore } from "./dedup/content_store";
-import { registerRecallTool } from "./dedup/recall_tool";
 import {
 	LspManager,
 	LspControlModal,
@@ -92,13 +90,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	} catch (e) {
 		kernelDebug(e);
 	}
-
-	// 0b. Dedup store: shared across all sessions in this process. Per-session
-	// state is keyed by sessionId. A single instance lets the dedup store
-	// benefit from cross-session LRU and lets the recall tool look up refs
-	// from any active session.
-	const dedupStore = new DedupStore();
-	const getDedupStore = () => dedupStore;
 
 	// 3. Slash Commands: /repomap, /engine, /lsp, /pi-docs
 	let activeTui: any = null;
@@ -261,9 +252,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			await TreeSitterEngine.getInstance().init();
 			const budget = args ? parseInt(args, 10) : 1024;
 			const map = computeRepoMap(
-				ctx.cwd,
+				ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd(),
 				Number.isNaN(budget)
-					? getConfig(ctx.cwd).retrieval.repo_map_budget
+					? getConfig(ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd()).retrieval.repo_map_budget
 					: budget,
 			);
 			ctx.ui?.notify?.("Repository Map Generated", "info");
@@ -302,8 +293,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			const current = codebaseProfileBySession.get(sessionId) ?? getConfig(ctx.cwd).retrieval.codebase_profile;
-			const metrics = evaluateCodebaseMetrics(ctx.cwd);
+			const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
+			const current = codebaseProfileBySession.get(sessionId) ?? getConfig(currentCwd).retrieval.codebase_profile;
+			const metrics = evaluateCodebaseMetrics(currentCwd);
 			const detected = metrics.isLight ? "light" : "heavy";
 			const effective = current === "auto" ? detected : current;
 			const statusMsg = `Profile: ${current} (effective: ${effective})\nMetrics: ${metrics.implFiles} impl files (${Math.round(metrics.implBytes / 1024)} KB), ${metrics.testFiles} test files (${Math.round(metrics.testBytes / 1024)} KB)`;
@@ -652,24 +644,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const sessionId = getSessionId(ctx);
 		piDocsEnabledBySession.delete(sessionId);
 		globalEpistemicGuard.resetSession(sessionId);
-		dedupStore.clearSession(sessionId);
 		try {
 			await LspManager.getInstance().stopAll();
 		} catch (e) {
 			kernelDebug(e);
 		}
-	});
-
-	// 2b. Compaction hooks: bump the dedup store's per-session counter so
-	// the next duplicate of any prior content is treated as a new first
-	// occurrence. This applies to both auto-triggered and manual compactions.
-	pi.on("session_before_compact", async (_event: any, ctx: any) => {
-		const sessionId = getSessionId(ctx);
-		dedupStore.onCompaction(sessionId);
-	});
-	pi.on("session_compact", async (_event: any, ctx: any) => {
-		const sessionId = getSessionId(ctx);
-		dedupStore.onCompaction(sessionId);
 	});
 
 	// 4-8. Tools: repo map, AST search, code search, read, edit, LSP
@@ -682,7 +661,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	registerReadTool(pi, { getSessionId, getConfig });
 	registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
 	registerLspTool(pi, { getSessionId, getConfig });
-	registerRecallTool(pi, { getSessionId, getDedupStore });
 
 	// 9a. Block host writes before the host tool can create parent directories
 	// or overwrite the target. Bash read evidence is recorded after a successful
@@ -732,10 +710,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const isBash = event.toolName === "bash";
 		if (event.isError && !isBash) return;
 
-		const toolName = event.toolName;
 		// resultContent === undefined means "no transformation, return event.content as-is".
-		// A non-undefined value is the content the LLM will see; the dedup check
-		// at the end runs on whichever form is set.
+		const toolName = event.toolName;
 		let resultContent: any = undefined;
 		let didBail = false;
 
@@ -865,55 +841,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		// 9c. Dedup pass: hash the rendered text + tool name + input params;
-		// if it's a byte-equal duplicate (same tool, same params, same text)
-		// of one already in this session's current (uncompacted) context,
-		// replace with a [=rN,sizeB,tool,paramsKey] reference. Bail
-		// branches (didBail) skip dedup; errors are filtered at the top.
-		// The `recall` tool is exempt: its entire purpose is to break the
-		// dedup chain by emitting the original bytes; if we dedup'd its
-		// output, the LLM would get a reference instead of the bytes it
-		// asked for.
-		if (!didBail && toolName !== "recall") {
-			const contentForLLM = resultContent !== undefined ? resultContent : (event.content || []);
-			const hasOnlyTextContent = (contentForLLM as any[]).every(
-				(c: any) => c.type === "text" && typeof c.text === "string",
-			);
-			const finalText = hasOnlyTextContent
-				? (contentForLLM as any[]).map((c: any) => c.text).join("")
-				: "";
-			if (hasOnlyTextContent && Buffer.byteLength(finalText, "utf8") > 0) {
-				const sessionId = getSessionId(ctx);
-				const compactionCounter = dedupStore.getCompactionCounter(sessionId);
-				const inputParams = event.input || {};
-				const decision = dedupStore.record(
-					sessionId,
-					event.toolCallId || "",
-					toolName,
-					inputParams,
-					finalText,
-					false,
-					compactionCounter,
-				);
-				if (decision.isDuplicate) {
-					// Recall the prior entry's metadata so the notice names
-					// the tool and paramsKey. The LLM can use this to
-					// decide whether to recall or run a fresh tool call.
-					const prior = dedupStore.get(sessionId, decision.shortRef);
-					const priorTool = prior?.toolName ?? toolName;
-					const priorParamsKey = prior?.paramsKey ?? "";
-					resultContent = [
-						{
-							type: "text",
-							text: `[=${decision.shortRef},${Buffer.byteLength(finalText, "utf8")}B,${priorTool},${priorParamsKey}]`,
-						},
-					];
-				}
-				// For first occurrence, the dedup store has the entry, but we
-				// don't need to return anything; Pi will use event.content as-is.
-			}
-		}
-
 		if (didBail) return;
 		if (resultContent !== undefined) {
 			return { content: resultContent };
@@ -929,24 +856,14 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
 		const now = Date.now();
-		const currentCwd = ctx.cwd || process.cwd();
+		const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
 		const kernelConfig = getConfig(currentCwd);
 		const sessionId = getSessionId(ctx);
 		const profile = codebaseProfileBySession.get(sessionId) ?? kernelConfig.retrieval.codebase_profile ?? "auto";
 
 		let shouldInjectMap = false;
-		if (profile === "heavy") {
-			shouldInjectMap = true;
-		} else if (profile === "light") {
-			shouldInjectMap = false;
-		} else {
-			const metrics = evaluateCodebaseMetrics(
-				currentCwd,
-				kernelConfig.retrieval.repo_map_min_files,
-				kernelConfig.retrieval.repo_map_min_bytes,
-			);
-			shouldInjectMap = !metrics.isLight;
-		}
+		// Disabled automatic AST repo map injection to evaluate prompt token footprint and latency
+		// The `get_repo_map` tool remains available on-demand.
 
 		// Cache repo-map across turns with a 15-second TTL to avoid scanning/PageRanking entire repo on every turn
 		if (!cachedRepoMap || cachedRepoMapCwd !== currentCwd || now - lastRepoMapCheck > 15000) {
@@ -963,18 +880,16 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			lastRepoMapCheck = now;
 		}
 
-		const dedupNote = `A [=rN,sizeB,tool,paramsKey] ref denotes duplicate content. Call recall(ref) only if needed; otherwise run fresh tools.`;
-
 		const runtimeContext = cachedRepoMap
-			? `\n## Available Repository Context:\n${cachedRepoMap}\n${dedupNote}\n`
-			: `\n${dedupNote}\n`;
+			? `\n## Available Repository Context:\n${cachedRepoMap}\n`
+			: "";
 		const basePrompt = event.systemPrompt || "";
 		const systemPrompt = piDocsEnabled(ctx)
 			? basePrompt
 			: withoutPiDocumentation(basePrompt);
 		return {
 			systemPrompt: systemPrompt
-				? `${systemPrompt}\n\n${runtimeContext}`
+				? (runtimeContext ? `${systemPrompt}\n\n${runtimeContext}` : systemPrompt)
 				: runtimeContext,
 		};
 	});

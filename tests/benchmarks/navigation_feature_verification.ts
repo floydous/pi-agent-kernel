@@ -5,7 +5,6 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { registerReadTool } from "../../src/tools/read_tool";
 import { registerLspTool } from "../../src/tools/lsp_tool";
-import { DedupStore } from "../../src/dedup/content_store";
 import { EpistemicGuard } from "../../src/safety/epistemic_guard";
 import { searchAstSymbols } from "../../src/retrieval/ast_search";
 import { logPass } from "../_setup";
@@ -167,17 +166,6 @@ export async function run(): Promise<void> {
 	const boundedDescribe = describe("withConnection");
 	assert.ok(bytes(boundedDescribe) < currentCompositeBytes, "bounded description should be smaller than body+references+hover workflow");
 
-	const store = new DedupStore();
-	const content = "x".repeat(500);
-	const first = store.record("dedup", "a", "code_search", { query: "save state", limit: 5 }, content, false, 0);
-	const changedQuery = store.record("dedup", "b", "code_search", { query: "save state file path", limit: 5 }, content, false, 0);
-	const sameParams = store.record("dedup", "c", "code_search", { query: "save state", limit: 5 }, content, false, 0);
-	const differentTool = store.record("dedup", "d", "read", { path: "a" }, content, false, 0);
-	assert.equal(first.isDuplicate, false);
-	assert.equal(changedQuery.isDuplicate, false);
-	assert.equal(sameParams.isDuplicate, true);
-	assert.equal(differentTool.isDuplicate, false);
-
 	const guard = new EpistemicGuard();
 	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navigation-guard-"));
 	const tempFile = path.join(tempDir, "file.ts");
@@ -233,11 +221,7 @@ export async function run(): Promise<void> {
 				candidateCalls: 1,
 				candidateOutputBytes: bytes(boundedDescribe),
 			},
-			dedup: {
-				changedQuerySameBytesDeduped: changedQuery.isDuplicate,
-				sameParamsSameBytesDeduped: sameParams.isDuplicate,
-				differentToolSameBytesDeduped: differentTool.isDuplicate,
-			},
+			editAuthorization: { search: false, matchingRead: true, afterExternalDrift: false },
 			workspaceSearch: { nativeRgCalls: 1, outputBytes: bytes(rgOutput) },
 			editAuthorization: { search: false, matchingRead: true, afterExternalDrift: false },
 		},

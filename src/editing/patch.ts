@@ -4,7 +4,7 @@ import { resolveUserPath } from "../safety/epistemic_guard";
 import * as diff from "diff";
 import { checkSyntaxContent } from "./syntax-verify";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
-
+import { getUnclosedDelimiters, healJsonContent } from "./auto_heal";
 /**
  * Result of composing and validating a surgical patch.
  *
@@ -25,6 +25,10 @@ export interface PatchResult {
 export interface PatchBlock {
 	search: string;
 	replace: string;
+	startLine?: number;
+	endLine?: number;
+	lineHint?: number;
+	autoHeal?: boolean;
 }
 
 /** Inclusive 1-based line span matched by an edit block before mutation. */
@@ -92,12 +96,14 @@ function applySingleBlock(
 	content: string,
 	search: string,
 	replace: string,
+	options?: { startLine?: number; endLine?: number; lineHint?: number },
 ): {
 	success: boolean;
 	newContent: string;
 	strategy: string;
 	error?: string;
 	targetRange?: PatchTargetRange;
+	autoHealed?: boolean;
 } {
 	const hadCrlf = content.includes("\r\n");
 	const searchNorm = search.replace(/\r\n/g, "\n");
@@ -135,6 +141,30 @@ function applySingleBlock(
 		};
 	}
 	if (exactMatches.length > 1) {
+		if (options?.lineHint !== undefined || options?.startLine !== undefined) {
+			const targetLine = options.lineHint ?? options.startLine!;
+			let bestOffset = exactMatches[0];
+			let bestDistance = Infinity;
+			for (const offset of exactMatches) {
+				const line = contentNorm.slice(0, offset).split("\n").length;
+				const dist = Math.abs(line - targetLine);
+				if (dist < bestDistance) {
+					bestDistance = dist;
+					bestOffset = offset;
+				}
+			}
+			const start = bestOffset;
+			const newContent =
+				contentNorm.slice(0, start) +
+				replaceNorm +
+				contentNorm.slice(start + searchNorm.length);
+			return {
+				success: true,
+				newContent: restoreLineEndings(newContent, hadCrlf),
+				strategy: `exact (line-hinted near line ${contentNorm.slice(0, start).split("\n").length})`,
+				targetRange: lineRangeFromOffsets(contentNorm, start, searchNorm.length),
+			};
+		}
 		return {
 			success: false,
 			newContent: content,
@@ -180,6 +210,34 @@ function applySingleBlock(
 		};
 	}
 	if (normalizedMatches.length > 1) {
+		if (options?.lineHint !== undefined || options?.startLine !== undefined) {
+			const targetLine = options.lineHint ?? options.startLine!;
+			let bestIdx = normalizedMatches[0];
+			let bestDistance = Infinity;
+			for (const idx of normalizedMatches) {
+				const line = idx + 1;
+				const dist = Math.abs(line - targetLine);
+				if (dist < bestDistance) {
+					bestDistance = dist;
+					bestIdx = idx;
+				}
+			}
+			return {
+				success: true,
+				newContent: replaceLineWindow(
+					contentLines,
+					bestIdx,
+					searchLines.length,
+					replaceNorm,
+					hadCrlf,
+				),
+				strategy: `whitespace_normalized (line-hinted near line ${bestIdx + 1})`,
+				targetRange: {
+					startLine: bestIdx + 1,
+					endLine: bestIdx + searchLines.length,
+				},
+			};
+		}
 		return {
 			success: false,
 			newContent: content,
@@ -255,6 +313,7 @@ export interface PatchPreflightResult {
 export function preflightSurgicalPatchBlock(
 	filePath: string,
 	search: string,
+	options?: { startLine?: number; endLine?: number; lineHint?: number },
 ): PatchPreflightResult {
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
@@ -262,7 +321,7 @@ export function preflightSurgicalPatchBlock(
 		const err = (target.error as any).error || "Could not read target file";
 		return { success: false, error: err };
 	}
-	const result = applySingleBlock(target.content, search, "");
+	const result = applySingleBlock(target.content, search, "", options);
 	if (!result.success || !result.targetRange) {
 		const isAmbiguous = (result.error?.toLowerCase() || "").includes("ambiguous");
 		return {
@@ -281,8 +340,9 @@ export function preflightSurgicalPatchBlock(
 export function findSurgicalPatchTargetRange(
 	filePath: string,
 	search: string,
+	options?: { startLine?: number; endLine?: number; lineHint?: number },
 ): PatchTargetRange | null {
-	const res = preflightSurgicalPatchBlock(filePath, search);
+	const res = preflightSurgicalPatchBlock(filePath, search, options);
 	return res.success ? res.targetRange ?? null : null;
 }
 
@@ -348,13 +408,14 @@ export function applySurgicalPatch(
 	filePath: string,
 	search: string,
 	replace: string,
+	options?: { startLine?: number; endLine?: number; lineHint?: number; autoHeal?: boolean },
 ): PatchResult {
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
 	if ("error" in target) return target.error;
 
 	const originalContent = target.content;
-	const result = applySingleBlock(originalContent, search, replace);
+	const result = applySingleBlock(originalContent, search, replace, options);
 	if (!result.success) {
 		return {
 			success: false,
@@ -364,7 +425,39 @@ export function applySurgicalPatch(
 		};
 	}
 
-	const syntax = checkSyntaxContent(resolvedPath, result.newContent);
+	let candidateContent = result.newContent;
+	let syntax = checkSyntaxContent(resolvedPath, candidateContent);
+	let autoHealed = false;
+
+	// Delimiter & Bracket Auto-Healing:
+	if (!syntax.valid) {
+		const ext = path.extname(resolvedPath).toLowerCase();
+		if (ext === ".json") {
+			const healedJson = healJsonContent(candidateContent);
+			if (healedJson) {
+				candidateContent = healedJson;
+				syntax = checkSyntaxContent(resolvedPath, candidateContent);
+				autoHealed = syntax.valid;
+			}
+		} else if (options?.autoHeal !== false) {
+			// Check if the replacement block truncated closing delimiters
+			const unclosed = getUnclosedDelimiters(replace);
+			if (unclosed.length > 0) {
+				const appendDelims = "\n" + unclosed.join("");
+				const retryReplace = replace + appendDelims;
+				const reResult = applySingleBlock(originalContent, search, retryReplace, options);
+				if (reResult.success) {
+					const reSyntax = checkSyntaxContent(resolvedPath, reResult.newContent);
+					if (reSyntax.valid) {
+						candidateContent = reResult.newContent;
+						syntax = reSyntax;
+						autoHealed = true;
+					}
+				}
+			}
+		}
+	}
+
 	if (!syntax.valid) {
 		return {
 			success: false,
@@ -377,22 +470,26 @@ export function applySurgicalPatch(
 	const writeError = writePatchedContent(
 		resolvedPath,
 		originalContent,
-		result.newContent,
+		candidateContent,
 	);
 	if (writeError) {
 		writeError.strategy = result.strategy;
 		return writeError;
 	}
 
+	const finalStrategy = autoHealed
+		? `${result.strategy} (auto-healed syntax)`
+		: result.strategy;
+
 	return {
 		success: true,
 		filePath: resolvedPath,
-		strategy: result.strategy,
+		strategy: finalStrategy,
 		targetRanges: result.targetRange ? [result.targetRange] : [],
 		diffOutput: diff.createPatch(
 			path.basename(resolvedPath),
 			originalContent,
-			result.newContent,
+			candidateContent,
 		),
 	};
 }
@@ -435,7 +532,12 @@ export function applyMultiBlockPatch(
 			};
 		}
 
-		const located = applySingleBlock(originalContent, block.search, "");
+		const opt = {
+			startLine: block.startLine,
+			endLine: block.endLine,
+			lineHint: block.lineHint,
+		};
+		const located = applySingleBlock(originalContent, block.search, "", opt);
 		if (!located.success || !located.targetRange) {
 			return {
 				success: false,
@@ -465,7 +567,12 @@ export function applyMultiBlockPatch(
 	const appliedStrategies: string[] = [];
 	for (let i = 0; i < blocks.length; i++) {
 		const block = blocks[i];
-		const result = applySingleBlock(currentContent, block.search, block.replace);
+		const opt = {
+			startLine: block.startLine,
+			endLine: block.endLine,
+			lineHint: block.lineHint,
+		};
+		const result = applySingleBlock(currentContent, block.search, block.replace, opt);
 		if (!result.success) {
 			return {
 				success: false,
@@ -478,7 +585,22 @@ export function applyMultiBlockPatch(
 		appliedStrategies.push(`Block ${i + 1}: ${result.strategy}`);
 	}
 
-	const syntax = checkSyntaxContent(resolvedPath, currentContent);
+	let candidateContent = currentContent;
+	let syntax = checkSyntaxContent(resolvedPath, candidateContent);
+	let autoHealed = false;
+
+	if (!syntax.valid) {
+		const ext = path.extname(resolvedPath).toLowerCase();
+		if (ext === ".json") {
+			const healedJson = healJsonContent(candidateContent);
+			if (healedJson) {
+				candidateContent = healedJson;
+				syntax = checkSyntaxContent(resolvedPath, candidateContent);
+				autoHealed = syntax.valid;
+			}
+		}
+	}
+
 	if (!syntax.valid) {
 		return {
 			success: false,
@@ -491,22 +613,26 @@ export function applyMultiBlockPatch(
 	const writeError = writePatchedContent(
 		resolvedPath,
 		originalContent,
-		currentContent,
+		candidateContent,
 	);
 	if (writeError) {
 		writeError.strategy = appliedStrategies.join(", ");
 		return writeError;
 	}
 
+	const finalStrategy = autoHealed
+		? `${appliedStrategies.join(", ")} (auto-healed syntax)`
+		: appliedStrategies.join(", ");
+
 	return {
 		success: true,
 		filePath: resolvedPath,
-		strategy: appliedStrategies.join(", "),
+		strategy: finalStrategy,
 		targetRanges: plannedRanges,
 		diffOutput: diff.createPatch(
 			path.basename(resolvedPath),
 			originalContent,
-			currentContent,
+			candidateContent,
 		),
 	};
 }

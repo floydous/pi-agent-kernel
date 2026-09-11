@@ -161,21 +161,6 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./end-to-end")),
 	},
 	{
-		name: "Content-Addressed Dedup",
-		key: "content-dedup",
-		loader: () => runSuiteModule(() => import("./content-dedup")),
-	},
-	{
-		name: "Recall Tool Decision Logic",
-		key: "recall-tool",
-		loader: () => runSuiteModule(() => import("./recall-tool")),
-	},
-	{
-		name: "End-to-End Dedup Hook Chain",
-		key: "dedup-hook",
-		loader: () => runSuiteModule(() => import("./dedup-hook")),
-	},
-	{
 		name: "Epistemic Guard Mutation Continuity",
 		key: "mutation-continuity",
 		loader: () => runSuiteModule(() => import("./mutation-continuity")),
@@ -194,6 +179,21 @@ const suites: TestEntry[] = [
 		name: "Hierarchical AST Search Formatter Suite",
 		key: "ast-search-formatter",
 		loader: () => runSuiteModule(() => import("./ast-search-formatter")),
+	},
+	{
+		name: "Capped Read Tool",
+		key: "read-tool",
+		loader: () => runSuiteModule(() => import("./read-tool/read_cap_test")),
+	},
+	{
+		name: "Dual Smart Anchor Engine Suite",
+		key: "smart-anchor",
+		loader: () => runSuiteModule(() => import("./editing/smart_anchor_test")),
+	},
+	{
+		name: "Next-Gen Editing & Auto-Healing Suite",
+		key: "nextgen-edit",
+		loader: () => runSuiteModule(() => import("./editing/nextgen_edit_test")),
 	},
 ];
 

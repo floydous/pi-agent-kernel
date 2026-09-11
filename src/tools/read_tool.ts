@@ -5,6 +5,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { extractSymbolContent } from "../retrieval/symbol_reader";
 import { findSymbolSuggestions } from "../retrieval/ast_search";
+import { computeLineHash, formatSmartAnchorLines } from "../editing/smart_anchor";
 import {
 	globalEpistemicGuard,
 	resolveUserPath,
@@ -15,14 +16,89 @@ function countFileLines(filePath: string): number {
 	return fs.readFileSync(filePath, "utf8").split("\n").length;
 }
 
+const MAX_READ_LINES = 2_000;
+const MAX_READ_BYTES = 50 * 1024;
+
+function shouldUseAnchors(
+	params: any,
+	benchmarkMethod: string | undefined,
+	readMode: string | undefined,
+	defaultAnchors: boolean,
+	targeted: boolean,
+ ): boolean {
+	if (params.raw === true) return false;
+	if (readMode === "plain") return false;
+	if (readMode === "anchored") return true;
+	if (benchmarkMethod === "hash-anchor") return true;
+	if (benchmarkMethod === "adaptive") return params.anchors === true;
+	if (benchmarkMethod === "line-range" || benchmarkMethod === "search-replace") return false;
+	if (targeted) return params.anchors ?? defaultAnchors;
+	return params.anchors === true;
+}
+
+function formatReadLine(
+	lines: readonly string[],
+	index: number,
+	useAnchors: boolean,
+	numberWidth: number,
+	benchmarkMethod: string | undefined,
+ ): string {
+	const line = lines[index]!;
+	if (useAnchors) {
+		return `${String(index + 1).padStart(numberWidth, " ")}#${computeLineHash(lines, index)}│${line}`;
+	}
+	if (benchmarkMethod === "line-range" || benchmarkMethod === "adaptive") {
+		return `${String(index + 1).padStart(numberWidth, " ")}│${line}`;
+	}
+	return line;
+}
+
+function selectReadLineIndexes(
+	lines: readonly string[],
+	startIdx: number,
+	endIdx: number,
+	formatLine: (index: number) => string,
+ ): number[] {
+	const indexes = Array.from({ length: endIdx - startIdx }, (_, index) => startIdx + index);
+	const fits = (candidate: readonly number[]) =>
+		candidate.length <= MAX_READ_LINES &&
+		Buffer.byteLength(candidate.map(formatLine).join("\n"), "utf8") <= MAX_READ_BYTES;
+	if (indexes.length <= MAX_READ_LINES && fits(indexes)) return indexes;
+	const first = indexes[0];
+	if (first !== undefined && Buffer.byteLength(formatLine(first), "utf8") > MAX_READ_BYTES) return [];
+	let headCount = Math.min(MAX_READ_LINES, indexes.length);
+	while (headCount > 0 && !fits(indexes.slice(0, headCount))) headCount--;
+	return indexes.slice(0, headCount);
+}
+
+function lineRanges(indexes: readonly number[]): Array<{ startLine: number; endLine: number }> {
+	const ranges: Array<{ startLine: number; endLine: number }> = [];
+	for (const index of indexes) {
+		const line = index + 1;
+		const previous = ranges[ranges.length - 1];
+		if (previous && previous.endLine === line - 1) previous.endLine = line;
+		else ranges.push({ startLine: line, endLine: line });
+	}
+	return ranges;
+}
+
 /** Extracted from index.ts — registers the `read` tool. */
 export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	// 6. Tool: `read` (Unified File Reader with Surgical AST Symbol Extraction - Replaces stock read tool)
+	const editMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
+	const benchmarkMethod = ["line-range", "search-replace", "hash-anchor", "adaptive"].includes(editMethod || "") ? editMethod : undefined;
+	const readMode = process.env.PI_READ_MODE?.toLowerCase();
 	const readToolDefinition: any = {
 		name: "read",
 		label: "Read File / Symbol",
 		description:
-			"Read file contents or surgically extract an AST symbol (function, class, method, type). Supports line paging ('offset', 'limit') or symbol extraction ('symbol').",
+			benchmarkMethod === "line-range"
+				? "Read source with line numbers for numeric line-range edits."
+				: benchmarkMethod === "search-replace"
+					? "Read source text for exact search/replace edits."
+					: benchmarkMethod === "adaptive"
+						? "Read bounded source with plain line numbers. Prefer unique search/replace; use numeric ranges when needed; request anchors only for uncertain targets."
+						: "Read file contents or surgically extract an AST symbol (function, class, method, type). Broad reads are capped at 2,000 lines or 50KB. Pass anchors: true for LINE#HASH anchors or raw: true for plain text.",
 		promptSnippet: "Read file lines or extract an AST symbol via 'symbol'",
 		renderShell: "default",
 		parameters: Type.Object({
@@ -47,6 +123,16 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			surrounding_lines: Type.Optional(
 				Type.Number({
 					description: "Extra surrounding context lines for symbol (default: 0)",
+				}),
+			),
+			anchors: Type.Optional(
+				Type.Boolean({
+					description: "Format lines with LINE#HASH│ anchors (default: true for normal reads)",
+				}),
+			),
+			raw: Type.Optional(
+				Type.Boolean({
+					description: "Output clean raw text without LINE#HASH│ anchors (same as anchors: false)",
 				}),
 			),
 		}),
@@ -160,11 +246,22 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					},
 				);
 
+				const config = deps.getConfig?.(ctx.cwd);
+				const defaultAnchors = config?.editing?.default_anchors ?? true;
+				const configuredReadMode = readMode ?? config?.editing?.read_mode ?? "auto";
+				const useAnchors = shouldUseAnchors(params, benchmarkMethod, configuredReadMode, defaultAnchors, true);
+
+				const allFileLines = symbolSnapshot.split("\n");
 				const formatted = res.symbols
-					.map(
-						(s) =>
-							`// ${path.relative(ctx.cwd, s.filePath) || s.filePath}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}\n${s.content}`,
-					)
+					.map((s) => {
+						const header = `// ${path.relative(ctx.cwd, s.filePath) || s.filePath}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}`;
+						const body = useAnchors
+							? formatSmartAnchorLines(allFileLines, s.startLine, s.endLine)
+							: benchmarkMethod === "line-range"
+								? allFileLines.slice(s.startLine - 1, s.endLine).map((line, index) => `${String(s.startLine + index).padStart(String(s.endLine).length, " ")}│${line}`).join("\n")
+								: s.content;
+						return `${header}\n${body}`;
+					})
 					.join("\n\n");
 
 				return {
@@ -275,11 +372,11 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				}
 
 				const offset = params.offset ?? 1;
-				const limit = params.limit ?? 2000;
+				const limit = params.limit ?? totalLines;
 				const startIdx = offset - 1;
 
 				// Offset past the end of file: return a clean error instead of an
-				// empty slice with an inverted "Lines N-M" header and bogus hint.
+				// empty slice with an inverted header and bogus continuation hint.
 				if (startIdx >= totalLines) {
 					return {
 						content: [
@@ -292,18 +389,33 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						isError: true,
 					};
 				}
-
 				const endIdx = Math.min(totalLines, startIdx + limit);
-
-				const selectedLines = lines.slice(startIdx, endIdx);
-				const isTruncated = endIdx < totalLines || startIdx > 0;
-
-				let output = selectedLines.join("\n");
-				if (isTruncated) {
-					output += `\n\n[Lines ${offset}-${endIdx}/${totalLines}. Next: offset=${endIdx + 1}]`;
+				const config = deps.getConfig?.(ctx.cwd);
+				const defaultAnchors = config?.editing?.default_anchors ?? true;
+				const configuredReadMode = readMode ?? config?.editing?.read_mode ?? "auto";
+				const useAnchors = shouldUseAnchors(params, benchmarkMethod, configuredReadMode, defaultAnchors, false);
+				const numberWidth = String(totalLines).length;
+				const formatLine = (index: number) => formatReadLine(lines, index, useAnchors, numberWidth, benchmarkMethod);
+				const firstLineBytes = Buffer.byteLength(formatLine(startIdx), "utf8");
+				const oversizedFirstLine = firstLineBytes > MAX_READ_BYTES;
+				const visibleIndexes = oversizedFirstLine ? [] : selectReadLineIndexes(lines, startIdx, endIdx, formatLine);
+				const hiddenLines = endIdx - startIdx - visibleIndexes.length;
+				const hasMore = hiddenLines > 0 || endIdx < totalLines;
+				const outputLines = oversizedFirstLine
+					? [`[Line ${startIdx + 1} is ${firstLineBytes} bytes, exceeds ${MAX_READ_BYTES} byte limit. Use bash to inspect this line in chunks.]`]
+					: visibleIndexes.map(formatLine);
+				if (hiddenLines > 0 && !oversizedFirstLine) {
+					outputLines.push(`[...] ${hiddenLines} lines omitted [...]. Use offset=${startIdx + visibleIndexes.length + 1} to continue.`);
 				}
+				const isTruncated = oversizedFirstLine || hasMore || startIdx > 0;
+				if (isTruncated && hasMore && !oversizedFirstLine && hiddenLines === 0) {
+					const lastShown = visibleIndexes[visibleIndexes.length - 1]! + 1;
+					outputLines.push(`\n[Showing ${visibleIndexes.length} of ${totalLines} lines. Use offset=${lastShown + 1} to continue.]`);
+				}
+				const coverageRanges = lineRanges(visibleIndexes);
 
-				// Record only after all bounds and pagination checks have succeeded.
+				// Record only the lines actually exposed to the model. The full content
+				// still supplies the freshness fingerprint without authorizing hidden lines.
 				globalEpistemicGuard.recordFileRead(
 					resolvedPath,
 					deps.getSessionId(ctx),
@@ -311,8 +423,8 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					content,
 					{
 						coverage: {
-							complete: !isTruncated,
-							ranges: [{ startLine: offset, endLine: endIdx }],
+							complete: !isTruncated && startIdx === 0 && endIdx === totalLines,
+							ranges: coverageRanges,
 							totalLines,
 						},
 						provenance: "read",
@@ -320,8 +432,8 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				);
 
 				return {
-					content: [{ type: "text", text: output }],
-					details: { totalLines, offset, limit, shownLines: selectedLines.length },
+					content: [{ type: "text", text: outputLines.join("\n") }],
+					details: { totalLines, offset, limit, shownLines: visibleIndexes.length, truncated: isTruncated },
 				};
 			} catch (err: any) {
 				return {

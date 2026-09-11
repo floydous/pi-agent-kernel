@@ -28,6 +28,7 @@ export function testPythonSingleBlock(): void {
 			ws.calculatorPath,
 			"return subtotal * 0.10",
 			"return subtotal * (0.10",
+			{ autoHeal: false },
 		);
 		assertPass("Invalid Python syntax rejected before writing", !invalid.success, { invalid });
 		assertPass(

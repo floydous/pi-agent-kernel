@@ -22,15 +22,18 @@ export interface SafetyConfig {
 	max_lines: number;
 	max_total_bytes: number;
 	exec_timeout_ms: number;
-	/** Don't dedup tool results whose rendered text is <= this many bytes. */
-	dedup_min_bytes: number;
-	/** LRU cap per session for the dedup side store. */
-	dedup_max_entries_per_session: number;
+}
+
+export interface EditingConfig {
+	mode: "smart_anchor" | "standard";
+	default_anchors: boolean;
+	read_mode: "auto" | "plain" | "anchored";
 }
 
 export interface KernelConfigOverrides {
 	retrieval?: Partial<RetrievalConfig>;
 	safety?: Partial<SafetyConfig>;
+	editing?: Partial<EditingConfig>;
 	lsp?: Partial<LspConfig>;
 	ui?: Partial<UiConfig>;
 }
@@ -50,6 +53,7 @@ export interface UiConfig {
 export interface KernelConfig {
 	retrieval: RetrievalConfig;
 	safety: SafetyConfig;
+	editing: EditingConfig;
 	lsp: LspConfig;
 	ui: UiConfig;
 }
@@ -69,8 +73,11 @@ const DEFAULT_CONFIG: KernelConfig = {
 		max_lines: 40,
 		max_total_bytes: 20 * 1024,
 		exec_timeout_ms: 5000,
-		dedup_min_bytes: 80,
-		dedup_max_entries_per_session: 1024,
+	},
+	editing: {
+		mode: "smart_anchor",
+		default_anchors: true,
+		read_mode: "auto",
 	},
 	lsp: {
 		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes

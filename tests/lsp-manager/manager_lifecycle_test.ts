@@ -3,6 +3,7 @@ import { assertPass, logPass } from "../_setup";
 
 export async function testLspManagerLifecycle(): Promise<void> {
 	const lspMgr = LspManager.getInstance();
+	await lspMgr.stopAll();
 
 	// 1. getInstance returns a singleton
 	const instanceA = LspManager.getInstance();
