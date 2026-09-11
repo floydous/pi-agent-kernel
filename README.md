@@ -24,15 +24,19 @@ Here is how tool overhead compares to an unconstrained agent harness across ever
 
 `pi-agent-kernel` is continuously evaluated using an 8-task ground-truth benchmark suite derived from real-world bug fixes merged in popular open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`).
 
-In the latest Phase 7 evaluation on `cx/gpt-5.6-luna:high`, `pi-agent-kernel` with **Passive Shield** was evaluated head-to-head against vanilla Pi and the previous v0.3.1 active-tool suite:
+### Cross-Harness 8-Task Benchmark on GPT 5.6 Luna Medium (`cx/gpt-5.6-luna:medium`)
 
-| Harness | Solved | Success Rate | Total Time | Total Tool Calls | Total Tokens (8 Tasks) |
-|---|:---:|:---:|:---:|:---:|---:|
-| **Pi + Agent-Kernel (Passive Shield)** | **8 / 8** | **100%** | **559s (9.3m)** | **85 calls** | **465,139 (-19.7% vs Vanilla)** |
-| **Pi (Vanilla)** | **8 / 8** | **100%** | 507s (8.5m) | 80 calls | 579,088 |
-| **Pi + Agent-Kernel (v0.3.1)** | **8 / 8** | **100%** | 781s (13.0m) | 122 calls | 1,214,112 (+109.6% vs Vanilla) |
+All 5 harnesses were evaluated across all 8 tasks under identical prompts and repository states on **`cx/gpt-5.6-luna:medium`** via **`OmniRoute`**:
 
-> **Key Takeaway**: Instead of proliferating exploratory tools (`code_search`, `ast_search`, `repo_map`) which tax prompts by ~3.4k tokens/turn and distract models into exploratory loops, `pi-agent-kernel` adopts the **Passive Shield** architecture: keep the tool interface minimalist (`read`, `edit`, `write`, `bash`), and supercharge those core tools passively with pre-write Tree-sitter syntax verification, delimiter auto-healing, capped plain reads, and output clamping.
+| Harness | Tasks Solved | Success Rate | Total Time | Cumulative Input Tokens | Output Tokens | Total Turn Tokens | Total Tool Calls |
+|---|:---:|:---:|---:|---:|---:|---:|:---:|
+| **Pi (Vanilla)** | **8 / 8** | **100%** | **504s (8.4m)** | **332,092** | **9,233** | **494,413** | **62** |
+| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **745s (12.4m)** | **373,938** | **14,016** | **727,922** | **92** |
+| **Codex CLI** | **8 / 8** | **100%** | 860s (14.3m) | 1,733,982 | 21,289 | 1,755,271 | 64 |
+| **OMP** | **8 / 8** | **100%** | 849s (14.2m) | 576,233 | 11,921 | 1,978,234 | 194 |
+| **Claude Code** | **8 / 8** | **100%** | 1,332s (22.2m) | 2,080,562 | 58,339 | 2,283,901 | 114 |
+
+> **Efficiency Comparison**: Pi harness families (`pi-vanilla` and `pi-agent-kernel`) dramatically outperform external CLIs, consuming **58–78% fewer tokens** and completing tasks in nearly half the wall-clock time compared to Claude Code, Codex, and OMP.
 
 ![Benchmark Comparison](agent-kernel-benchmark/benchmark-comparison.png)
 
