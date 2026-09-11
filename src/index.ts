@@ -651,23 +651,23 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 4-8. Tools: Core tools (read, edit) are always registered.
-	// Retrieval tools (code_search, ast_search, repo_map, lsp) are optional to eliminate
-	// tool distraction and schema bloat on routine tasks.
+	// 4-8. Tools: Core tools (read, edit) and code_search are registered.
+	// Speculative AST dump and heavy daemon tools (ast_search, repo_map, lsp) remain optional
+	// to avoid prompt bloat on routine tasks.
 	const invalidateSearchFile = (cwd: string, filePath: string) => {
 		getSearchIndex(cwd).invalidateFile(filePath);
 	};
 	registerReadTool(pi, { getSessionId, getConfig });
 	registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
+	registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 
-	const enableCustomRetrievalTools = process.env.PI_ENABLE_RETRIEVAL_TOOLS === "1" ||
-		process.env.PI_ENABLE_RETRIEVAL_TOOLS === "true" ||
+	const enableSpeculativeTools = process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "1" ||
+		process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "true" ||
 		getConfig(process.cwd()).retrieval.enable_tools === true;
 
-	if (enableCustomRetrievalTools) {
+	if (enableSpeculativeTools) {
 		registerRepoMapTool(pi);
 		registerAstSearchTool(pi, { getSessionId, getConfig });
-		registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 		registerLspTool(pi, { getSessionId, getConfig });
 	}
 

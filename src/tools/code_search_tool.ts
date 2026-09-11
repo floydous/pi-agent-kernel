@@ -15,12 +15,12 @@ export function registerCodeSearchTool(
 		name: "code_search",
 		label: "Codebase Search",
 		description:
-			"Search codebase using BM25 and semantic ranking across code chunks. Default scope is 'code' (use 'all' for prose).",
+			"Fast BM25 & AST semantic search across code chunks. Best for conceptual questions, finding unfamiliar features, and searching when exact symbol names or file paths are unknown (prefer rg for exact text literals).",
 		promptSnippet: "Search codebase conceptually or by keywords via hybrid AST index",
 		renderShell: "default",
 		parameters: Type.Object({
 			query: Type.String({
-				description: "Search query keywords, symbols, or concepts",
+				description: "Conceptual keywords or natural phrase (e.g., 'connection idle timeout', 'auth middleware')",
 			}),
 			file_pattern: Type.Optional(
 				Type.String({
@@ -31,21 +31,6 @@ export function registerCodeSearchTool(
 				Type.Number({
 					description: "Max results (default: 5, max: 15)",
 				}),
-			),
-			rrf_k: Type.Optional(
-				Type.Number({
-					description: "RRF constant (default: 60)",
-				}),
-			),
-			mode: Type.Optional(
-				Type.Union(CODE_SEARCH_MODES.map((mode) => Type.Literal(mode))),
-			),
-			scope: Type.Optional(
-				Type.Union([
-					Type.Literal("code"),
-					Type.Literal("all"),
-					Type.Literal("prose"),
-				]),
 			),
 		}),
 		async execute(
