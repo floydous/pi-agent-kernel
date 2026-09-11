@@ -30,13 +30,13 @@ All 5 harnesses were evaluated across all 8 tasks under identical prompts and re
 
 | Harness | Tasks Solved | Success Rate | Total Time | Cumulative Input Tokens | Output Tokens | Total Turn Tokens | Total Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **817s (13.6m)** | **393,367** | **16,574** | **587,093** | **100** |
-| **Pi (Vanilla)** | **8 / 8** | **100%** | **777s (12.9m)** | 422,535 | 13,209 | 675,360 | **82** |
+| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **840s (14.0m)** | **383,966** | **15,673** | **557,847** | **96** |
+| **Pi (Vanilla)** | **8 / 8** | **100%** | **799s (13.3m)** | 444,257 | 14,545 | 704,050 | **83** |
 | **Codex CLI** | **8 / 8** | **100%** | 1,028s (17.1m) | 1,528,987 | 22,253 | 1,551,240 | 70 |
 | **Claude Code** | 7 / 8 | 88% | 892s (14.9m) | 2,087,983 | 61,930 | 2,149,913 | 115 |
 | **OMP** | 7 / 8 | 88% | 1,033s (17.2m) | 682,771 | 17,112 | 2,230,763 | 234 |
 
-> **Efficiency Comparison**: **Pi + Agent-Kernel achieves the lowest total token consumption across all 8 tasks (587,093 tokens)**, outperforming Pi Vanilla (675k tokens, **-13.1% fewer tokens**), Codex (1.55M tokens, **-62.2%**), Claude Code (2.15M tokens, **-72.7%**), and OMP (2.23M tokens, **-73.7%**).
+> **Efficiency Comparison**: **Pi + Agent-Kernel achieves the lowest total token consumption across all 8 tasks (557,847 tokens)**, outperforming Pi Vanilla (704k tokens, **-20.8% fewer tokens**), Codex (1.55M tokens, **-64.0%**), Claude Code (2.15M tokens, **-74.1%**), and OMP (2.23M tokens, **-75.0%**).
 
 ![Benchmark Comparison](agent-kernel-benchmark/benchmark-comparison.png)
 
