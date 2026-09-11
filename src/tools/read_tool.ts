@@ -107,7 +107,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			}),
 			symbol: Type.Optional(
 				Type.String({
-					description: "Symbol name to extract surgically without paging",
+					description: "Top-level function, class, or type name to extract (omit for plain files or object keys)",
 				}),
 			),
 			offset: Type.Optional(
