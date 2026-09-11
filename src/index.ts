@@ -651,16 +651,25 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 4-8. Tools: repo map, AST search, code search, read, edit, LSP
-	registerRepoMapTool(pi);
+	// 4-8. Tools: Core tools (read, edit) are always registered.
+	// Retrieval tools (code_search, ast_search, repo_map, lsp) are optional to eliminate
+	// tool distraction and schema bloat on routine tasks.
 	const invalidateSearchFile = (cwd: string, filePath: string) => {
 		getSearchIndex(cwd).invalidateFile(filePath);
 	};
-	registerAstSearchTool(pi, { getSessionId, getConfig });
-	registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 	registerReadTool(pi, { getSessionId, getConfig });
 	registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
-	registerLspTool(pi, { getSessionId, getConfig });
+
+	const enableCustomRetrievalTools = process.env.PI_ENABLE_RETRIEVAL_TOOLS === "1" ||
+		process.env.PI_ENABLE_RETRIEVAL_TOOLS === "true" ||
+		getConfig(process.cwd()).retrieval.enable_tools === true;
+
+	if (enableCustomRetrievalTools) {
+		registerRepoMapTool(pi);
+		registerAstSearchTool(pi, { getSessionId, getConfig });
+		registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
+		registerLspTool(pi, { getSessionId, getConfig });
+	}
 
 	// 9a. Block host writes before the host tool can create parent directories
 	// or overwrite the target. Bash read evidence is recorded after a successful

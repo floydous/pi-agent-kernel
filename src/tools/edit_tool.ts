@@ -66,14 +66,14 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						})
 					: Type.Object({
 							path: Type.String({ description: "File path to edit" }),
-							search: Type.Optional(Type.String({ description: "Search block to find and replace" })),
+							search: Type.Optional(Type.String({ description: "Search block to replace" })),
 							replace: Type.Optional(Type.String({ description: "Replacement block" })),
 							line_hint: Type.Optional(Type.Number({ description: "Line hint" })),
 							start_line: Type.Optional(Type.Number()),
 							end_line: Type.Optional(Type.Number()),
-							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines" })),
-							pos: Type.Optional(Type.String({ description: "Start anchor or line number" })),
-							end: Type.Optional(Type.String({ description: "End anchor or line number" })),
+							lines: Type.Optional(Type.Array(Type.String())),
+							pos: Type.Optional(Type.String()),
+							end: Type.Optional(Type.String()),
 							edits: Type.Optional(
 								Type.Array(
 									Type.Object({
@@ -101,8 +101,8 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						? "Edit code with a unique exact search block and replacement block only."
 						: benchmarkMethod === "adaptive"
 							? "Edit code with a unique search/replace block or numeric line range; use search first and line range if needed."
-						: "Edit code using search/replace blocks (with optional line_hint) or line ranges with pre-write syntax verification.",
-		promptSnippet: "Edit code using the selected target method",
+						: "Edit code using exact search/replace blocks (with optional line_hint for disambiguation), or multi-block edits via 'edits'. Includes syntax pre-validation and delimiter balancing.",
+		promptSnippet: "Edit code using search/replace blocks (with optional line_hint) or multi-block 'edits'",
 		renderShell: "default",
 		parameters: editToolParameters,
 		async execute(

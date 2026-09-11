@@ -26,14 +26,14 @@ function shouldUseAnchors(
 	defaultAnchors: boolean,
 	targeted: boolean,
  ): boolean {
-	if (params.raw === true) return false;
+	if (params.anchors === true) return true;
+	if (params.raw === true || params.anchors === false) return false;
 	if (readMode === "plain") return false;
 	if (readMode === "anchored") return true;
 	if (benchmarkMethod === "hash-anchor") return true;
-	if (benchmarkMethod === "adaptive") return params.anchors === true;
-	if (benchmarkMethod === "line-range" || benchmarkMethod === "search-replace") return false;
-	if (targeted) return params.anchors ?? defaultAnchors;
-	return params.anchors === true;
+	if (benchmarkMethod === "line-range" || benchmarkMethod === "search-replace" || benchmarkMethod === "adaptive") return false;
+	if (targeted) return defaultAnchors === true;
+	return false;
 }
 
 function formatReadLine(
@@ -98,8 +98,8 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					? "Read source text for exact search/replace edits."
 					: benchmarkMethod === "adaptive"
 						? "Read bounded source with plain line numbers. Prefer unique search/replace; use numeric ranges when needed; request anchors only for uncertain targets."
-						: "Read file contents or surgically extract an AST symbol (function, class, method, type). Broad reads are capped at 2,000 lines or 50KB. Pass anchors: true for LINE#HASH anchors or raw: true for plain text.",
-		promptSnippet: "Read file lines or extract an AST symbol via 'symbol'",
+						: "Read file contents (clean plain text by default) or extract a specific symbol via 'symbol'. Broad reads capped at 2,000 lines or 50KB. Use 'offset' and 'limit' to inspect specific line ranges.",
+		promptSnippet: "Read file contents (clean plain text), inspect line ranges via offset/limit, or extract AST symbols via 'symbol'",
 		renderShell: "default",
 		parameters: Type.Object({
 			path: Type.String({
@@ -127,12 +127,12 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			),
 			anchors: Type.Optional(
 				Type.Boolean({
-					description: "Format lines with LINE#HASH│ anchors (default: true for normal reads)",
+					description: "Optional: format lines with LINE#HASH│ anchors (default: false, plain text)",
 				}),
 			),
 			raw: Type.Optional(
 				Type.Boolean({
-					description: "Output clean raw text without LINE#HASH│ anchors (same as anchors: false)",
+					description: "Output clean raw text without line numbers or anchors",
 				}),
 			),
 		}),

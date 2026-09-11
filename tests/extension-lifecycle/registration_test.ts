@@ -21,8 +21,8 @@ export function testExtensionRegistration(): void {
 
 	kernelExt(mockPi);
 	const toolNames = registeredTools.map((t: any) => t.name);
-	assertPass("Core kernel tools (get_repo_map, ast_search, code_search, read, lsp, edit) are registered",
-		["get_repo_map", "ast_search", "code_search", "read", "lsp", "edit"].every((n) => toolNames.includes(n)),
+	assertPass("Core essential tools (read, edit) are always registered",
+		["read", "edit"].every((n) => toolNames.includes(n)),
 		{ toolNames }
 	);
 	assertPass("At least one command is registered", registeredCommands.length > 0, { registeredCommands });

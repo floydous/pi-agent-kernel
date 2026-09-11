@@ -14,6 +14,7 @@ export interface RetrievalConfig {
 	repo_map_min_files: number;
 	repo_map_min_bytes: number;
 	max_search_results: number;
+	enable_tools?: boolean;
 }
 
 export interface SafetyConfig {
@@ -66,6 +67,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 		repo_map_min_files: 10,
 		repo_map_min_bytes: 50 * 1024,
 		max_search_results: 5,
+		enable_tools: false,
 	},
 	safety: {
 		enable_epistemic_guard: true,
@@ -76,8 +78,8 @@ const DEFAULT_CONFIG: KernelConfig = {
 	},
 	editing: {
 		mode: "smart_anchor",
-		default_anchors: true,
-		read_mode: "auto",
+		default_anchors: false,
+		read_mode: "plain",
 	},
 	lsp: {
 		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes
