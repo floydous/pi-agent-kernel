@@ -1,7 +1,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { extractFileTags, SymbolDef } from "./repomap";
+import { extractFileTags, isTestPath, SymbolDef } from "./repomap";
+import { TreeSitterEngine } from "./tree_sitter_engine";
 
 export interface CodeChunk {
 	id: string;              // e.g. "src/auth.ts:45-90#verifyToken"
@@ -64,7 +65,71 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 
 	// 1. Extract AST symbols using extractFileTags
 	const tags = extractFileTags(absPath, fileContent);
-	const defs = tags.definitions.sort((a, b) => a.line - b.line);
+	const defs = [...tags.definitions];
+
+	// For test files (.test., .spec., /test/, /tests/), also extract top-level test blocks (describe/it/test/suite)
+	// so test cases and assertions are indexed by code_search.
+	if (isTestPath(relPath) && (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx")) {
+		const tsEngine = TreeSitterEngine.getInstance();
+		const parser = tsEngine.getParser(ext);
+		if (parser) {
+			try {
+				const tree = parser.parse(fileContent);
+				const root = tree.rootNode;
+				for (let i = 0; i < root.childCount; i++) {
+					const child = root.child(i);
+					if (child.type === "expression_statement") {
+						let expr = child.firstNamedChild;
+						let callee: any = null;
+						let argsNode: any = null;
+						while (expr && expr.type === "call_expression") {
+							const fn = expr.childForFieldName("function");
+							const args = expr.childForFieldName("arguments");
+							if (args && !argsNode) argsNode = args;
+							if (fn) {
+								callee = fn;
+								if (fn.type === "call_expression") {
+									expr = fn;
+								} else {
+									break;
+								}
+							} else {
+								break;
+							}
+						}
+						if (callee) {
+							const calleeText = callee.text;
+							const match = calleeText.match(/^(?:(?:suite|describe|context|it|test)(?:\.(?:only|skip|each|todo|concurrent|serial))?)/);
+							if (match) {
+								let title = "";
+								if (argsNode) {
+									for (const arg of argsNode.namedChildren) {
+										if (arg.type === "string" || arg.type === "template_string") {
+											title = arg.text.replace(/^['"`]|['"`]$/g, "");
+											break;
+										}
+									}
+								}
+								const testName = title ? `${match[0]}('${title}')` : match[0];
+								const firstLine = fileContent.slice(child.startIndex, fileContent.indexOf("\n", child.startIndex)).trim();
+								defs.push({
+									name: testName,
+									kind: "test",
+									signature: firstLine.length < 120 ? firstLine : testName,
+									line: child.startPosition.row + 1,
+									endLine: child.endPosition.row + 1,
+								});
+							}
+						}
+					}
+				}
+			} catch {
+				// Tree-sitter parsing is best-effort fallback
+			}
+		}
+	}
+
+	defs.sort((a, b) => a.line - b.line);
 
 	// If file has no AST definitions or is small (< 40 lines), chunk as single whole file
 	if (defs.length === 0 || lines.length <= 40) {
@@ -155,7 +220,8 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 		}
 
 		// Bound endLine to before next top-level def if necessary
-		if (i + 1 < defs.length && endIdx >= defs[i + 1].line - 1 && def.kind !== "class") {
+		// (Do not clamp test blocks, as they often contain nested type/variable definitions)
+		if (i + 1 < defs.length && endIdx >= defs[i + 1].line - 1 && def.kind !== "class" && def.kind !== "test") {
 			endIdx = Math.min(endIdx, defs[i + 1].line - 2);
 		}
 

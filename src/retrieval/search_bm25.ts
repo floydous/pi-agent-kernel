@@ -43,6 +43,18 @@ export function tokenizeCode(text: string): string[] {
 	return tokens;
 }
 
+const COMMON_QUERY_STOPWORDS = new Set([
+	"a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "with", "by", "of", "is", "as", "it", "from", "be"
+]);
+
+/**
+ * Filter common natural-language stopwords from query tokens if substantive code identifiers exist.
+ */
+export function filterQueryTokens(tokens: string[]): string[] {
+	const nonStopwords = tokens.filter((t) => !COMMON_QUERY_STOPWORDS.has(t));
+	return nonStopwords.length > 0 ? nonStopwords : tokens;
+}
+
 export class BM25Engine {
 	private k1 = 1.2;
 	private b = 0.75;
@@ -155,7 +167,8 @@ export class BM25Engine {
 		filter?: (chunkId: string) => boolean,
 	): BM25SearchResult[] {
 		if (this.totalDocs === 0) return [];
-		const queryTokens = Array.from(new Set(tokenizeCode(query)));
+		const rawTokens = tokenizeCode(query);
+		const queryTokens = Array.from(new Set(filterQueryTokens(rawTokens)));
 		if (queryTokens.length === 0) return [];
 
 		const scores: Map<string, { score: number; matches: string[] }> = new Map();

@@ -13,7 +13,8 @@ export interface SymbolDef {
 		| "variable"
 		| "constant"
 		| "method"
-		| "alias";
+		| "alias"
+		| "test";
 	signature: string;
 	line: number;
 	endLine?: number;

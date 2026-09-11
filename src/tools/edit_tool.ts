@@ -66,25 +66,25 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						})
 					: Type.Object({
 							path: Type.String({ description: "File path to edit" }),
-							pos: Type.Optional(Type.String({ description: "Start anchor or line number" })),
-							end: Type.Optional(Type.String({ description: "End anchor or line number" })),
-							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines" })),
-							search: Type.Optional(Type.String({ description: "Search block" })),
+							search: Type.Optional(Type.String({ description: "Search block to find and replace" })),
 							replace: Type.Optional(Type.String({ description: "Replacement block" })),
 							line_hint: Type.Optional(Type.Number({ description: "Line hint" })),
 							start_line: Type.Optional(Type.Number()),
 							end_line: Type.Optional(Type.Number()),
+							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines" })),
+							pos: Type.Optional(Type.String({ description: "Start anchor or line number" })),
+							end: Type.Optional(Type.String({ description: "End anchor or line number" })),
 							edits: Type.Optional(
 								Type.Array(
 									Type.Object({
-										pos: Type.Optional(Type.String()),
-										end: Type.Optional(Type.String()),
-										lines: Type.Optional(Type.Array(Type.String())),
 										search: Type.Optional(Type.String()),
 										replace: Type.Optional(Type.String()),
 										line_hint: Type.Optional(Type.Number()),
 										start_line: Type.Optional(Type.Number()),
 										end_line: Type.Optional(Type.Number()),
+										pos: Type.Optional(Type.String()),
+										end: Type.Optional(Type.String()),
+										lines: Type.Optional(Type.Array(Type.String())),
 									}),
 								),
 							),
@@ -101,7 +101,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						? "Edit code with a unique exact search block and replacement block only."
 						: benchmarkMethod === "adaptive"
 							? "Edit code with a unique search/replace block or numeric line range; use search first and line range if needed."
-						: "Edit code using smart line anchors or search/replace blocks with syntax verification.",
+						: "Edit code using search/replace blocks (with optional line_hint) or line ranges with pre-write syntax verification.",
 		promptSnippet: "Edit code using the selected target method",
 		renderShell: "default",
 		parameters: editToolParameters,

@@ -1,11 +1,11 @@
 ## Route by intent
 read: inspect source; use symbol for one definition, ranges for local context
-ast_search: find declarations; includeBody defaults false
-code_search: conceptual/identifier search
-bash + rg: exact literals, punctuation, filenames, shell tasks
+ast_search: locate declarations (functions, classes, types, interfaces) by name across the repo
+code_search: conceptual search, multi-keyword search, and test suites across code chunks
+bash + rg: exact text literals, grep, and running tests
 lsp: definitions, references, hover, symbols, diagnostics
 get_repo_map: repository orientation only
-edit: surgical source mutation
+edit: search & replace blocks with optional line_hint; pre-write syntax verified
 search_tools: discover unavailable capabilities
 
 ## Source grounding
