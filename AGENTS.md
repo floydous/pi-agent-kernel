@@ -72,3 +72,34 @@ The test: *Every changed line should trace directly to the user's request.*
   3. Ask the user to confirm before proceeding.
 - After making changes, verify they work. Run tests, check for errors, or validate output before reporting completion.
 - Define strong success criteria for every task. Weak criteria ("make it work") require clarification. Strong criteria let you loop independently.
+
+---
+
+## 6. Tool Interface Design and Empirical Optimization Rules
+
+**Tool descriptions govern model behavior as strictly as runtime code. Poor documentation neutralizes superior features.**
+
+Every guideline below is backed by controlled multi-harness benchmarks and empirical session trace analysis across real-world repositories (Hono, Ky, Zod, Fastify, Picomatch, UUID, p-limit):
+
+### A. The Tool Description Principle
+- **Descriptions are instructions**: Models treat text inside parameter descriptions as active system instructions. If a schema description contains deceptive, conflicting, or biased phrasing, the model will follow the text over sensible defaults.
+- **Empirical Proof**: When `read`'s parameter description stated `anchors: (default: true for normal reads)`, models explicitly passed `anchors: true` on 100% of turns despite underlying code supporting plain text. This inflated read output from 15,570 chars to 23,936 chars (+53.7% bloat) and injected ~10,000 unnecessary context tokens in Task 1 (Hono). Correcting the schema description to `(default: false, plain text)` dropped token usage from 52,684 to 34,071 (-35.3%), winning over vanilla (34,533).
+- **Rule**: Parameter and tool descriptions must state exact defaults, explicit formatting expectations, and preferred invocation modes concisely. Keep tool schemas compact (<1,200 characters per tool).
+
+### B. The Passive Shield Rule (Avoid Tool Proliferation)
+- **Tool proliferation tax**: Exposing speculative, exploratory tools (`code_search`, `ast_search`, `get_repo_map`, `lsp`) by default imposes two compounding penalties:
+  1. *Per-Turn Schema Overhead*: Carrying 11 rich extension tools vs 4 minimalist tools consumes ~3,400 static tokens on every turn ($10 \text{ turns} \times 3,400 \approx 34,000$ wasted context tokens).
+  2. *Distraction Loops*: In controlled traces, models fell into speculative AST and semantic chunk queries instead of running exact regex or reading targeted ranges.
+- **Empirical Proof**: Running the previous release (v0.3.1, 11 active tools) across the 8-task benchmark consumed **1,214,112 tokens** across 122 tool calls. Gating exploratory tools behind Passive Shield (`enable_tools: false`, exposing only `read`, `edit`, `write`, `bash`) while supercharging core tools reduced total consumption to **465,139 tokens** across 85 calls (**-61.7% token reduction, saving 748,973 tokens**), outperforming Pi Vanilla (579,088 tokens, -19.7% overall).
+- **Rule**: Gate active exploratory tools by default. Keep the active tool interface minimalist (core 4 tools). Inject safety mechanisms (syntax validation, delimiter balancing, output clamping, epistemic guards) passively inside the core tools.
+
+### C. Reading Protocol: Clean Plain Text Over Rigid Hashes
+- **Context bloat**: Line hashes (`1#6C│...`) expand file reading tokens by 2.3×–3.6× through cumulative context history.
+- **Cascading stale anchors**: In an empirical taxonomy of 77 editing failures across 127 session traces, 43.1% were caused by stale anchors resulting from earlier mutations.
+- **Empirical Proof**: Plain-text reads with capped limits (50KB / 2,000 lines) and offset/limit ranges allow agents to navigate large repositories (e.g. Zod's 140k+ LOC monorepo) in **50,510 tokens** compared to 310,891 tokens in the anchor-heavy paradigm (-83.8%).
+- **Rule**: Default reads to clean plain text. Reserve hashes/anchors only for explicit uncertainty resolution. Use `line_hint` or search/replace ranges for disambiguation.
+
+### D. Deterministic Auto-Healing Over Model Reprompting
+- **Delimiter truncation**: Omitted closing braces/brackets (`})`, `};`, `]}`) caused 16.7% of all edit failures due to model token boundary cutoffs.
+- **Rule**: Balance lexical delimiters and verify AST validity (`hasError === false`) pre-write. Repair missing closing tokens deterministically at the tool layer rather than reprompting the model with error messages that trigger repetitive edit loops.
+
