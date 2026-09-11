@@ -76,16 +76,14 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 							end: Type.Optional(Type.String()),
 							edits: Type.Optional(
 								Type.Array(
-									Type.Object({
-										search: Type.Optional(Type.String()),
-										replace: Type.Optional(Type.String()),
-										line_hint: Type.Optional(Type.Number()),
-										start_line: Type.Optional(Type.Number()),
-										end_line: Type.Optional(Type.Number()),
-										pos: Type.Optional(Type.String()),
-										end: Type.Optional(Type.String()),
-										lines: Type.Optional(Type.Array(Type.String())),
-									}),
+									Type.Object(
+										{
+											search: Type.Optional(Type.String()),
+											replace: Type.Optional(Type.String()),
+											line_hint: Type.Optional(Type.Number()),
+										},
+										{ additionalProperties: true },
+									),
 								),
 							),
 						});
@@ -169,12 +167,12 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-			// Standardize edits payload (support old_text/new_text and oldText/newText aliases)
+			// Standardize edits payload (support old_text/new_text, oldText/newText, and old/new aliases)
 			if (Array.isArray(params.edits)) {
 				params.edits = params.edits.map((e: any) => {
 					if (!e || typeof e !== "object") return e;
-					const search = e.search ?? e.old_text ?? e.oldText;
-					const replace = e.replace ?? e.new_text ?? e.newText;
+					const search = e.search ?? e.oldText ?? e.old_text ?? e.old;
+					const replace = e.replace ?? e.newText ?? e.new_text ?? e.new;
 					return {
 						...e,
 						search,
