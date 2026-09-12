@@ -65,28 +65,24 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" })),
 						})
 					: Type.Object({
-							path: Type.String({ description: "File path to edit" }),
-							search: Type.Optional(Type.String({ description: "Search block to replace" })),
-							replace: Type.Optional(Type.String({ description: "Replacement block" })),
-							line_hint: Type.Optional(Type.Number({ description: "Line hint" })),
-							start_line: Type.Optional(Type.Number()),
-							end_line: Type.Optional(Type.Number()),
-							lines: Type.Optional(Type.Array(Type.String())),
-							pos: Type.Optional(Type.String()),
-							end: Type.Optional(Type.String()),
+							path: Type.String({ description: "Path to the file to edit (relative or absolute)" }),
+							search: Type.Optional(Type.String({ description: "Exact text block to replace" })),
+							replace: Type.Optional(Type.String({ description: "Replacement text block" })),
+							line_hint: Type.Optional(Type.Number({ description: "Optional line number hint for disambiguation" })),
 							edits: Type.Optional(
 								Type.Array(
 									Type.Object(
 										{
-											search: Type.Optional(Type.String()),
-											replace: Type.Optional(Type.String()),
-											line_hint: Type.Optional(Type.Number()),
+											search: Type.Optional(Type.String({ description: "Exact text block to replace" })),
+											replace: Type.Optional(Type.String({ description: "Replacement text block" })),
+											line_hint: Type.Optional(Type.Number({ description: "Optional line hint" })),
 										},
 										{ additionalProperties: true },
 									),
+									{ description: "One or more targeted replacements" },
 								),
 							),
-						});
+						}, { additionalProperties: true });
 	const editToolDefinition: any = {
 		name: "edit",
 		label: "Code Editor",
