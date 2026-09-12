@@ -173,8 +173,9 @@ export function extractSymbolContent(
 			}
 		}
 
-		// Apply surrounding context if requested
-		const extra = options.surroundingLines || 0;
+		// Apply surrounding context if requested (capped at 10 lines to prevent context bloat)
+		const requestedExtra = options.surroundingLines || 0;
+		const extra = Math.min(10, Math.max(0, requestedExtra));
 		const finalStart = Math.max(0, actualStartIdx - extra);
 		const finalEnd = Math.min(lines.length - 1, endIdx + extra);
 
@@ -191,8 +192,37 @@ export function extractSymbolContent(
 		});
 	}
 
+	// Deduplicate strictly overlapping companion symbols (e.g. interface + companion const at the same lines)
+	// Only merge if one range actually contains or directly overlaps the other (not distinct separate functions)
+	const deduped: SymbolLocation[] = [];
+	for (const m of matches) {
+		const existingIdx = deduped.findIndex(
+			(d) =>
+				d.name.toLowerCase() === m.name.toLowerCase() &&
+				// Overlap condition: ranges must strictly intersect
+				d.startLine <= m.endLine && m.startLine <= d.endLine,
+		);
+		if (existingIdx !== -1) {
+			const ex = deduped[existingIdx];
+			// Merge the overlapping range
+			const mergedStart = Math.min(ex.startLine, m.startLine);
+			const mergedEnd = Math.max(ex.endLine, m.endLine);
+			deduped[existingIdx] = {
+				name: ex.name,
+				kind: ex.kind === "interface" || ex.kind === "type" ? m.kind : ex.kind,
+				signature: ex.signature || m.signature,
+				startLine: mergedStart,
+				endLine: mergedEnd,
+				content: lines.slice(mergedStart - 1, mergedEnd).join("\n"),
+				filePath: ex.filePath,
+			};
+		} else {
+			deduped.push(m);
+		}
+	}
+
 	return {
-		found: matches.length > 0,
-		symbols: matches,
+		found: deduped.length > 0,
+		symbols: deduped,
 	};
 }
