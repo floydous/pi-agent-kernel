@@ -427,7 +427,8 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					: undefined,
 			);
 
-			const statusText = renderPostEditVerification(verification);
+			const relPath = path.relative(ctx.cwd, resolvedPath) || resolvedPath;
+			const statusText = renderPostEditVerification(verification, undefined, relPath);
 			return {
 				content: statusText ? [{ type: "text", text: statusText }] : [],
 				details: {

@@ -76,6 +76,7 @@ function verificationEntries(
 export function renderPostEditVerification(
 	result: PostEditVerification,
 	reason?: string,
+	targetFile?: string,
 ): string {
 	const hasSyntaxFailure = result.syntax.state === "failed";
 	const hasSyntaxUncertainty = [
@@ -90,7 +91,7 @@ export function renderPostEditVerification(
 		(finding) => finding.severity === "warning" || finding.severity === "info",
 	);
 
-	// Token density: return empty string on completely clean verification
+	// Return explicit concise confirmation on clean verification
 	if (
 		result.edit === "applied" &&
 		!hasSyntaxFailure &&
@@ -98,7 +99,7 @@ export function renderPostEditVerification(
 		!hasDiagnosticWarning &&
 		(!hasSyntaxUncertainty || result.syntax.state === "clean")
 	) {
-		return "";
+		return targetFile ? `Successfully applied edit to ${targetFile}.` : "Successfully applied edit.";
 	}
 
 	const lines: string[] = [];

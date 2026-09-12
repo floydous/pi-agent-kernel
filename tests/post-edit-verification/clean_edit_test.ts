@@ -2,21 +2,21 @@ import { renderPostEditVerification } from "../../src/editing/post_edit_verifica
 import { assertPass, logPass } from "../_setup";
 
 export function testCleanEditOutput(): void {
-	// Clean edit: empty string to save tokens
+	// Clean edit: explicit success string so model does not doubt application
 	const clean = renderPostEditVerification({
 		edit: "applied",
 		syntax: { state: "clean" },
 		diagnostic: { state: "clean", findings: [] },
 	});
-	assertPass("Clean edit returns empty string", clean === "", { clean });
+	assertPass("Clean edit returns confirmation string", clean === "Successfully applied edit.", { clean });
 
-	// Inconclusive diagnostics with clean syntax returns empty string (no false alarms)
+	// Inconclusive diagnostics with clean syntax returns confirmation
 	const inconclusive = renderPostEditVerification({
 		edit: "applied",
 		syntax: { state: "clean" },
 		diagnostic: { state: "inconclusive", findings: [] },
 	});
-	assertPass("Inconclusive diagnostics with clean syntax returns empty", inconclusive === "", { inconclusive });
+	assertPass("Inconclusive diagnostics with clean syntax returns confirmation", inconclusive === "Successfully applied edit.", { inconclusive });
 
-	logPass("Clean post-edit verification returns compact empty output!");
+	logPass("Clean post-edit verification returns confirmation output!");
 }
