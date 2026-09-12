@@ -26,17 +26,18 @@ Here is how tool overhead compares to an unconstrained agent harness across ever
 
 ### Cross-Harness 8-Task Benchmark on GPT 5.6 Luna High (`cx/gpt-5.6-luna:high`)
 
-All 5 harnesses were evaluated across all 8 tasks under identical prompts and repository states on **`cx/gpt-5.6-luna:high`** via **`OmniRoute`**:
+All 6 harnesses were evaluated across all 8 tasks under identical prompts and repository states on **`cx/gpt-5.6-luna:high`** via **`OmniRoute`**:
 
 | Harness | Tasks Solved | Success Rate | Total Time | Cumulative Input Tokens | Output Tokens | Total Turn Tokens | Total Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **840s (14.0m)** | **383,966** | **15,673** | **557,847** | **96** |
-| **Pi (Vanilla)** | **8 / 8** | **100%** | **799s (13.3m)** | 444,257 | 14,545 | 704,050 | **83** |
-| **Codex CLI** | **8 / 8** | **100%** | 1,028s (17.1m) | 1,528,987 | 22,253 | 1,551,240 | 70 |
-| **Claude Code** | 7 / 8 | 88% | 892s (14.9m) | 2,087,983 | 61,930 | 2,149,913 | 115 |
-| **OMP** | 7 / 8 | 88% | 1,033s (17.2m) | 682,771 | 17,112 | 2,230,763 | 234 |
+| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **918s (15.3m)** | **497,851** | **17,569** | **829,788** | 124 |
+| **Pi (Vanilla)** | **8 / 8** | **100%** | **891s (14.8m)** | 504,695 | 16,971 | **765,890** | **79** |
+| **Codex CLI** | **8 / 8** | **100%** | 856s (14.3m) | 1,050,222 | 19,538 | 1,069,760 | **58** |
+| **OpenCode** | **8 / 8** | **100%** | 1,181s (19.7m) | 1,092,810 | 12,941 | 1,819,240 | 130 |
+| **OMP** | **8 / 8** | **100%** | 971s (16.2m) | 745,744 | 14,644 | 1,933,380 | 218 |
+| **Claude Code** | 7 / 8 | 88% | 943s (15.7m) | 1,945,983 | 57,430 | 2,003,413 | 104 |
 
-> **Efficiency Comparison**: **Pi + Agent-Kernel achieves the lowest total token consumption across all 8 tasks (557,847 tokens)**, outperforming Pi Vanilla (704k tokens, **-20.8% fewer tokens**), Codex (1.55M tokens, **-64.0%**), Claude Code (2.15M tokens, **-74.1%**), and OMP (2.23M tokens, **-75.0%**).
+> **Efficiency Comparison**: **Pi (Agent-Kernel and Vanilla)** lead the benchmark by a wide margin over external CLI harnesses, consuming less than half the total tokens of **OpenCode** (1.82M tokens, **-54.4%**), **OMP** (1.93M tokens, **-57.1%**), and **Claude Code** (2.00M tokens, **-58.6%**). OpenCode achieved 100% solve rate across all 8 tasks, but its verbose git-diff and patch format resulted in over 1.8M tokens compared to Pi's surgical range-bounded edits.
 
 ![Benchmark Comparison](agent-kernel-benchmark/benchmark-comparison.png)
 
