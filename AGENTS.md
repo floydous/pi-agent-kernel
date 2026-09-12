@@ -103,3 +103,18 @@ Every guideline below is backed by controlled multi-harness benchmarks and empir
 - **Delimiter truncation**: Omitted closing braces/brackets (`})`, `};`, `]}`) caused 16.7% of all edit failures due to model token boundary cutoffs.
 - **Rule**: Balance lexical delimiters and verify AST validity (`hasError === false`) pre-write. Repair missing closing tokens deterministically at the tool layer rather than reprompting the model with error messages that trigger repetitive edit loops.
 
+### E. The Epistemic Confirmation Imperative (Never Return Blank Tool Outputs)
+- **Silent success triggers uncertainty**: When a tool completes a mutation or action with a completely blank response (`""` / 0 characters) under the naive premise of "saving output tokens", reasoning models experience acute epistemic uncertainty. Not knowing if the mutation actually committed or was dropped silently, the model immediately initiates redundant verification turns (`git diff`, `git status`, repeated file reads, redundant linter passes).
+- **Empirical Proof**: In Task 8 (p-limit), returning `""` on clean edits caused GPT-5.6 Luna High to execute 15 tool calls (48,833 tokens), including manual `git diff` and `xo/tsd` sanity checks. Returning an explicit, unambiguous confirmation string (`"Successfully applied edit to index.js."`) immediately collapsed the paranoia loop, dropping calls to 10 and tokens to 44,370 (-5 calls, -4.4k tokens). On Task 6 (Fastify), it dropped token consumption from 57,276 to 23,817 (-58.4%).
+- **Rule**: Never return empty strings for successful state mutations. Return a concise, positive confirmation naming the affected target (`Successfully applied edit to <file>.`). A 5-token confirmation saves thousands of tokens in paranoid model recovery loops.
+
+### F. Query Topology Governs Search Tool Efficacy
+- **Named vs Conceptual Tasks**: Empirical traces across 3,368 tool calls show that agents use native shell grep for 97.5% of code location tasks whenever any symbol, identifier, or error string is known (e.g. `withoutBase`, `deepMerge`, `FST_ERR_DUPLICATED_ROUTE`). Grep resolves in <0.05s in a single tool turn.
+- **The Forcing Hazard**: In testing noisy real-world prompts (e.g. log excerpts with connection timeouts), actively instructing or forcing the model to use `code_search` backfired catastrophically: the model executed `code_search` 4 times and *then still ran 25 bash/grep commands on top*, inflating tokens from 258,747 to 473,706 (+83% token blowout).
+- **Rule**: Do not force or bias the model toward semantic retrieval when exact identifiers exist. Keep `code_search` as an unforced passive capability for genuinely unlocalized or conceptual queries (e.g. "how are streaming idle timeouts configured?").
+
+### G. Model Property Aliasing and Schema Resilience
+- **Multi-Model Convention Drift**: Different frontier model families emit different property keys for identical editing tasks (e.g. OpenAI/Luna emitting `search` and `replace`, while DeepSeek/Dots-3-Note emits `old` and `new` or `old_text` and `new_text`). Strict schema validation without alias normalization caused 100% rejection loops on multi-block edits with Dots-3-Note MAX.
+- **Rule**: Tool parameter schemas must remain compact (<1,200 characters), but tool execution layers must deterministically normalize common model aliases (`oldText`/`old_text`/`old` -> `search`, `newText`/`new_text`/`new` -> `replace`) and permit `{ additionalProperties: true }` on block payloads to prevent syntax rejections across model families.
+
+
