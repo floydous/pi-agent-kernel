@@ -167,8 +167,9 @@ export class HybridSearchIndex {
 				data.profile === this.config.profile &&
 				fs.existsSync(vectorsPath) &&
 				Number.isInteger(data.vectorDim) &&
-				data.vectorDim > 0 &&
+				data.vectorDim === this.config.matryoshkaDim &&
 				Array.isArray(vectorChunkIds) &&
+				vectorChunkIds.length === this.chunks.size &&
 				vectorChunkIds.length > 0 &&
 				new Set(vectorChunkIds).size === vectorChunkIds.length &&
 				vectorChunkIds.every(
@@ -202,7 +203,14 @@ export class HybridSearchIndex {
 				}
 			}
 
-			this.isInitialized = true;
+			const vectorsReady =
+				!wantsVectors ||
+				(this.vectors.size === this.chunks.size &&
+					this.vectors.size > 0 &&
+					Array.from(this.vectors.values()).every(
+						(vector) => vector.length === this.config.matryoshkaDim,
+					));
+			this.isInitialized = vectorsReady;
 			return true;
 		} catch {
 			return false;
@@ -322,10 +330,6 @@ export class HybridSearchIndex {
 		} finally {
 			if (this.activeSync === sync) this.activeSync = null;
 		}
-	}
-
-	private chunksForFile(relPath: string): CodeChunk[] {
-		return Array.from(this.chunks.values()).filter((chunk) => chunk.filePath === relPath);
 	}
 
 	private getWorkspaceFileHashes(): Map<string, string> | null {
@@ -452,9 +456,10 @@ export class HybridSearchIndex {
 
 			for (const [relPath, info] of currentFiles.entries()) {
 				const oldHash = this.fileHashes.get(relPath);
-				const fileChunks = this.chunksForFile(relPath);
-				const missingFileVectors =
-					wantsVectors && fileChunks.some((chunk) => !this.vectors.has(chunk.id));
+				const missingFileVectors = wantsVectors && info.chunks.some((chunk) => {
+					const vector = this.vectors.get(chunk.id);
+					return !vector || vector.length !== this.config.matryoshkaDim;
+				});
 				if (forceReindex || missingFileVectors || !oldHash || oldHash !== info.hash) {
 					filesToReindex.push(relPath);
 				}
@@ -653,8 +658,11 @@ export class HybridSearchIndex {
 		const isVectorReady =
 			wantsVectors &&
 			!this.isIndexing &&
+			this.vectors.size === this.chunks.size &&
 			this.vectors.size > 0 &&
-			this.vectors.size >= this.chunks.size;
+			Array.from(this.vectors.values()).every(
+				(vector) => vector.length === activeConfig.matryoshkaDim,
+			);
 
 		if (isVectorReady) {
 			const queryVec = await this.embedder.embed(query, true);

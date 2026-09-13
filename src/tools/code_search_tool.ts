@@ -127,8 +127,10 @@ export function registerCodeSearchTool(
 				indexStatus?.effectiveProfile === "hybrid" ||
 				indexStatus?.effectiveProfile === "full";
 			const vectorNotice =
-				wantsVectors && indexStatus?.vectorCount === 0
-					? `[Notice: Vector embeddings are indexing/pending (${indexStatus.chunkCount} chunks in RAM); searched via BM25]\n\n`
+				wantsVectors &&
+				indexStatus &&
+				indexStatus.vectorCount < indexStatus.chunkCount
+					? `[Notice: Vector embeddings are incomplete (${indexStatus.vectorCount}/${indexStatus.chunkCount} chunks); searched via BM25]\n\n`
 					: "";
 
 			if (hits.length === 0) {
