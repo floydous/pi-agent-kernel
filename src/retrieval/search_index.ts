@@ -66,6 +66,7 @@ export class HybridSearchIndex {
 	}
 
 	public setProfile(profile: SearchProfile): void {
+		const oldEffective = this.config.effectiveProfile;
 		savePersistedProfile(profile);
 		this.config = getSearchConfig(profile);
 		this.embedder.updateConfig(this.config);
@@ -82,6 +83,14 @@ export class HybridSearchIndex {
 			} catch (e) {
 				kernelDebug(e);
 			}
+		} else if (
+			(oldEffective === "off" || oldEffective === "lean") &&
+			(this.config.effectiveProfile === "hybrid" ||
+				this.config.effectiveProfile === "full")
+		) {
+			// Profile upgraded to vector mode: clear initialized flag so the next
+			// search or sync checks for missing vector embeddings.
+			this.isInitialized = false;
 		}
 	}
 
@@ -315,6 +324,10 @@ export class HybridSearchIndex {
 		}
 	}
 
+	private chunksForFile(relPath: string): CodeChunk[] {
+		return Array.from(this.chunks.values()).filter((chunk) => chunk.filePath === relPath);
+	}
+
 	private getWorkspaceFileHashes(): Map<string, string> | null {
 		const hashes = new Map<string, string>();
 		for (const filePath of findChunkableFiles(this.cwd)) {
@@ -429,13 +442,20 @@ export class HybridSearchIndex {
 				}
 			}
 
-			// Identify changed, added, or deleted files
+			// Identify changed, added, or deleted files. A profile upgrade from BM25
+			// to vector retrieval must also embed unchanged chunks that have no vector.
 			const filesToReindex: string[] = [];
 			const filesToDelete: string[] = [];
+			const wantsVectors =
+				this.config.effectiveProfile === "hybrid" ||
+				this.config.effectiveProfile === "full";
 
 			for (const [relPath, info] of currentFiles.entries()) {
 				const oldHash = this.fileHashes.get(relPath);
-				if (forceReindex || !oldHash || oldHash !== info.hash) {
+				const fileChunks = this.chunksForFile(relPath);
+				const missingFileVectors =
+					wantsVectors && fileChunks.some((chunk) => !this.vectors.has(chunk.id));
+				if (forceReindex || missingFileVectors || !oldHash || oldHash !== info.hash) {
 					filesToReindex.push(relPath);
 				}
 			}
@@ -631,7 +651,10 @@ export class HybridSearchIndex {
 			activeConfig.effectiveProfile === "hybrid" ||
 			activeConfig.effectiveProfile === "full";
 		const isVectorReady =
-			wantsVectors && !this.isIndexing && this.vectors.size > 0;
+			wantsVectors &&
+			!this.isIndexing &&
+			this.vectors.size > 0 &&
+			this.vectors.size >= this.chunks.size;
 
 		if (isVectorReady) {
 			const queryVec = await this.embedder.embed(query, true);

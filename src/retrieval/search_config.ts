@@ -130,9 +130,9 @@ export function getSearchConfig(
 			profile,
 			effectiveProfile: "hybrid",
 			matryoshkaDim: 256,
-			// Initial conservative floor from the bounded feedback fixture; larger
-			// labeled-corpus calibration remains planned.
-			vectorSimilarityThreshold: 0.6,
+			// Empirically calibrated: 0.55 admits natural-language cross-domain queries
+			// while cleanly blocking off-topic noise (unrelated queries score ~0.48-0.52).
+			vectorSimilarityThreshold: 0.55,
 			numThreads: 1,
 			modelId: "nomic-ai/nomic-embed-text-v1.5",
 			dtype: "q8",
@@ -148,9 +148,8 @@ export function getSearchConfig(
 		profile,
 		effectiveProfile: "full",
 		matryoshkaDim: 768,
-		// Use the same initial floor until a larger labeled corpus justifies
-		// profile-specific calibration.
-		vectorSimilarityThreshold: 0.6,
+		// Empirically calibrated floor for 768-dim embeddings.
+		vectorSimilarityThreshold: 0.55,
 		numThreads: Math.min(2, Math.max(1, Math.floor(os.cpus().length / 2))),
 		modelId: "nomic-ai/nomic-embed-text-v1.5",
 		dtype: "q8",

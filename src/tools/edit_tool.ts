@@ -124,6 +124,8 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
 			const searchBlocks: string[] = [];
 			const targetRanges: EvidenceRange[] = [];
+			let anchorBlocks: SmartAnchorEditBlock[] = [];
+			let anchorPreflight: ReturnType<typeof preflightSmartAnchorEdits> | undefined;
 
 			const hasSingleAnchor =
 				(params.pos !== undefined || params.start_line !== undefined) &&

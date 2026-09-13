@@ -122,12 +122,21 @@ export function registerCodeSearchTool(
 				}
 			}
 
+			const indexStatus = typeof index.getStatus === "function" ? index.getStatus() : undefined;
+			const wantsVectors =
+				indexStatus?.effectiveProfile === "hybrid" ||
+				indexStatus?.effectiveProfile === "full";
+			const vectorNotice =
+				wantsVectors && indexStatus?.vectorCount === 0
+					? `[Notice: Vector embeddings are indexing/pending (${indexStatus.chunkCount} chunks in RAM); searched via BM25]\n\n`
+					: "";
+
 			if (hits.length === 0) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `No code chunks found matching "${query}". (Tips: Try 'ast_search' for exact symbol names or 'rg' for exact text literals).`,
+							text: `${vectorNotice}No code chunks found matching "${query}". (Tips: Try 'ast_search' for exact symbol names or 'rg' for exact text literals).`,
 						},
 					],
 					details: { count: 0 },
@@ -144,7 +153,7 @@ export function registerCodeSearchTool(
 				content: [
 					{
 						type: "text",
-						text: formatted.text,
+						text: `${vectorNotice}${formatted.text}`,
 					},
 				],
 				details: {
