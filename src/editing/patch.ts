@@ -28,6 +28,9 @@ export interface PatchBlock {
 	startLine?: number;
 	endLine?: number;
 	lineHint?: number;
+	start_line?: number;
+	end_line?: number;
+	line_hint?: number;
 	autoHeal?: boolean;
 }
 
@@ -96,7 +99,14 @@ function applySingleBlock(
 	content: string,
 	search: string,
 	replace: string,
-	options?: { startLine?: number; endLine?: number; lineHint?: number },
+	options?: {
+		startLine?: number;
+		endLine?: number;
+		lineHint?: number;
+		start_line?: number;
+		end_line?: number;
+		line_hint?: number;
+	},
 ): {
 	success: boolean;
 	newContent: string;
@@ -118,6 +128,8 @@ function applySingleBlock(
 			error: "SEARCH block cannot be empty or whitespace-only.",
 		};
 	}
+
+	const hint = options?.lineHint ?? options?.line_hint ?? options?.startLine ?? options?.start_line;
 
 	// Exact matching is safest, but duplicate or overlapping occurrences are
 	// rejected rather than silently selecting one.
@@ -141,8 +153,8 @@ function applySingleBlock(
 		};
 	}
 	if (exactMatches.length > 1) {
-		if (options?.lineHint !== undefined || options?.startLine !== undefined) {
-			const targetLine = options.lineHint ?? options.startLine!;
+		if (hint !== undefined) {
+			const targetLine = hint;
 			let bestOffset = exactMatches[0];
 			let bestDistance = Infinity;
 			for (const offset of exactMatches) {
@@ -210,8 +222,8 @@ function applySingleBlock(
 		};
 	}
 	if (normalizedMatches.length > 1) {
-		if (options?.lineHint !== undefined || options?.startLine !== undefined) {
-			const targetLine = options.lineHint ?? options.startLine!;
+		if (hint !== undefined) {
+			const targetLine = hint;
 			let bestIdx = normalizedMatches[0];
 			let bestDistance = Infinity;
 			for (const idx of normalizedMatches) {
@@ -313,7 +325,14 @@ export interface PatchPreflightResult {
 export function preflightSurgicalPatchBlock(
 	filePath: string,
 	search: string,
-	options?: { startLine?: number; endLine?: number; lineHint?: number },
+	options?: {
+		startLine?: number;
+		endLine?: number;
+		lineHint?: number;
+		start_line?: number;
+		end_line?: number;
+		line_hint?: number;
+	},
 ): PatchPreflightResult {
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
@@ -340,7 +359,14 @@ export function preflightSurgicalPatchBlock(
 export function findSurgicalPatchTargetRange(
 	filePath: string,
 	search: string,
-	options?: { startLine?: number; endLine?: number; lineHint?: number },
+	options?: {
+		startLine?: number;
+		endLine?: number;
+		lineHint?: number;
+		start_line?: number;
+		end_line?: number;
+		line_hint?: number;
+	},
 ): PatchTargetRange | null {
 	const res = preflightSurgicalPatchBlock(filePath, search, options);
 	return res.success ? res.targetRange ?? null : null;
@@ -408,7 +434,15 @@ export function applySurgicalPatch(
 	filePath: string,
 	search: string,
 	replace: string,
-	options?: { startLine?: number; endLine?: number; lineHint?: number; autoHeal?: boolean },
+	options?: {
+		startLine?: number;
+		endLine?: number;
+		lineHint?: number;
+		start_line?: number;
+		end_line?: number;
+		line_hint?: number;
+		autoHeal?: boolean;
+	},
 ): PatchResult {
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
@@ -533,9 +567,9 @@ export function applyMultiBlockPatch(
 		}
 
 		const opt = {
-			startLine: block.startLine,
-			endLine: block.endLine,
-			lineHint: block.lineHint,
+			startLine: block.startLine ?? block.start_line,
+			endLine: block.endLine ?? block.end_line,
+			lineHint: block.lineHint ?? block.line_hint,
 		};
 		const located = applySingleBlock(originalContent, block.search, "", opt);
 		if (!located.success || !located.targetRange) {
@@ -565,12 +599,16 @@ export function applyMultiBlockPatch(
 
 	let currentContent = originalContent;
 	const appliedStrategies: string[] = [];
+	let lineDelta = 0;
 	for (let i = 0; i < blocks.length; i++) {
 		const block = blocks[i];
+		const baseStart = block.startLine ?? block.start_line;
+		const baseEnd = block.endLine ?? block.end_line;
+		const baseHint = block.lineHint ?? block.line_hint;
 		const opt = {
-			startLine: block.startLine,
-			endLine: block.endLine,
-			lineHint: block.lineHint,
+			startLine: baseStart !== undefined ? baseStart + lineDelta : undefined,
+			endLine: baseEnd !== undefined ? baseEnd + lineDelta : undefined,
+			lineHint: baseHint !== undefined ? baseHint + lineDelta : undefined,
 		};
 		const result = applySingleBlock(currentContent, block.search, block.replace, opt);
 		if (!result.success) {
@@ -581,6 +619,9 @@ export function applyMultiBlockPatch(
 				error: `Block ${i + 1}/${blocks.length} failed: ${result.error} in ${resolvedPath}`,
 			};
 		}
+		const searchCount = block.search.split("\n").length;
+		const replaceCount = block.replace.split("\n").length;
+		lineDelta += (replaceCount - searchCount);
 		currentContent = result.newContent;
 		appliedStrategies.push(`Block ${i + 1}: ${result.strategy}`);
 	}

@@ -4,11 +4,13 @@
 import { runSuite } from "../_setup";
 import { testPythonMultiBlock } from "./python_test";
 import { testPolyglotMultiBlock } from "./polyglot_test";
+import { testMultiBlockLineHintDisambiguation } from "./disambiguation_test";
 
 export async function run(): Promise<void> {
 	await runSuite("Multi-Block Disjoint Patching Suite", () => {
 		testPythonMultiBlock();
 		testPolyglotMultiBlock();
+		testMultiBlockLineHintDisambiguation();
 	});
 }
 
