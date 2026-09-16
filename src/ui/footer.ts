@@ -119,20 +119,22 @@ export function formatSearchEngineTag(
 		eff = searchIndexOrProfile.getProfile();
 	}
 
-	let label = "retrieval:bm25";
 	if (eff === "lean") {
-		label = "retrieval:bm25";
-		return withColor ? Pastel.searchLean(label) : label;
+		const label = "retrieval:bm25";
+		const text = withColor ? Pastel.searchLean(label) : label;
+		return `🌿 ${text}`;
 	}
 	if (eff === "hybrid") {
-		label = "retrieval:hybrid-256d";
-		return withColor ? Pastel.searchHybrid(label) : label;
+		const label = "retrieval:hybrid-256d";
+		const text = withColor ? Pastel.searchHybrid(label) : label;
+		return `◈ ${text}`;
 	}
 	if (eff === "full") {
-		label = "retrieval:dense-768d";
-		return withColor ? Pastel.searchFull(label) : label;
+		const label = "retrieval:dense-768d";
+		const text = withColor ? Pastel.searchFull(label) : label;
+		return `🧠 ${text}`;
 	}
-	label = `retrieval:${eff}`;
+	const label = `retrieval:${eff}`;
 	return withColor ? Pastel.searchOff(label) : label;
 }
 
@@ -162,11 +164,9 @@ export function renderFooter(
 	}
 	parts.push(workspaceFormatted);
 
-	// 2. Search Engine Mode
-	const searchTag = formatSearchEngineTag(searchIndex, true);
-	parts.push(searchTag);
+	// (Retrieval engine status is rendered on the extension status line alongside Ponytail)
 
-	// 3. Context Window Usage
+	// 2. Context Window Usage
 	const contextUsage = ctx.getContextUsage?.();
 	const model = ctx.model;
 	const contextWindow = contextUsage?.contextWindow ?? model?.contextWindow ?? 0;
@@ -272,15 +272,41 @@ export function renderFooter(
 
 	const lines: string[] = [mainLine];
 
-	// Optional: Extension statuses (if any)
+	// Extension statuses on Line 2 (alongside external extensions like Ponytail)
 	const extStatuses = footerData?.getExtensionStatuses?.();
-	if (extStatuses && extStatuses.size > 0) {
-		const statusTexts = Array.from(extStatuses.values()).filter(Boolean);
-		if (statusTexts.length > 0) {
-			lines.push(
-				truncateToWidth(theme.fg("dim", statusTexts.join(" • ")), width, "..."),
-			);
+	const extEntries: Array<[string, string]> = extStatuses
+		? Array.from(extStatuses.entries()).filter(([, text]) => Boolean(text))
+		: [];
+
+	// If retrieval is not yet recorded in extension statuses but searchIndex is provided, include it
+	if (searchIndex && !extEntries.some(([key]) => key === "retrieval")) {
+		const eff =
+			typeof searchIndex.getEffectiveProfile === "function"
+				? searchIndex.getEffectiveProfile()
+				: typeof searchIndex === "string"
+					? searchIndex
+					: "lean";
+		if (eff !== "off") {
+			const tag = formatSearchEngineTag(searchIndex, true);
+			extEntries.push(["retrieval", tag]);
 		}
+	}
+
+	if (extEntries.length > 0) {
+		// Put retrieval first, then sort other extensions alphabetically
+		extEntries.sort(([a], [b]) => {
+			if (a === "retrieval") return -1;
+			if (b === "retrieval") return 1;
+			return a.localeCompare(b);
+		});
+		const statusTexts = extEntries.map(([, text]) => text);
+		lines.push(
+			truncateToWidth(
+				statusTexts.join(` ${Pastel.bullet} `),
+				width,
+				theme.fg("dim", "..."),
+			),
+		);
 	}
 
 	return lines;

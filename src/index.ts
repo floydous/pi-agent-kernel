@@ -90,7 +90,7 @@ function appendKernelGuidance(systemPrompt: string, guidance: string): string {
 }
 import { clampCommandOutput } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
-import { renderFooter } from "./ui/footer";
+import { formatSearchEngineTag, renderFooter } from "./ui/footer";
 import {
 	LspManager,
 	LspControlModal,
@@ -140,7 +140,27 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		return index;
 	};
 
-	// Helper: Background index synchronization with TUI progress bar widget
+	// Helper: Background index synchronization with statusline indicator
+	const syncRetrievalStatus = (ctx: any, customText?: string) => {
+		if (!ctx?.ui?.setStatus) return;
+		const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
+		const index = getSearchIndex(cwd);
+		const eff = index.getEffectiveProfile();
+		if (eff === "off") {
+			ctx.ui.setStatus("retrieval", "");
+			activeTui?.requestRender?.();
+			return;
+		}
+
+		if (customText !== undefined) {
+			ctx.ui.setStatus("retrieval", customText);
+		} else {
+			const tag = formatSearchEngineTag(index, true);
+			ctx.ui.setStatus("retrieval", tag);
+		}
+		activeTui?.requestRender?.();
+	};
+
 	const triggerBackgroundIndexing = (
 		index: HybridSearchIndex,
 		ctx: any,
@@ -148,76 +168,73 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	) => {
 		const eff = index.getEffectiveProfile();
 		if (eff === "off") {
-			ctx.ui?.setWidget?.("engine-progress", undefined);
+			syncRetrievalStatus(ctx);
 			return;
 		}
 
-		if (eff === "lean") {
-			ctx.ui?.setWidget?.("engine-progress", undefined);
-			ctx.ui?.notify?.(
-				`Lean mode active (${index.getStatus().chunkCount} chunks ready in RAM)`,
-				"info",
-			);
-			return;
-		}
-
-		const isVectorProfile = eff === "hybrid" || eff === "full";
-		const updateWidget = (line: string) => {
-			ctx.ui?.setWidget?.("engine-progress", [line], { placement: "belowEditor" });
-		};
-		const clearWidget = () => {
-			ctx.ui?.setWidget?.("engine-progress", undefined);
-		};
+		const engineTag = formatSearchEngineTag(index, true);
+		const streamArrow = "\x1b[38;2;155;210;170m⇢\x1b[0m";
+		syncRetrievalStatus(
+			ctx,
+			`${engineTag} ${streamArrow} \x1b[38;2;165;175;190m(indexing...)\x1b[0m`,
+		);
 
 		const runSync = async () => {
-			if (isVectorProfile) {
-				updateWidget("\x1b[38;5;244mEngine: Loading embedding model...\x1b[0m");
-				await index.preloadModel((msg: string) => {
-					updateWidget(`\x1b[38;5;244mEngine: ${msg.slice(0, 40)}\x1b[0m`);
-				});
-			}
 			return await index.syncWorkspace(
 				isFullSync,
 				(msg: string) => {
 					const pctMatch = msg.match(/(\d+)%/);
+					const speedMatch = msg.match(/([\d.]+\s*chunk\/s)/);
+					const countMatch = msg.match(/\((\d+)\/(\d+)/);
+
 					if (pctMatch) {
 						const pct = parseInt(pctMatch[1], 10);
-						const barLen = 16;
-						const filled = Math.round((pct / 100) * barLen);
-						const empty = barLen - filled;
-						const bar =
-							"\x1b[38;5;248m" +
-							"█".repeat(filled) +
-							"\x1b[38;5;238m" +
-							"░".repeat(empty) +
-							"\x1b[0m";
-						updateWidget(
-							`\x1b[38;5;244mEngine:\x1b[0m [${bar}] \x1b[38;5;250m${pct}%\x1b[0m \x1b[38;5;242mIndexing workspace\x1b[0m`,
+						let info = "";
+						if (countMatch && speedMatch) {
+							info = ` \x1b[38;2;165;175;190m(${countMatch[1]}/${countMatch[2]} • ${speedMatch[1]})\x1b[0m`;
+						} else if (countMatch) {
+							info = ` \x1b[38;2;165;175;190m(${countMatch[1]}/${countMatch[2]})\x1b[0m`;
+						} else if (msg.includes("Downloading")) {
+							info = ` \x1b[38;2;165;175;190m(downloading weights)\x1b[0m`;
+						}
+
+						syncRetrievalStatus(
+							ctx,
+							`${engineTag} ${streamArrow} \x1b[38;2;155;210;170m${pct}%\x1b[0m${info}`,
 						);
 					} else {
-						updateWidget(`\x1b[38;5;244mEngine: ${msg.slice(0, 40)}\x1b[0m`);
+						syncRetrievalStatus(
+							ctx,
+							`${engineTag} ${streamArrow} \x1b[38;2;165;175;190m(${msg.slice(0, 35)})\x1b[0m`,
+						);
 					}
 				},
 			);
 		};
 
-		// Keep profile changes responsive: model warm-up and indexing run in the
-		// existing background lifecycle, while progress remains visible in the UI.
+		// Keep profile changes responsive: indexing runs in the background
+		// while progress stays cleanly reported on the statusline.
 		void runSync()
 			.then((result) => {
-				clearWidget();
-				ctx.ui?.notify?.(
-					`Search index ready (${result.chunkCount} chunks in ${result.fileCount} files)`,
-					"info",
-				);
+				syncRetrievalStatus(ctx); // Reset to clean idle tag on status line
+				if (
+					(result.indexedCount !== undefined ? result.indexedCount > 0 : false) ||
+					isFullSync
+				) {
+					ctx.ui?.notify?.(
+						`Search index ready (${result.chunkCount} chunks in ${result.fileCount} files)`,
+						"info",
+					);
+				}
 			})
 			.catch((err: any) => {
-				clearWidget();
+				syncRetrievalStatus(ctx);
 				ctx.ui?.notify?.(`Indexing error: ${err.message}`, "error");
 			});
 	};
 
 	const setupUnifiedFooter = (ctx: any) => {
+		syncRetrievalStatus(ctx);
 		if (ctx.hasUI && ctx.ui?.setFooter) {
 			ctx.ui.setFooter((tui: any, theme: any, footerData: any) => {
 				activeTui = tui;
@@ -650,9 +667,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event: any, ctx: any) => {
 		setupUnifiedFooter(ctx);
 		try {
-			const index = getSearchIndex(ctx.cwd);
+			const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
+			const index = getSearchIndex(cwd);
 			if (index.getEffectiveProfile() !== "off") {
-				index.syncWorkspace(false).catch(() => {});
+				triggerBackgroundIndexing(index, ctx, false);
 			}
 		} catch (e) {
 			kernelDebug(e);

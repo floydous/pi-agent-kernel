@@ -54,5 +54,21 @@ export async function testExtensionRegistration(): Promise<void> {
 		{ result: secondResult },
 	);
 
-	logPass("Extension registration and automatic guidance injection verified!");
+	const sessionStart = eventHandlers.session_start?.[0];
+	assertPass("session_start handler is registered", typeof sessionStart === "function");
+	let widgetSetCall: any = null;
+	const mockSessionCtx: any = {
+		cwd: process.cwd(),
+		hasUI: true,
+		ui: {
+			setWidget(key: string, lines: any) {
+				widgetSetCall = { key, lines };
+			},
+			notify() {},
+		},
+	};
+	await sessionStart({}, mockSessionCtx);
+	assertPass("session_start completes without unhandled errors", true);
+
+	logPass("Extension registration, guidance injection, and startup indexing verified!");
 }

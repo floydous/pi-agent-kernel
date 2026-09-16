@@ -55,7 +55,7 @@ export class HybridSearchIndex {
 	private isIndexing = false;
 	private dirtyFiles = new Set<string>();
 	private generation = 0;
-	private activeSync: Promise<{ chunkCount: number; fileCount: number }> | null = null;
+	private activeSync: Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> | null = null;
 	private liveCheckPromise: Promise<boolean> | null = null;
 	private persistedVectorCaches: PersistedVectorCache[] = [];
 
@@ -380,7 +380,7 @@ export class HybridSearchIndex {
 	public async syncWorkspace(
 		forceReindex = false,
 		onProgress?: (msg: string) => void,
-	): Promise<{ chunkCount: number; fileCount: number }> {
+	): Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> {
 		if (this.activeSync) return this.activeSync;
 
 		const sync = (async () => {
@@ -484,7 +484,7 @@ export class HybridSearchIndex {
 		forceReindex: boolean,
 		onProgress: ((msg: string) => void) | undefined,
 		syncGeneration: number,
-	): Promise<{ chunkCount: number; fileCount: number }> {
+	): Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> {
 		this.isIndexing = true;
 		try {
 			if (
@@ -601,14 +601,17 @@ export class HybridSearchIndex {
 				if (isVectorEnabled && chunksToEmbed.length > 0) {
 					const batchSize = this.config.batchSize || 2;
 					const sleepMs = this.config.sleepBetweenBatchesMs || 50;
+					const embedStartTime = Date.now();
 
 					for (let i = 0; i < chunksToEmbed.length; i += batchSize) {
 						const batch = chunksToEmbed.slice(i, i + batchSize);
 						const texts = batch.map((c) => c.textForEmbedding);
 						const processed = Math.min(i + batch.length, chunksToEmbed.length);
 						const pct = Math.round((processed / chunksToEmbed.length) * 100);
+						const elapsedSec = Math.max(0.001, (Date.now() - embedStartTime) / 1000);
+						const chunkSpeed = (processed / elapsedSec).toFixed(1);
 						onProgress?.(
-							`Embedding code chunks: ${pct}% (${processed}/${chunksToEmbed.length})`,
+							`Embedding code chunks: ${pct}% (${processed}/${chunksToEmbed.length} • ${chunkSpeed} chunk/s)`,
 						);
 						const vecs = await this.embedder.embedBatch(texts, false, onProgress);
 
@@ -629,7 +632,11 @@ export class HybridSearchIndex {
 			}
 
 			this.isInitialized = true;
-			return { chunkCount: this.chunks.size, fileCount: this.fileHashes.size };
+			return {
+				chunkCount: this.chunks.size,
+				fileCount: this.fileHashes.size,
+				indexedCount: filesToReindex.length + filesToDelete.length,
+			};
 		} finally {
 			this.isIndexing = false;
 			if (this.generation !== syncGeneration) this.isInitialized = false;

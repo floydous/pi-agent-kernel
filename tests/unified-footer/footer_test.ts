@@ -46,13 +46,17 @@ export function testUnifiedFooter(): void {
 	assertPass("Footer rendered non-empty lines", renderedLines && renderedLines.length > 0, { renderedLines });
 
 	const mainFooterLine = renderedLines[0];
-	const strippedLine = stripAnsi(mainFooterLine);
-	assertPass("Unified footer format includes CWD and branch", strippedLine.includes("~/.pi/agent/extensions (main)"), { mainFooterLine });
-	assertPass("Unified footer includes retrieval profile", strippedLine.includes("retrieval:hybrid"), { mainFooterLine });
-	assertPass("Unified footer includes context usage", strippedLine.includes("13k/128k") && strippedLine.includes("10%"), { mainFooterLine });
-	assertPass("Unified footer includes token counts and cost", strippedLine.includes("↑1.3k") && strippedLine.includes("↓450") && strippedLine.includes("$0.002"), { mainFooterLine });
-	assertPass("Unified footer includes provider and model", strippedLine.includes("(openai)") && strippedLine.includes("gpt-4o-mini"), { mainFooterLine });
+	const strippedMainLine = stripAnsi(mainFooterLine);
+	assertPass("Unified footer format includes CWD and branch", strippedMainLine.includes("~/.pi/agent/extensions (main)"), { mainFooterLine });
+	assertPass("Unified footer includes context usage", strippedMainLine.includes("13k/128k") && strippedMainLine.includes("10%"), { mainFooterLine });
+	assertPass("Unified footer includes token counts and cost", strippedMainLine.includes("↑1.3k") && strippedMainLine.includes("↓450") && strippedMainLine.includes("$0.002"), { mainFooterLine });
+	assertPass("Unified footer includes provider and model", strippedMainLine.includes("(openai)") && strippedMainLine.includes("gpt-4o-mini"), { mainFooterLine });
 	assertPass("Unified footer contains 24-bit TrueColor ANSI codes", mainFooterLine.includes("\x1b[38;2;"), { mainFooterLine: mainFooterLine.slice(0, 200) });
+
+	const extensionLine = renderedLines[1];
+	const strippedExtLine = stripAnsi(extensionLine || "");
+	assertPass("Extension status line includes retrieval profile", strippedExtLine.includes("retrieval:hybrid"), { renderedLines });
+	assertPass("Extension status line includes other extensions", strippedExtLine.includes("ready"), { renderedLines });
 
 	logPass(`Unified integrated pastel footer rendering verified!`);
 }
