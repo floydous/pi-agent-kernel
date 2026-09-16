@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Automatic Kernel Guidance Injection**: Bundled `AGENT_KERNEL_SYS_PROMPT.md` is injected through Pi's `before_agent_start` lifecycle hook, enabled by default and configurable with `[instructions] enabled = false`.
+- **Benchmark Comparison Chart**: Added the latest aggregate harness comparison graphic at `static/benchmark-comparison.png` for display in the project README.
+
+### Changed
+- Included `AGENT_KERNEL_SYS_PROMPT.md` in the published package so automatic guidance works after installation.
+- Added lifecycle coverage for guidance injection, duplicate prevention, and the disabled configuration path.
+
+### Removed
+- Removed the obsolete `AGENT_KERNEL_PROPMPTS.md` prompt document.
+
 ## [0.4.0] - 2026-09-11
 
 ### Added

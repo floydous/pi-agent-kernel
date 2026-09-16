@@ -22,7 +22,7 @@ Here is how tool overhead compares to an unconstrained agent harness across ever
 
 ## Cross-harness benchmark & reproducibility
 
-`pi-agent-kernel` is continuously evaluated using an 8-task ground-truth benchmark suite derived from real-world bug fixes merged in popular open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`).
+`pi-agent-kernel` is continuously evaluated using an 8-task specified-repair benchmark suite derived from real-world bug fixes merged in popular open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`). The prompts describe the observed failure and expected behavior; they intentionally omit the original implementation diagnosis and prescribed code change.
 
 ### Cross-Harness 8-Task Benchmark on GPT 5.6 Luna High (`cx/gpt-5.6-luna:high`)
 
@@ -37,9 +37,11 @@ All 6 harnesses were evaluated across all 8 tasks under identical prompts and re
 | **OMP** | **8 / 8** | **100%** | 971s (16.2m) | 745,744 | 14,644 | 1,933,380 | 218 |
 | **Claude Code** | 7 / 8 | 88% | 943s (15.7m) | 1,945,983 | 57,430 | 2,003,413 | 104 |
 
+> **Benchmark scope**: This measures implementation, diagnosis, retrieval, and verification from behavioral reports—not blind application of a supplied patch recipe. Results from older runs used more prescriptive prompts and should not be compared directly with runs using the current prompt set.
+>
 > **Efficiency Comparison**: **Pi (Agent-Kernel and Vanilla)** lead the benchmark by a wide margin over external CLI harnesses, consuming less than half the total tokens of **OpenCode** (1.82M tokens, **-54.4%**), **OMP** (1.93M tokens, **-57.1%**), and **Claude Code** (2.00M tokens, **-58.6%**). OpenCode achieved 100% solve rate across all 8 tasks, but its verbose git-diff and patch format resulted in over 1.8M tokens compared to Pi's surgical range-bounded edits.
 
-![Benchmark Comparison](agent-kernel-benchmark/benchmark-comparison.png)
+![Benchmark Comparison](static/benchmark-comparison.png)
 
 ### Running the benchmark locally
 
@@ -79,7 +81,9 @@ pi install npm:@floydous/pi-agent-kernel
 pi install -l npm:@floydous/pi-agent-kernel
 ```
 
-Restart Pi or start a new session. The extension registers its tools, guards, and status indicators automatically.
+Restart Pi or start a new session. The extension registers its tools, guards, status indicators, and kernel workflow guidance automatically.
+
+The compact `AGENT_KERNEL_SYS_PROMPT.md` is injected into each agent run through Pi's `before_agent_start` lifecycle hook. This keeps the guidance bundled with the extension instead of requiring a manual `--context-file` flag. Disable it with `[instructions] enabled = false` in `config.toml` when running an unassisted baseline.
 
 ---
 
