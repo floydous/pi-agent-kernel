@@ -12,7 +12,7 @@ How tool overhead compares to an unconstrained agent harness across standard cod
 
 | Interaction | Standard agent harness | pi-agent-kernel (Passive Shield) | Tokens saved | Why |
 |---|---|---|---|---|
-| Whole benchmark suite (8 tasks) | 11 active tools, full schemas (1.21M tokens) | Core 4 tools active by default (465k tokens) | -61.7% | Gates exploratory tools to cut per-turn schema overhead and reduce query loops. |
+| Whole benchmark suite (8 tasks) | Pi Vanilla baseline (1.54M tokens) | Pi + Agent-Kernel (762k tokens) | -50.6% | Cuts per-turn schema tax, stops exploratory loops, and applies surgical edits. |
 | Monorepo navigation (Zod, 140k+ LOC) | Directory listings and full file dumps (104k tokens) | Plain reads and AST symbol queries (50.5k tokens) | -51.5% | Caps reads at 50 KB / 2,000 lines and extracts symbols directly without line hashes. |
 | Patching and delimiter repair | Failed edits caused by token cutoffs (16.7% failure rate) | Tree-sitter and lexical repair (`edit`) | Eliminates cutoff retries | Restores missing closing brackets and delimiters before writing to disk. |
 | Running tests and builds | Terminal logs dumped into context (~20k+ tokens) | Clamped output with disk spillover (~1.0k tokens) | ~95% context saved | Writes full output to disk and shows only the head, tail, and log path. |
@@ -30,14 +30,14 @@ Six harnesses were run on the same 8 tasks with identical prompts and repository
 
 | Harness | Tasks Solved | Success Rate | Total Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| Pi + Agent-Kernel | 8 / 8 | 100% | 918s (15.3m) | 497,851 | 17,569 | 829,788 | 124 |
-| Pi (Vanilla) | 8 / 8 | 100% | 891s (14.8m) | 504,695 | 16,971 | 765,890 | 79 |
-| Codex CLI | 8 / 8 | 100% | 856s (14.3m) | 1,050,222 | 19,538 | 1,069,760 | 58 |
-| OpenCode | 8 / 8 | 100% | 1,181s (19.7m) | 1,092,810 | 12,941 | 1,819,240 | 130 |
-| OMP | 8 / 8 | 100% | 971s (16.2m) | 745,744 | 14,644 | 1,933,380 | 218 |
-| Claude Code | 7 / 8 | 88% | 943s (15.7m) | 1,945,983 | 57,430 | 2,003,413 | 104 |
+| Pi + Agent-Kernel | 8 / 8 | 100% | 1,223s (20.4m) | 331,247 | 13,587 | 762,626 | 112 |
+| Pi (Vanilla) | 8 / 8 | 100% | 1,224s (20.4m) | 709,232 | 32,325 | 1,544,373 | 149 |
+| Codex CLI | 8 / 8 | 100% | 1,228s (20.5m) | 3,236,287 | 40,091 | 3,276,378 | 102 |
+| OpenCode | 8 / 8 | 100% | 1,557s (26.0m) | 1,419,628 | 22,987 | 3,612,533 | 229 |
+| OMP | 7 / 8 | 87% | 1,164s (19.4m) | 906,173 | 29,810 | 4,157,487 | 384 |
+| Claude Code | 6 / 8 | 75% | 2,160s (36.0m) | 4,390,998 | 85,836 | 4,476,834 | 183 |
 
-The suite tests retrieval, root-cause diagnosis, and verification from behavioral descriptions. Both Pi configurations consumed roughly half the tokens of OpenCode (1.82M tokens), OMP (1.93M tokens), and Claude Code (2.00M tokens). OpenCode solved all 8 tasks, but its diff format generated higher token totals than Pi's range-bounded edits.
+The suite tests retrieval, root-cause diagnosis, and verification from behavioral descriptions. Pi + Agent-Kernel solved all 8 tasks with the lowest token footprint: 762,626 total turn tokens compared to Pi Vanilla's 1,544,373 (-50.6% token reduction, saving 781,747 tokens) and external harnesses ranging from 3.28M (Codex CLI) to 4.48M (Claude Code). Claude Code completed 6 tasks normally (with 7 total passing verification), and OMP failed verification on task-4-ufo.
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
 
