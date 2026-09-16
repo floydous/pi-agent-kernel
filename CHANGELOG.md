@@ -16,6 +16,7 @@
 - Added lifecycle coverage for guidance injection, duplicate prevention, and the disabled configuration path.
 - **Tool Description Optimization**: Completely redesigned tool descriptions for `read` and `edit` to explicitly declare clean plain-text defaults and precision parameter expectations, dropping 10k+ prompt inflation tokens on real benchmarks.
 - **Performance**: Cut 8-task benchmark token consumption from **1,214,112 tokens down to 465,139 tokens (-61.7%)**, outperforming stock Pi Vanilla (579,088 tokens, -19.7% overall) across 8 real-world repositories.
+- **Persistent Vector Profiles**: Preserve dimension-specific vector caches on disk when switching to BM25, allowing dense-768 retrieval to resume without re-embedding the workspace.
 
 ### Removed
 - Removed the obsolete `AGENT_KERNEL_PROPMPTS.md` prompt document.
@@ -34,6 +35,6 @@
 ### Changed
 
 - **Compact Tool Schemas**: Minified tool descriptions and schemas across tools to reduce system prompt overhead and save context tokens.
-- **Optimized Repository Map Ranking**: Enhanced PageRank scoring heuristics and budget management to prioritize core implementation symbols over tests and boilerplate.
+- **Optimized Repository Map Ranking**: Enhanced PageRank scoring heuristics to prioritize core implementation symbols over tests and boilerplate.
 
 [0.3.1]: https://github.com/floydous/pi-agent-kernel/compare/v0.3.0...v0.3.1

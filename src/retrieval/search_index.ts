@@ -24,6 +24,14 @@ import { TreeSitterEngine } from "./tree_sitter_engine";
 const INDEX_VERSION = 3;
 const EXTRACTOR_GENERATION = "tree-sitter-wasm-v2";
 
+interface PersistedVectorCache {
+	vectorDim: number;
+	vectorChunkIds: string[];
+	vectorChunkHashes?: string[];
+	vectorHash: string;
+	fileName: string;
+}
+
 export interface SearchHit {
 	chunk: CodeChunk;
 	rrfScore: number;
@@ -49,6 +57,7 @@ export class HybridSearchIndex {
 	private generation = 0;
 	private activeSync: Promise<{ chunkCount: number; fileCount: number }> | null = null;
 	private liveCheckPromise: Promise<boolean> | null = null;
+	private persistedVectorCaches: PersistedVectorCache[] = [];
 
 	constructor(cwd: string, profile?: SearchProfile) {
 		this.cwd = cwd;
@@ -70,12 +79,19 @@ export class HybridSearchIndex {
 		savePersistedProfile(profile);
 		this.config = getSearchConfig(profile);
 		this.embedder.updateConfig(this.config);
+
+		if (oldEffective !== this.config.effectiveProfile) {
+			// Keep vector caches on disk; only the active in-memory representation
+			// changes when switching profiles.
+			this.vectors.clear();
+			this.isInitialized = false;
+		}
+
 		if (
 			this.config.effectiveProfile === "off" ||
 			this.config.effectiveProfile === "lean"
 		) {
 			void this.embedder.dispose();
-			this.vectors.clear();
 			try {
 				if (typeof (global as any).gc === "function") {
 					(global as any).gc();
@@ -83,14 +99,6 @@ export class HybridSearchIndex {
 			} catch (e) {
 				kernelDebug(e);
 			}
-		} else if (
-			(oldEffective === "off" || oldEffective === "lean") &&
-			(this.config.effectiveProfile === "hybrid" ||
-				this.config.effectiveProfile === "full")
-		) {
-			// Profile upgraded to vector mode: clear initialized flag so the next
-			// search or sync checks for missing vector embeddings.
-			this.isInitialized = false;
 		}
 	}
 
@@ -117,8 +125,106 @@ export class HybridSearchIndex {
 		return path.join(this.getCacheDir(), "index.json");
 	}
 
-	private getVectorsFilePath(): string {
-		return path.join(this.getCacheDir(), "vectors.bin");
+	private getVectorsFilePath(fileName = "vectors.bin"): string {
+		return path.join(this.getCacheDir(), fileName);
+	}
+
+	private getVectorCacheFileName(dim: number): string {
+		return `vectors-${dim}d.bin`;
+	}
+
+	private getPersistedVectorCaches(data: any): PersistedVectorCache[] {
+		if (Array.isArray(data.vectorCaches)) {
+			return data.vectorCaches.filter(
+				(cache: any): cache is PersistedVectorCache =>
+					cache &&
+					Number.isInteger(cache.vectorDim) &&
+					cache.vectorDim > 0 &&
+					Array.isArray(cache.vectorChunkIds) &&
+					typeof cache.vectorHash === "string" &&
+					typeof cache.fileName === "string" &&
+					path.basename(cache.fileName) === cache.fileName,
+			);
+		}
+
+		if (
+			Number.isInteger(data.vectorDim) &&
+			data.vectorDim > 0 &&
+			Array.isArray(data.vectorChunkIds) &&
+			typeof data.vectorHash === "string"
+		) {
+			return [{
+				vectorDim: data.vectorDim,
+				vectorChunkIds: data.vectorChunkIds,
+				vectorChunkHashes: data.vectorChunkHashes,
+				vectorHash: data.vectorHash,
+				fileName: "vectors.bin",
+			}];
+		}
+
+		return [];
+	}
+
+	private getChunkHashMap(): Map<string, string> {
+		return new Map(
+			Array.from(this.chunks.values()).map((chunk) => [chunk.id, chunk.hash]),
+		);
+	}
+
+	private loadVectorCache(cache: PersistedVectorCache): void {
+		const vectorChunkIds = cache.vectorChunkIds;
+		const vectorPath = this.getVectorsFilePath(cache.fileName);
+		if (
+			!fs.existsSync(vectorPath) ||
+			vectorChunkIds.length === 0 ||
+			new Set(vectorChunkIds).size !== vectorChunkIds.length
+		) return;
+
+		const buffer = fs.readFileSync(vectorPath);
+		const expectedBytes = vectorChunkIds.length * cache.vectorDim * 4;
+		if (
+			buffer.byteLength !== expectedBytes ||
+			cache.vectorHash !==
+				crypto
+					.createHash("sha256")
+					.update(JSON.stringify(vectorChunkIds))
+					.update(buffer)
+					.digest("hex")
+		) return;
+
+		const currentHashes = this.getChunkHashMap();
+		const hasChunkHashes =
+			Array.isArray(cache.vectorChunkHashes) &&
+			cache.vectorChunkHashes.length === vectorChunkIds.length;
+		if (Array.isArray(cache.vectorChunkHashes) && !hasChunkHashes) return;
+		if (!hasChunkHashes && !this.isWorkspaceSnapshotFresh()) return;
+		if (
+			!hasChunkHashes &&
+			(vectorChunkIds.length !== this.chunks.size ||
+				vectorChunkIds.some((id) => !this.chunks.has(id)))
+		) return;
+
+		const floatArray = new Float32Array(
+			buffer.buffer,
+			buffer.byteOffset,
+			buffer.byteLength / 4,
+		);
+		for (let index = 0; index < vectorChunkIds.length; index++) {
+			const chunkId = vectorChunkIds[index];
+			if (!this.chunks.has(chunkId)) continue;
+			if (
+				hasChunkHashes &&
+				cache.vectorChunkHashes?.[index] !== currentHashes.get(chunkId)
+			) continue;
+			const vector = new Float32Array(cache.vectorDim);
+			vector.set(
+				floatArray.subarray(
+					index * cache.vectorDim,
+					(index + 1) * cache.vectorDim,
+				),
+			);
+			this.vectors.set(chunkId, vector);
+		}
 	}
 
 	/**
@@ -126,7 +232,6 @@ export class HybridSearchIndex {
 	 */
 	public loadFromDisk(): boolean {
 		const indexPath = this.getIndexFilePath();
-		const vectorsPath = this.getVectorsFilePath();
 
 		if (!fs.existsSync(indexPath)) return false;
 
@@ -145,6 +250,7 @@ export class HybridSearchIndex {
 			this.bm25.clear();
 			this.fileHashes.clear();
 			this.vectors.clear();
+			this.persistedVectorCaches = [];
 
 			for (const chunk of data.chunks as CodeChunk[]) {
 				this.chunks.set(chunk.id, chunk);
@@ -156,51 +262,15 @@ export class HybridSearchIndex {
 				this.fileHashes.set(f, h as string);
 			}
 
-			// Only load binary vectors when metadata proves a complete, one-to-one
-			// chunk/vector mapping. Otherwise retain the safe BM25 index only.
+			this.persistedVectorCaches = this.getPersistedVectorCaches(data);
 			const wantsVectors =
 				this.config.effectiveProfile === "hybrid" ||
 				this.config.effectiveProfile === "full";
-			const vectorChunkIds = data.vectorChunkIds;
-			const validVectorMetadata =
-				wantsVectors &&
-				data.profile === this.config.profile &&
-				fs.existsSync(vectorsPath) &&
-				Number.isInteger(data.vectorDim) &&
-				data.vectorDim === this.config.matryoshkaDim &&
-				Array.isArray(vectorChunkIds) &&
-				vectorChunkIds.length === this.chunks.size &&
-				vectorChunkIds.length > 0 &&
-				new Set(vectorChunkIds).size === vectorChunkIds.length &&
-				vectorChunkIds.every(
-					(id: unknown) => typeof id === "string" && this.chunks.has(id),
-				);
-			if (validVectorMetadata) {
-				const buf = fs.readFileSync(vectorsPath);
-				const dim = data.vectorDim as number;
-				const expectedBytes = vectorChunkIds.length * dim * 4;
-				if (
-					buf.byteLength === expectedBytes &&
-					typeof data.vectorHash === "string" &&
-					data.vectorHash ===
-						crypto
-							.createHash("sha256")
-							.update(JSON.stringify(vectorChunkIds))
-							.update(buf)
-							.digest("hex")
-				) {
-					const floatArray = new Float32Array(
-						buf.buffer,
-						buf.byteOffset,
-						buf.byteLength / 4,
-					);
-
-					for (let index = 0; index < vectorChunkIds.length; index++) {
-						const vec = new Float32Array(dim);
-						vec.set(floatArray.subarray(index * dim, (index + 1) * dim));
-						this.vectors.set(vectorChunkIds[index], vec);
-					}
-				}
+			const activeCache = this.persistedVectorCaches.find(
+				(cache) => cache.vectorDim === this.config.matryoshkaDim,
+			);
+			if (wantsVectors && activeCache) {
+				this.loadVectorCache(activeCache);
 			}
 
 			const vectorsReady =
@@ -243,52 +313,62 @@ export class HybridSearchIndex {
 				fileHashesObj[f] = h;
 			}
 
-			const vectorChunkIds: string[] = [];
-			let vectorDim = 0;
-			const vectorArrays: Float32Array[] = [];
-
-			for (const [id, vec] of this.vectors.entries()) {
-				vectorChunkIds.push(id);
-				vectorArrays.push(vec);
-				if (vectorDim === 0) vectorDim = vec.length;
+			const vectorCaches = new Map<number, PersistedVectorCache>();
+			for (const cache of this.persistedVectorCaches) {
+				vectorCaches.set(cache.vectorDim, cache);
 			}
 
-			const vectorBuffer = Buffer.alloc(vectorArrays.length * vectorDim * 4);
-			for (let i = 0; i < vectorArrays.length; i++) {
-				const bytes = Buffer.from(
-					vectorArrays[i].buffer,
-					vectorArrays[i].byteOffset,
-					vectorArrays[i].byteLength,
+			if (
+				this.vectors.size > 0 &&
+				this.vectors.size === this.chunks.size &&
+				Array.from(this.vectors.keys()).every((id) => this.chunks.has(id))
+			) {
+				const vectorChunkIds = Array.from(this.vectors.keys());
+				const vectorArrays = vectorChunkIds.map((id) => this.vectors.get(id)!);
+				const vectorDim = vectorArrays[0].length;
+				const vectorBuffer = Buffer.alloc(vectorArrays.length * vectorDim * 4);
+				for (let i = 0; i < vectorArrays.length; i++) {
+					const bytes = Buffer.from(
+						vectorArrays[i].buffer,
+						vectorArrays[i].byteOffset,
+						vectorArrays[i].byteLength,
+					);
+					bytes.copy(vectorBuffer, i * vectorDim * 4);
+				}
+				const vectorHash = crypto
+					.createHash("sha256")
+					.update(JSON.stringify(vectorChunkIds))
+					.update(vectorBuffer)
+					.digest("hex");
+				const vectorChunkHashes = vectorChunkIds.map(
+					(id) => this.chunks.get(id)?.hash || "",
 				);
-				bytes.copy(vectorBuffer, i * vectorDim * 4);
+				const fileName = this.getVectorCacheFileName(vectorDim);
+				vectorCaches.set(vectorDim, {
+					vectorDim,
+					vectorChunkIds,
+					vectorChunkHashes,
+					vectorHash,
+					fileName,
+				});
+				writeFileSyncAtomic(this.getVectorsFilePath(fileName), vectorBuffer);
 			}
-			const vectorHash = crypto
-				.createHash("sha256")
-				.update(JSON.stringify(vectorChunkIds))
-				.update(vectorBuffer)
-				.digest("hex");
 
+			this.persistedVectorCaches = Array.from(vectorCaches.values());
 			const indexData = {
 				version: INDEX_VERSION,
 				extractorGeneration: EXTRACTOR_GENERATION,
 				updatedAt: new Date().toISOString(),
 				profile: this.config.profile,
-				vectorDim,
 				fileHashes: fileHashesObj,
 				chunks: chunkList,
-				vectorChunkIds,
-				vectorHash,
+				vectorCaches: this.persistedVectorCaches,
 			};
 
 			writeFileSyncAtomic(
 				this.getIndexFilePath(),
 				JSON.stringify(indexData, null, 2),
 			);
-
-			// Write binary vectors
-			if (vectorBuffer.length > 0) {
-				writeFileSyncAtomic(this.getVectorsFilePath(), vectorBuffer);
-			}
 		} catch (err) {
 			console.error("[Search Index] Failed saving cache:", err);
 		}

@@ -7,6 +7,7 @@ import { testIndexStatus } from "./index_status_test";
 import { testSearchRetrieval } from "./search_retrieval_test";
 import { testRrfAndAbstain } from "./rrf_abstain_test";
 import { testCacheInvalidation } from "./cache_invalidation_test";
+import { testVectorCacheSurvivesProfileSwitch } from "./vector_cache_profile_test";
 
 export async function run(): Promise<void> {
 	await runSuite("Hybrid AST Code Search Engine Suite", async () => {
@@ -15,6 +16,7 @@ export async function run(): Promise<void> {
 		await testSearchRetrieval();
 		await testRrfAndAbstain();
 		await testCacheInvalidation();
+		await testVectorCacheSurvivesProfileSwitch();
 	});
 }
 
