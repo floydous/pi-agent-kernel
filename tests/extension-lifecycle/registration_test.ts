@@ -1,7 +1,7 @@
 import kernelExt from "../../src/index";
 import { assertPass, logPass } from "../_setup";
 
-export function testExtensionRegistration(): void {
+export async function testExtensionRegistration(): Promise<void> {
 	const registeredTools: any[] = [];
 	const registeredCommands: any[] = [];
 	const eventHandlers: Record<string, Function[]> = {};
@@ -28,5 +28,31 @@ export function testExtensionRegistration(): void {
 	assertPass("At least one command is registered", registeredCommands.length > 0, { registeredCommands });
 	assertPass("Event handlers are registered (before_agent_start etc.)", Object.keys(eventHandlers).length > 0, { eventHandlers });
 
-	logPass("Extension registration verified!");
+	const beforeAgentStart = eventHandlers.before_agent_start?.[0];
+	assertPass("before_agent_start handler is registered", typeof beforeAgentStart === "function");
+	const result = await beforeAgentStart(
+		{
+			systemPrompt: "Base system prompt",
+			systemPromptOptions: { contextFiles: [] },
+		},
+		{ cwd: process.cwd(), hasUI: false },
+	);
+	assertPass(
+		"before_agent_start injects kernel guidance",
+		typeof result?.systemPrompt === "string" &&
+			result.systemPrompt.includes("## Agent Kernel Guidance") &&
+			result.systemPrompt.includes("Turn 1 Grounding"),
+		{ result },
+	);
+	const secondResult = await beforeAgentStart(
+		{ ...({ systemPrompt: result.systemPrompt, systemPromptOptions: { contextFiles: [] } }) },
+		{ cwd: process.cwd(), hasUI: false },
+	);
+	assertPass(
+		"before_agent_start does not duplicate kernel guidance",
+		secondResult?.systemPrompt === result.systemPrompt,
+		{ result: secondResult },
+	);
+
+	logPass("Extension registration and automatic guidance injection verified!");
 }
