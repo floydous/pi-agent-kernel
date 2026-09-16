@@ -89,16 +89,21 @@ The compact `AGENT_KERNEL_SYS_PROMPT.md` is injected into each agent run through
 
 ### 2. Configure the retrieval engine (`/engine`)
 
-`pi-agent-kernel` includes an in-memory retrieval engine for keyword and semantic searches:
+`pi-agent-kernel` includes an in-memory retrieval engine for keyword and semantic searches, surfaced directly on the extension status line:
 
 ```text
 /engine status
 ```
 
-- **`lean`** *(default)*: Fast, AST-aware BM25 search. Consumes 0 MB background model RAM.
-- **`hybrid`**: BM25 keyword search blended with lightweight local 256-dimension embeddings.
-- **`full`**: Dense 768-dimension semantic embeddings for deep conceptual queries across large codebases.
+- **`lean`** *(default)*: `🌿 retrieval:bm25` — Fast, AST-aware BM25 search. Consumes 0 MB background model RAM.
+- **`hybrid`**: `◈ retrieval:hybrid-256d` — BM25 keyword search blended with lightweight local 256-dimension Matryoshka embeddings.
+- **`full`**: `🧠 retrieval:dense-768d` — Dense 768-dimension semantic embeddings for deep conceptual queries across large codebases.
 - **`off`**: Turns off local index building if you only want AST and LSP tools.
+
+During indexing, the statusline displays live throughput metrics and progress:
+```text
+🧠 retrieval:dense-768d ⇢ 45% (22/48 • 14.2 chunk/s) • ○ 🐴 ponytail: ⚡ FULL
+```
 
 Switch profiles at any time:
 ```text
@@ -160,17 +165,22 @@ Turn it back on with `/pi-docs on` whenever you switch back to hacking on Pi ext
 
 ## Tool reference
 
+### Core Tools (Active by Default)
 | Tool | What it does |
 |---|---|
-| `read` | Read specific lines or extract an exact function, class, or type via AST (`symbol="name"`). |
-| `edit` | Apply surgical search/replace patches with built-in syntax checks. |
+| `read` | Read clean plain text with 50KB/2,000-line safety caps, or extract an exact function, class, or type via AST (`symbol="name"`). |
+| `edit` | Apply surgical search/replace patches with automatic delimiter auto-healing and optional `line_hint` disambiguation. |
 | `write` | Create new files or perform complete rewrites when explicitly requested. |
-| `get_repo_map` | Retrieve a concise, PageRank-ranked symbol overview of the codebase (~1k tokens). |
+| `bash` | Execute shell commands (e.g. `rg`, `git status`, test runners) with clamped output and automatic disk spillover logging. |
+
+### Exploratory Retrieval Tools (Gated behind Passive Shield)
+*Enabled via `PI_ENABLE_RETRIEVAL_TOOLS=1` or `[retrieval] enable_tools = true` in `config.toml`:*
+| Tool | What it does |
+|---|---|
+| `code_search` | Hybrid AST BM25 and semantic chunk search with breadcrumb locations for conceptual queries. |
 | `ast_search` | Search declarations across files using Tree-sitter AST queries, grouped cleanly by file. |
-| `code_search` | Hybrid keyword and semantic chunk search with breadcrumb locations. |
+| `get_repo_map` | Retrieve a concise, PageRank-ranked symbol overview of the codebase (~1k tokens). |
 | `lsp` | Query definitions, references, type hover docs, and diagnostics directly from language servers. |
-| `recall` | Retrieve the full text of a deduplicated output previously replaced by a short reference tag. |
-| `search_tools` | Search and activate deferred tools on demand. |
 
 ---
 
