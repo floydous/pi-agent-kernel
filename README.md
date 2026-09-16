@@ -162,22 +162,15 @@ Use `/pi-docs on` when returning to work on Pi extensions.
 
 ## Tool reference
 
-### Core tools (active by default)
 | Tool | What it does |
 |---|---|
 | `read` | Reads plain text with 50 KB / 2,000-line safety caps, or extracts a function, class, or type via AST (`symbol="name"`). |
 | `edit` | Applies search and replace patches with automatic delimiter healing and optional `line_hint` disambiguation. |
 | `write` | Creates new files or rewrites existing files when needed. |
 | `bash` | Runs shell commands (`rg`, `git status`, test runners) with clamped outputs and spillover logs on disk. |
+| `code_search` | Hybrid AST BM25 and semantic chunk search with breadcrumb locations for conceptual discovery. |
 
-### Exploratory retrieval tools (gated by default)
-Enable through `PI_ENABLE_RETRIEVAL_TOOLS=1` or `[retrieval] enable_tools = true` in `config.toml`:
-| Tool | What it does |
-|---|---|
-| `code_search` | Hybrid AST BM25 and semantic chunk search with file and breadcrumb locations. |
-| `ast_search` | Searches declarations across files using Tree-sitter AST queries, grouped by file. |
-| `get_repo_map` | Returns a PageRank-ordered symbol summary of the codebase (~1k tokens). |
-| `lsp` | Queries definitions, references, type hover docs, and diagnostics from language servers. |
+*Note: Exploratory tools (`ast_search`, `get_repo_map`, `lsp`) are gated behind `PI_ENABLE_ALL_RETRIEVAL_TOOLS=1` pending redesign in v0.4.0.*
 
 ---
 

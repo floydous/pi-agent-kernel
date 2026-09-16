@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - 2026-09-16
+## [0.3.2] - 2026-09-16
 
 ### Added
 - **Statusline Retrieval Indicator & Extension Row Integration**: Relocated the retrieval profile tag from Line 1 to Line 2 (extension statusline via `ctx.ui.setStatus("retrieval", ...)`) alongside external extensions (such as Ponytail), preserving individual extension ANSI colors.
