@@ -2,44 +2,42 @@
 
 ![Comparison Demonstration](https://raw.githubusercontent.com/floydous/pi-agent-kernel/master/static/comparison.gif)
 
-Most coding agents drown in context. They read entire files when looking for a single function, dump thousands of lines of terminal logs into prompts, and rewrite full files just to tweak one line. `pi-agent-kernel` is built around a straightforward rule: **spend the bare minimum tokens necessary to get maximum workflow performance**. It provides surgical retrieval, bounded outputs, and guarded editing tools so your model stays fast, focused, and well within budget.
+Coding agents waste tokens when they read entire files for single functions, dump thousands of lines of terminal output into the context window, or rewrite complete files for one-line edits. `pi-agent-kernel` is an extension for Pi that reduces token usage through scoped reads, bounded command outputs, and syntax-checked edits.
 
 ---
 
 ## Token savings
 
-Here is how tool overhead compares to an unconstrained agent harness across everyday coding tasks:
+How tool overhead compares to an unconstrained agent harness across standard coding tasks:
 
-| Interaction | Traditional agent harness | `pi-agent-kernel` (Passive Shield) | Tokens saved | Why |
+| Interaction | Standard agent harness | pi-agent-kernel (Passive Shield) | Tokens saved | Why |
 |---|---|---|---|---|
-| **Whole Benchmark Suite (8 tasks)** | Sprawling context / heavy tool suite (1.21M tokens) | Passive Shield + Supercharged Core 4 (465k tokens) | **-61.7% fewer tokens** | Gates speculative tools, stops schema overhead, and prevents tool distraction loops. |
-| **Monorepo navigation (Zod, 140k+ LOC)** | Sprawling directory scans & full file dumps (104k tokens) | Surgical AST & clean plain reads (`read`) (50.5k tokens) | **-51.5% fewer tokens** | Capped 50KB/2,000-line reads and precise AST symbol targeting without hash overhead. |
-| **Patching & Delimiter Repair** | Repetitive edit retry loops due to cutoffs (16.7% fail rate) | Tree-sitter & lexical auto-healing (`edit`) | **Zero-retry syntax healing** | Deterministically restores truncated closing braces/brackets before writing. |
-| **Running tests / builds** | Floods context with raw build logs (~20k+ tokens) | Clamped output with disk spillover (~1.0k tokens) | **~95% context saved** | Full logs written to disk; agent sees head, tail, and log path. |
-| **Function Inspection** | Reads full file with line hashes (~4.0k tokens) | Clean plain-text reads or symbol extraction (~420 tokens) | **~70–90% fewer tokens** | Clean plain text by default; surgical AST symbol targeting. |
+| Whole benchmark suite (8 tasks) | 11 active tools, full schemas (1.21M tokens) | Core 4 tools active by default (465k tokens) | -61.7% | Gates exploratory tools to cut per-turn schema overhead and reduce query loops. |
+| Monorepo navigation (Zod, 140k+ LOC) | Directory listings and full file dumps (104k tokens) | Plain reads and AST symbol queries (50.5k tokens) | -51.5% | Caps reads at 50 KB / 2,000 lines and extracts symbols directly without line hashes. |
+| Patching and delimiter repair | Failed edits caused by token cutoffs (16.7% failure rate) | Tree-sitter and lexical repair (`edit`) | Eliminates cutoff retries | Restores missing closing brackets and delimiters before writing to disk. |
+| Running tests and builds | Terminal logs dumped into context (~20k+ tokens) | Clamped output with disk spillover (~1.0k tokens) | ~95% context saved | Writes full output to disk and shows only the head, tail, and log path. |
+| Function inspection | Full file reads with line hashes (~4.0k tokens) | Plain text reads or symbol extraction (~420 tokens) | ~70–90% | Defaults to plain text with targeted AST symbol reads. |
 
 ---
 
-## Cross-harness benchmark & reproducibility
+## Cross-harness benchmark and reproducibility
 
-`pi-agent-kernel` is continuously evaluated using an 8-task specified-repair benchmark suite derived from real-world bug fixes merged in popular open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`). The prompts describe the observed failure and expected behavior; they intentionally omit the original implementation diagnosis and prescribed code change.
+`pi-agent-kernel` is evaluated against an 8-task repair suite drawn from merged bug fixes in open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`). Prompts describe the bug report and expected behavior without providing the implementation fix or file locations.
 
-### Cross-Harness 8-Task Benchmark on GPT 5.6 Luna High (`cx/gpt-5.6-luna:high`)
+### Cross-harness 8-task benchmark on GPT 5.6 Luna High (`cx/gpt-5.6-luna:high`)
 
-All 6 harnesses were evaluated across all 8 tasks under identical prompts and repository states on **`cx/gpt-5.6-luna:high`** via **`OmniRoute`**:
+Six harnesses were run on the same 8 tasks with identical prompts and repository states on `cx/gpt-5.6-luna:high` through OmniRoute:
 
-| Harness | Tasks Solved | Success Rate | Total Time | Cumulative Input Tokens | Output Tokens | Total Turn Tokens | Total Tool Calls |
+| Harness | Tasks Solved | Success Rate | Total Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| **Pi + Agent-Kernel** | **8 / 8** | **100%** | **918s (15.3m)** | **497,851** | **17,569** | **829,788** | 124 |
-| **Pi (Vanilla)** | **8 / 8** | **100%** | **891s (14.8m)** | 504,695 | 16,971 | **765,890** | **79** |
-| **Codex CLI** | **8 / 8** | **100%** | 856s (14.3m) | 1,050,222 | 19,538 | 1,069,760 | **58** |
-| **OpenCode** | **8 / 8** | **100%** | 1,181s (19.7m) | 1,092,810 | 12,941 | 1,819,240 | 130 |
-| **OMP** | **8 / 8** | **100%** | 971s (16.2m) | 745,744 | 14,644 | 1,933,380 | 218 |
-| **Claude Code** | 7 / 8 | 88% | 943s (15.7m) | 1,945,983 | 57,430 | 2,003,413 | 104 |
+| Pi + Agent-Kernel | 8 / 8 | 100% | 918s (15.3m) | 497,851 | 17,569 | 829,788 | 124 |
+| Pi (Vanilla) | 8 / 8 | 100% | 891s (14.8m) | 504,695 | 16,971 | 765,890 | 79 |
+| Codex CLI | 8 / 8 | 100% | 856s (14.3m) | 1,050,222 | 19,538 | 1,069,760 | 58 |
+| OpenCode | 8 / 8 | 100% | 1,181s (19.7m) | 1,092,810 | 12,941 | 1,819,240 | 130 |
+| OMP | 8 / 8 | 100% | 971s (16.2m) | 745,744 | 14,644 | 1,933,380 | 218 |
+| Claude Code | 7 / 8 | 88% | 943s (15.7m) | 1,945,983 | 57,430 | 2,003,413 | 104 |
 
-> **Benchmark scope**: This measures implementation, diagnosis, retrieval, and verification from behavioral reports—not blind application of a supplied patch recipe. Results from older runs used more prescriptive prompts and should not be compared directly with runs using the current prompt set.
->
-> **Efficiency Comparison**: **Pi (Agent-Kernel and Vanilla)** lead the benchmark by a wide margin over external CLI harnesses, consuming less than half the total tokens of **OpenCode** (1.82M tokens, **-54.4%**), **OMP** (1.93M tokens, **-57.1%**), and **Claude Code** (2.00M tokens, **-58.6%**). OpenCode achieved 100% solve rate across all 8 tasks, but its verbose git-diff and patch format resulted in over 1.8M tokens compared to Pi's surgical range-bounded edits.
+The suite tests retrieval, root-cause diagnosis, and verification from behavioral descriptions. Both Pi configurations consumed roughly half the tokens of OpenCode (1.82M tokens), OMP (1.93M tokens), and Claude Code (2.00M tokens). OpenCode solved all 8 tasks, but its diff format generated higher token totals than Pi's range-bounded edits.
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
 
@@ -52,7 +50,7 @@ cp agent-kernel-benchmark/.env.example agent-kernel-benchmark/.env
 # 2. Run the full benchmark suite
 npm run bench
 
-# Or run a specific task / harness
+# Or run a specific task or harness
 npx tsx agent-kernel-benchmark/run.ts task-3
 npx tsx agent-kernel-benchmark/run.ts --harnesses pi-kernel,pi-vanilla
 
@@ -63,7 +61,7 @@ npm run bench:clean
 npm run bench:chart
 ```
 
-See [`agent-kernel-benchmark/README.md`](agent-kernel-benchmark/README.md) for full configuration details, CLI flags, and task descriptions, and [`agent-kernel-benchmark/BENCHMARK_RESULTS.md`](agent-kernel-benchmark/BENCHMARK_RESULTS.md) for task-by-task forensic analysis.
+See [`agent-kernel-benchmark/README.md`](agent-kernel-benchmark/README.md) for configuration flags and task descriptions, and [`agent-kernel-benchmark/BENCHMARK_RESULTS.md`](agent-kernel-benchmark/BENCHMARK_RESULTS.md) for individual task breakdowns.
 
 ---
 
@@ -71,41 +69,41 @@ See [`agent-kernel-benchmark/README.md`](agent-kernel-benchmark/README.md) for f
 
 ### 1. Install
 
-Install the extension directly with Pi's package manager:
+Install the extension through Pi's package manager:
 
 ```bash
-# Global install (recommended)
+# Global install
 pi install npm:@floydous/pi-agent-kernel
 
-# Or install locally for the current repository only
+# Local install for the current workspace only
 pi install -l npm:@floydous/pi-agent-kernel
 ```
 
-Restart Pi or start a new session. The extension registers its tools, guards, status indicators, and kernel workflow guidance automatically.
+Restart Pi or start a new session. The extension registers its tools, guards, status indicators, and workflow guidance automatically.
 
-The compact `AGENT_KERNEL_SYS_PROMPT.md` is injected into each agent run through Pi's `before_agent_start` lifecycle hook. This keeps the guidance bundled with the extension instead of requiring a manual `--context-file` flag. Disable it with `[instructions] enabled = false` in `config.toml` when running an unassisted baseline.
+The compact instructions in `AGENT_KERNEL_SYS_PROMPT.md` are appended to the agent system prompt via Pi's `before_agent_start` hook. You can disable this by setting `[instructions] enabled = false` in `config.toml`.
 
 ---
 
 ### 2. Configure the retrieval engine (`/engine`)
 
-`pi-agent-kernel` includes an in-memory retrieval engine for keyword and semantic searches, surfaced directly on the extension status line:
+`pi-agent-kernel` includes an in-memory retrieval engine for keyword and vector search, shown on the extension status line:
 
 ```text
 /engine status
 ```
 
-- **`lean`** *(default)*: `🌿 retrieval:bm25` — Fast, AST-aware BM25 search. Consumes 0 MB background model RAM.
-- **`hybrid`**: `◈ retrieval:hybrid-256d` — BM25 keyword search blended with lightweight local 256-dimension Matryoshka embeddings.
-- **`full`**: `🧠 retrieval:dense-768d` — Dense 768-dimension semantic embeddings for deep conceptual queries across large codebases.
-- **`off`**: Turns off local index building if you only want AST and LSP tools.
+- `lean` (default): `🌿 retrieval:bm25` (AST-indexed BM25 keyword search, 0 MB model RAM)
+- `hybrid`: `◈ retrieval:hybrid-256d` (BM25 keyword search plus local 256-dimension Matryoshka embeddings)
+- `full`: `🧠 retrieval:dense-768d` (Dense 768-dimension semantic embeddings for conceptual queries)
+- `off`: Disables local indexing for users who only want AST and LSP tools
 
-During indexing, the statusline displays live throughput metrics and progress:
+During indexing, the status line shows chunk throughput and progress:
 ```text
 🧠 retrieval:dense-768d ⇢ 45% (22/48 • 14.2 chunk/s) • ○ 🐴 ponytail: ⚡ FULL
 ```
 
-Switch profiles at any time:
+Switch profiles directly:
 ```text
 /engine hybrid
 # or
@@ -114,73 +112,72 @@ Switch profiles at any time:
 
 ---
 
-### 3. Configure codebase scale profile (`/profile`)
+### 3. Codebase scale profiles (`/profile`)
 
-Agent-kernel automatically scales its prompt context to the size of the repository. On light repositories (<10 implementation files, <50 KB code), the 1,024-token PageRank map is suppressed to minimize token usage. On larger projects, the map is injected automatically.
+The extension adjusts prompt context based on repository size. On small codebases (<10 implementation files, <50 KB code), the 1,024-token PageRank map is omitted to save tokens. On larger projects, it is included automatically.
 
-You can view or override this setting at any time:
+Check or change the profile:
 ```text
 /profile status     # Check current profile and detected codebase metrics
-/profile light      # Force light profile (suppress automatic repo-map injection)
-/profile heavy      # Force heavy profile (always inject PageRank repo map)
-/profile auto       # Auto-detect based on implementation code volume (default)
+/profile light      # Suppress automatic repo map
+/profile heavy      # Always inject PageRank repo map
+/profile auto       # Auto-detect based on codebase volume (default)
 ```
-Or configure via environment variable:
+
+Or set the environment variable:
 ```bash
-export PI_CODEBASE_PROFILE=light   # or "heavy", "auto", "smart"
+export PI_CODEBASE_PROFILE=light   # "heavy", "auto", or "smart"
 ```
 
 ---
 
-### 4. Setup language servers (`/lsp`)
+### 4. Language server setup (`/lsp`)
 
-Get real-time compiler diagnostics, definitions, and references without manual setup:
+Inspect compiler diagnostics, jump to definitions, and find references:
 
 ```text
 /lsp
 ```
 
-Running `/lsp` opens an interactive management screen showing active servers, connection status, and one-click installs for detected workspace languages.
+Running `/lsp` displays detected languages, connection states, and installation options for language servers.
 
-Alternatively, install a server directly from the command line:
+To install a language server directly:
 ```text
-/lsp install <language>    # e.g., python, typescript, rust, go, csharp, etc.
+/lsp install <language>    # e.g. python, typescript, rust, go, csharp
 ```
 
 ---
 
-### 5. Tip: Turn off Pi documentation when working on your own projects
+### 5. Disable Pi documentation for external projects
 
-By default, Pi loads system prompt instructions explaining how to extend Pi itself (extensions, themes, skills, and TUI APIs).
-
-When you are working on your own software—such as a React app, a Python backend, or a Rust crate—those internal Pi instructions take up room in your prompt that you do not need. You can silence them for the current session with:
+Pi loads instructions for developing Pi extensions, skills, and themes by default. When working on standard application code, you can disable those instructions to free up prompt space:
 
 ```text
 /pi-docs off
 ```
 
-Turn it back on with `/pi-docs on` whenever you switch back to hacking on Pi extensions.
+Use `/pi-docs on` when returning to work on Pi extensions.
 
 ---
 
 ## Tool reference
 
-### Core Tools (Active by Default)
+### Core tools (active by default)
 | Tool | What it does |
 |---|---|
-| `read` | Read clean plain text with 50KB/2,000-line safety caps, or extract an exact function, class, or type via AST (`symbol="name"`). |
-| `edit` | Apply surgical search/replace patches with automatic delimiter auto-healing and optional `line_hint` disambiguation. |
-| `write` | Create new files or perform complete rewrites when explicitly requested. |
-| `bash` | Execute shell commands (e.g. `rg`, `git status`, test runners) with clamped output and automatic disk spillover logging. |
+| `read` | Reads plain text with 50 KB / 2,000-line safety caps, or extracts a function, class, or type via AST (`symbol="name"`). |
+| `edit` | Applies search and replace patches with automatic delimiter healing and optional `line_hint` disambiguation. |
+| `write` | Creates new files or rewrites existing files when needed. |
+| `bash` | Runs shell commands (`rg`, `git status`, test runners) with clamped outputs and spillover logs on disk. |
 
-### Exploratory Retrieval Tools (Gated behind Passive Shield)
-*Enabled via `PI_ENABLE_RETRIEVAL_TOOLS=1` or `[retrieval] enable_tools = true` in `config.toml`:*
+### Exploratory retrieval tools (gated by default)
+Enable through `PI_ENABLE_RETRIEVAL_TOOLS=1` or `[retrieval] enable_tools = true` in `config.toml`:
 | Tool | What it does |
 |---|---|
-| `code_search` | Hybrid AST BM25 and semantic chunk search with breadcrumb locations for conceptual queries. |
-| `ast_search` | Search declarations across files using Tree-sitter AST queries, grouped cleanly by file. |
-| `get_repo_map` | Retrieve a concise, PageRank-ranked symbol overview of the codebase (~1k tokens). |
-| `lsp` | Query definitions, references, type hover docs, and diagnostics directly from language servers. |
+| `code_search` | Hybrid AST BM25 and semantic chunk search with file and breadcrumb locations. |
+| `ast_search` | Searches declarations across files using Tree-sitter AST queries, grouped by file. |
+| `get_repo_map` | Returns a PageRank-ordered symbol summary of the codebase (~1k tokens). |
+| `lsp` | Queries definitions, references, type hover docs, and diagnostics from language servers. |
 
 ---
 
