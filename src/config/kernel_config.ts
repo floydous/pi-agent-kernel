@@ -37,6 +37,7 @@ export interface KernelConfigOverrides {
 	editing?: Partial<EditingConfig>;
 	lsp?: Partial<LspConfig>;
 	ui?: Partial<UiConfig>;
+	instructions?: Partial<InstructionsConfig>;
 }
 
 export interface LspConfig {
@@ -51,12 +52,17 @@ export interface UiConfig {
 	enable_pastel_footer: boolean;
 }
 
+export interface InstructionsConfig {
+	enabled: boolean;
+}
+
 export interface KernelConfig {
 	retrieval: RetrievalConfig;
 	safety: SafetyConfig;
 	editing: EditingConfig;
 	lsp: LspConfig;
 	ui: UiConfig;
+	instructions: InstructionsConfig;
 }
 
 const DEFAULT_CONFIG: KernelConfig = {
@@ -90,6 +96,9 @@ const DEFAULT_CONFIG: KernelConfig = {
 	},
 	ui: {
 		enable_pastel_footer: true,
+	},
+	instructions: {
+		enabled: true,
 	},
 };
 

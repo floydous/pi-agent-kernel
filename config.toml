@@ -25,3 +25,6 @@ disabled_servers = []
 
 [ui]
 enable_pastel_footer = true
+
+[instructions]
+enabled = true

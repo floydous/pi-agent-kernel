@@ -47,6 +47,8 @@ function getSessionId(ctx: any): string {
 const PI_DOCS_START =
 	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
 const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
+const KERNEL_GUIDANCE_MARKER = "## Agent Kernel Guidance";
+let kernelGuidance: string | null | undefined;
 const piDocsEnabledBySession = new Map<string, boolean>();
 const codebaseProfileBySession = new Map<string, "auto" | "light" | "heavy">();
 
@@ -64,6 +66,27 @@ function withoutPiDocumentation(systemPrompt: string): string {
 
 function piDocsEnabled(ctx: any): boolean {
 	return piDocsEnabledBySession.get(getSessionId(ctx)) ?? true;
+}
+
+function loadKernelGuidance(): string {
+	if (kernelGuidance !== undefined) return kernelGuidance ?? "";
+
+	try {
+		const instructionPath = path.join(__dirname, "..", "AGENT_KERNEL_SYS_PROMPT.md");
+		const contents = fs.readFileSync(instructionPath, "utf8").trim();
+		kernelGuidance = contents || null;
+	} catch (error) {
+		kernelGuidance = null;
+		kernelDebug(error);
+	}
+
+	return kernelGuidance ?? "";
+}
+
+function appendKernelGuidance(systemPrompt: string, guidance: string): string {
+	if (!guidance || systemPrompt.includes(guidance)) return systemPrompt;
+	const base = systemPrompt.trimEnd();
+	return `${base ? `${base}\n\n` : ""}${KERNEL_GUIDANCE_MARKER}\n${guidance}`;
 }
 import { clampCommandOutput } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
@@ -896,9 +919,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const systemPrompt = piDocsEnabled(ctx)
 			? basePrompt
 			: withoutPiDocumentation(basePrompt);
+		const guidance = kernelConfig.instructions.enabled
+			? loadKernelGuidance()
+			: "";
+		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
 		return {
-			systemPrompt: systemPrompt
-				? (runtimeContext ? `${systemPrompt}\n\n${runtimeContext}` : systemPrompt)
+			systemPrompt: guidedPrompt
+				? (runtimeContext ? `${guidedPrompt}\n\n${runtimeContext}` : guidedPrompt)
 				: runtimeContext,
 		};
 	});

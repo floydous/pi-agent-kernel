@@ -45,6 +45,7 @@
     "docs",
     "LICENSE",
     "config.toml",
+    "AGENT_KERNEL_SYS_PROMPT.md",
     "CHANGELOG.md"
   ],
   "publishConfig": {
