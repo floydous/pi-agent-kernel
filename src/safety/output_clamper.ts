@@ -64,6 +64,9 @@ export function clampCommandOutput(
 	const maxLineLength = options?.maxLineLength ?? 300;
 	const maxLines = options?.maxLines ?? 40;
 	const maxTotalBytes = options?.maxTotalBytes ?? 20 * 1024;
+	if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) {
+		throw new RangeError("maxTotalBytes must be a nonnegative safe integer");
+	}
 
 	const originalBytes = Buffer.byteLength(rawText, "utf8");
 
@@ -139,8 +142,9 @@ export function clampCommandOutput(
 		} catch {}
 
 		const hash = crypto.randomBytes(4).toString("hex");
-		spilloverPath = path.join(tempDir, `pi_bash_spillover_${hash}.log`);
-		fs.writeFileSync(spilloverPath, rawText, "utf8");
+		const candidatePath = path.join(tempDir, `pi_bash_spillover_${hash}.log`);
+		fs.writeFileSync(candidatePath, rawText, "utf8");
+		spilloverPath = candidatePath;
 	} catch (e) {
 		kernelDebug(e);
 	}
@@ -150,7 +154,10 @@ export function clampCommandOutput(
 
 	const formatLine = (line: string, idx: number): string => {
 		if (line.length > maxLineLength) {
-			const kept = line.slice(0, Math.max(10, maxLineLength - 60));
+			let end = Math.max(10, maxLineLength - 60);
+			// Do not split a valid UTF-16 surrogate pair.
+			if (/[\uD800-\uDBFF]/.test(line.charAt(end - 1)) && /[\uDC00-\uDFFF]/.test(line.charAt(end))) end--;
+			const kept = line.slice(0, end);
 			const omitted = line.length - kept.length;
 			return `${kept}... <line ${idx + 1} truncated: ${omitted.toLocaleString()} chars omitted>`;
 		}
@@ -197,7 +204,24 @@ export function clampCommandOutput(
 		footer += `]`;
 	}
 
-	resultText += footer;
+	if (Buffer.byteLength(resultText + footer, "utf8") > maxTotalBytes) {
+		const marker = clampedLines.findIndex(line => /^\n\[\.\.\. /.test(line));
+		if (marker !== -1) clampedLines.splice(marker, 1);
+	}
+	// Enforce the byte budget on the complete returned text: retain whole lines,
+	// removing from the middle first so head and tail context survive.
+	while (clampedLines.length && Buffer.byteLength(clampedLines.join("\n") + footer, "utf8") > maxTotalBytes) {
+		const [removed] = clampedLines.splice(Math.floor(clampedLines.length / 2), 1);
+		if (!removed.startsWith("\n[... ")) shownLines--;
+		footer = "\n\n[Truncated: " + shownLines + "/" + totalLines + " lines." +
+			(spilloverPath ? " Full: " + spilloverPath + "]" : "]");
+	}
+	resultText = clampedLines.join("\n") + footer;
+	if (Buffer.byteLength(resultText, "utf8") > maxTotalBytes) {
+		// Budget too small for any recovery pointer: emit a bounded indication
+		// without a chopped, unusable path.
+		resultText = "[Truncated]".slice(0, maxTotalBytes);
+	}
 
 	const returnedBytes = Buffer.byteLength(resultText, "utf8");
 
