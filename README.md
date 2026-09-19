@@ -20,26 +20,22 @@ How tool overhead compares to an unconstrained agent harness across standard cod
 
 ---
 
-## Cross-harness benchmark and reproducibility
+## Benchmarks
 
-`pi-agent-kernel` is evaluated against an 8-task repair suite drawn from merged bug fixes in open-source repositories (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`). Prompts describe the bug report and expected behavior without providing the implementation fix or file locations.
+Evaluating 6 coding agent harnesses across 8 real-world bug fixes (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`) on `cx/gpt-5.6-luna:high`:
 
-### Cross-harness 8-task benchmark on GPT 5.6 Luna High (`cx/gpt-5.6-luna:high`)
-
-Six harnesses were run on the same 8 tasks with identical prompts and repository states on `cx/gpt-5.6-luna:high` through OmniRoute:
-
-| Harness | Tasks Solved | Success Rate | Total Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
+| Harness | Solved | Success | Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| Pi + Agent-Kernel | 8 / 8 | 100% | 1,223s (20.4m) | 331,247 | 13,587 | 762,626 | 112 |
-| Pi (Vanilla) | 8 / 8 | 100% | 1,224s (20.4m) | 709,232 | 32,325 | 1,544,373 | 149 |
-| Codex CLI | 8 / 8 | 100% | 1,228s (20.5m) | 3,236,287 | 40,091 | 3,276,378 | 102 |
-| OpenCode | 8 / 8 | 100% | 1,557s (26.0m) | 1,419,628 | 22,987 | 3,612,533 | 229 |
-| OMP | 7 / 8 | 87.5% | 1,164s (19.4m) | 906,173 | 29,810 | 4,157,487 | 384 |
-| Claude Code | 6 / 8 | 75% | 2,160s (36.0m) | 4,390,998 | 85,836 | 4,476,834 | 183 |
-
-The suite tests retrieval, root-cause diagnosis, and verification from behavioral descriptions. Pi + Agent-Kernel solved all 8 tasks with the lowest token footprint: 762,626 total turn tokens compared to Pi Vanilla's 1,544,373 (-50.6% token reduction, saving 781,747 tokens) and external harnesses ranging from 3.28M (Codex CLI) to 4.48M (Claude Code). Note on cross-harness metrics: token accounting reflects each harness's reported telemetry and diff format (for example, OpenCode emits verbose full diffs). In Claude Code, 6 tasks completed within turn limits, and 1 additional task passed test verification after timing out. OMP failed verification on task-4-ufo.
+| Pi + Agent-Kernel | 8 / 8 | 100% | 20m 23s | 331k | 13.6k | 763k | 112 |
+| Pi (Vanilla) | 8 / 8 | 100% | 20m 24s | 709k | 32.3k | 1.54M | 149 |
+| Codex CLI | 8 / 8 | 100% | 20m 28s | 3.24M | 40.1k | 3.28M | 102 |
+| OpenCode | 8 / 8 | 100% | 25m 57s | 1.42M | 23.0k | 3.61M | 229 |
+| OMP | 7 / 8 | 87.5% | 19m 24s | 906k | 29.8k | 4.16M | 384 |
+| Claude Code | 6 / 8 | 75.0% | 36m 00s | 4.39M | 85.8k | 4.48M | 183 |
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
+
+*Prompts describe symptoms and expected behavior without providing the fix. Token totals reflect each tool's reported telemetry. In Claude Code, 1 additional task passed test verification after timing out.*
 
 ---
 
