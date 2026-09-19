@@ -68,7 +68,11 @@ export function testFailedWriteDoesNotAdvertisePointer(): void {
 		assertPass("No pointer advertised when write failed", !clamped.spilloverPath || fs.existsSync(clamped.spilloverPath), { spilloverPath: clamped.spilloverPath });
 		assertPass("Failed-write output still within budget", Buffer.byteLength(clamped.text, "utf8") <= 500, { returnedBytes: clamped.returnedBytes });
 	} finally {
-		process.env.TMPDIR = originalTmpdir;
+		if (originalTmpdir === undefined) {
+			delete process.env.TMPDIR;
+		} else {
+			process.env.TMPDIR = originalTmpdir;
+		}
 	}
 	logPass("Failed spillover write does not advertise a nonexistent recovery path!");
 }

@@ -20,6 +20,7 @@ temp_lsp_test/
 REPORT*.md
 experiments/
 agent-kernel-benchmark/
+benchmarks/
 feedback/
 PLAN.md
 .research/
