@@ -14,7 +14,7 @@ How tool overhead compares to an unconstrained agent harness across standard cod
 |---|---|---|---|---|
 | Whole benchmark suite (8 tasks) | Pi Vanilla baseline (1.54M tokens) | Pi + Agent-Kernel (762k tokens) | -50.6% | Cuts per-turn schema tax, stops exploratory loops, and applies surgical edits. |
 | Monorepo navigation (Zod, 140k+ LOC) | Directory listings and full file dumps (104k tokens) | Plain reads and AST symbol queries (50.5k tokens) | -51.5% | Caps reads at 50 KB / 2,000 lines and extracts symbols directly without line hashes. |
-| Patching and delimiter repair | Failed edits caused by token cutoffs (16.7% failure rate) | Tree-sitter and lexical repair (`edit`) | Eliminates cutoff retries | Restores missing closing brackets and delimiters before writing to disk. |
+| Patching and delimiter repair | Failed edits caused by token cutoffs (16.7% failure rate) | Tree-sitter and lexical repair (`edit`) | Auto-heals truncated delimiters | Recovers missing closing brackets pre-write when AST validation passes. |
 | Running tests and builds | Terminal logs dumped into context (~20k+ tokens) | Clamped output with disk spillover (~1.0k tokens) | ~95% context saved | Writes full output to disk and shows only the head, tail, and log path. |
 | Function inspection | Full file reads with line hashes (~4.0k tokens) | Plain text reads or symbol extraction (~420 tokens) | ~70–90% | Defaults to plain text with targeted AST symbol reads. |
 
@@ -34,34 +34,12 @@ Six harnesses were run on the same 8 tasks with identical prompts and repository
 | Pi (Vanilla) | 8 / 8 | 100% | 1,224s (20.4m) | 709,232 | 32,325 | 1,544,373 | 149 |
 | Codex CLI | 8 / 8 | 100% | 1,228s (20.5m) | 3,236,287 | 40,091 | 3,276,378 | 102 |
 | OpenCode | 8 / 8 | 100% | 1,557s (26.0m) | 1,419,628 | 22,987 | 3,612,533 | 229 |
-| OMP | 7 / 8 | 87% | 1,164s (19.4m) | 906,173 | 29,810 | 4,157,487 | 384 |
+| OMP | 7 / 8 | 87.5% | 1,164s (19.4m) | 906,173 | 29,810 | 4,157,487 | 384 |
 | Claude Code | 6 / 8 | 75% | 2,160s (36.0m) | 4,390,998 | 85,836 | 4,476,834 | 183 |
 
-The suite tests retrieval, root-cause diagnosis, and verification from behavioral descriptions. Pi + Agent-Kernel solved all 8 tasks with the lowest token footprint: 762,626 total turn tokens compared to Pi Vanilla's 1,544,373 (-50.6% token reduction, saving 781,747 tokens) and external harnesses ranging from 3.28M (Codex CLI) to 4.48M (Claude Code). Claude Code completed 6 tasks normally (with 7 total passing verification), and OMP failed verification on task-4-ufo.
+The suite tests retrieval, root-cause diagnosis, and verification from behavioral descriptions. Pi + Agent-Kernel solved all 8 tasks with the lowest token footprint: 762,626 total turn tokens compared to Pi Vanilla's 1,544,373 (-50.6% token reduction, saving 781,747 tokens) and external harnesses ranging from 3.28M (Codex CLI) to 4.48M (Claude Code). Note on cross-harness metrics: token accounting reflects each harness's reported telemetry and diff format (for example, OpenCode emits verbose full diffs). In Claude Code, 6 tasks completed within turn limits, and 1 additional task passed test verification after timing out. OMP failed verification on task-4-ufo.
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
-
-### Running the benchmark locally
-
-```bash
-# 1. Copy and customize configuration
-cp agent-kernel-benchmark/.env.example agent-kernel-benchmark/.env
-
-# 2. Run the full benchmark suite
-npm run bench
-
-# Or run a specific task or harness
-npx tsx agent-kernel-benchmark/run.ts task-3
-npx tsx agent-kernel-benchmark/run.ts --harnesses pi-kernel,pi-vanilla
-
-# 3. Clean transient workspaces
-npm run bench:clean
-
-# 4. Generate the comparison chart from benchmark results
-npm run bench:chart
-```
-
-See [`agent-kernel-benchmark/README.md`](agent-kernel-benchmark/README.md) for configuration flags and task descriptions, and [`agent-kernel-benchmark/BENCHMARK_RESULTS.md`](agent-kernel-benchmark/BENCHMARK_RESULTS.md) for individual task breakdowns.
 
 ---
 
