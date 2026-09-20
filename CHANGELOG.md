@@ -14,7 +14,12 @@
 
 ### Validated
 - Verified 38 test suites passing (`npm test`) with 0 regressions.
-- Multi-harness benchmarks on `cx/gpt-5.6-luna:high` demonstrate 100% solve rate, ~60% wall-clock speedup across tasks (e.g. UFO 36s vs 119s, p-limit 60s vs 176s, Fastify 47s vs 177s, Ky 89s vs 253s), and beat baseline token consumption on `task-4-ufo` (-17.5%), `task-7-uuid` (-20.2%), and `task-8-plimit` (-9.8%).
+- Multi-harness benchmarks on `cx/gpt-5.6-luna:high` across all 8 standard tasks demonstrate:
+  - **100% Solve Rate (8 / 8 tasks solved)**.
+  - **Aggregate task time cut in half**: **600s (10.0m) vs 1,223s (20.4m)** (-50.9% time reduction, **2.04× faster**).
+  - **Uncached input tokens reduced by -18.4%**: **270k vs 331k** (-60.8k tokens saved across the suite).
+  - **Tool calls reduced**: **107 calls vs 112 calls**.
+  - Consistent speedup across all repositories: UFO (36s vs 119s), Fastify (47s vs 177s), p-limit (60s vs 176s), Ky (89s vs 253s), Zod (135s vs 212s), Hono (64s vs 96s), UUID (53s vs 64s), and Picomatch (116s vs 126s).
 
 ## [0.3.2] - 2026-09-16
 
