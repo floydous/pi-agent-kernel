@@ -1,6 +1,6 @@
 {
   "name": "@floydous/pi-agent-kernel",
-	"version": "0.3.2",
+	"version": "0.3.3",
   "description": "Focused code retrieval, editing, safety checks, and language-server support for Pi.",
   "keywords": [
     "pi-package"
@@ -10,6 +10,7 @@
   "scripts": {
     "test": "npx tsx tests/run-all.ts",
     "typecheck": "tsc --noEmit",
+    "preindex": "npx tsx agent-kernel-benchmark/preindex.ts",
     "bench": "npx tsx agent-kernel-benchmark/run.ts",
     "bench:clean": "npx tsx agent-kernel-benchmark/run.ts --clean",
     "bench:chart": "PATH=\"$HOME/.local/bin:$HOME/.venv/bin:$PATH\" python3 agent-kernel-benchmark/generate_chart.py"

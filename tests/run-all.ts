@@ -186,6 +186,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./read-tool/read_cap_test")),
 	},
 	{
+		name: "Batch Read Tool",
+		key: "batch-read-tool",
+		loader: () => runSuiteModule(() => import("./read-tool/batch_read_test")),
+	},
+	{
 		name: "Dual Smart Anchor Engine Suite",
 		key: "smart-anchor",
 		loader: () => runSuiteModule(() => import("./editing/smart_anchor_test")),
@@ -194,6 +199,11 @@ const suites: TestEntry[] = [
 		name: "Next-Gen Editing & Auto-Healing Suite",
 		key: "nextgen-edit",
 		loader: () => runSuiteModule(() => import("./editing/nextgen_edit_test")),
+	},
+	{
+		name: "Multi-File Atomic Edit Suite",
+		key: "multifile-edit",
+		loader: () => runSuiteModule(() => import("./editing/multifile_edit_test")),
 	},
 ];
 

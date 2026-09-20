@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.3] - 2026-09-20
+
+### Added
+- **Multi-File Atomic Edits**: Extended the `edit` tool with `files: { path, search, replace, line_hint, edits }[]` payload (with resilient per-item `path` normalization in `edits`). Implemented a 2-stage atomic commit with preflight validation, duplicate path detection, in-memory snapshot backups, and automatic rollback across all targets if any file fails patch application or syntax verification.
+- **Batch Multi-File `read`**: Extended the `read` tool to accept `paths: string[]` (and resilient alias `path: string[]`), allowing the model to inspect multiple files in one turn while authorizing all targets in `EpistemicGuard`.
+- **Automatic Turn 1 Reproduction Diff Grounding**: In `before_agent_start`, automatically detects unstaged/staged git diffs and injects a sanitized, clamped (max 25 lines, 2KB hard ceiling) reproduction status into initial context with session caching, eliminating redundant Turn 1 exploratory `git status` / `git diff` commands.
+
+### Changed
+- **Read Tool Budgeting & Anchor Guardrails**: Bounded batch reading to 150 lines per file and a 24KB aggregate ceiling with explicit continuation markers (`[truncated: <file>, returned lines 1-150 of <N>. Continue with read(path, offset=151)]`). Added a 100-line cap on explicit `anchors: true` requests (`MAX_ANCHOR_LINES = 100`) to prevent models from generating expensive `#HASH│` line hashes on large files.
+- **Targeted Reading Workflow Guidance**: Updated `AGENT_KERNEL_SYS_PROMPT.md` to emphasize targeted sequential reads (`read(path, offset, limit)`) centered on search coordinates as the primary inspection workflow, reserving batch `paths` for short files or known regions.
+- **Search Specificity Guidance**: Directed agents toward exact identifiers, error symbols, and test phrases, preventing noisy broad single-word searches from polluting conversation context.
+
+### Validated
+- Verified 38 test suites passing (`npm test`) with 0 regressions.
+- Multi-harness benchmarks on `cx/gpt-5.6-luna:high` demonstrate 100% solve rate, ~60% wall-clock speedup across tasks (e.g. UFO 36s vs 119s, p-limit 60s vs 176s, Fastify 47s vs 177s, Ky 89s vs 253s), and beat baseline token consumption on `task-4-ufo` (-17.5%), `task-7-uuid` (-20.2%), and `task-8-plimit` (-9.8%).
+
 ## [0.3.2] - 2026-09-16
 
 ### Added

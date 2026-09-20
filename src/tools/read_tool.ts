@@ -97,17 +97,24 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				: benchmarkMethod === "search-replace"
 					? "Read source text for exact search/replace edits."
 					: benchmarkMethod === "adaptive"
-						? "Read bounded source with plain line numbers. Prefer unique search/replace; use numeric ranges when needed; request anchors only for uncertain targets."
-						: "Read file contents (clean plain text by default) or extract a specific symbol via 'symbol'. Broad reads capped at 2,000 lines or 50KB. Use 'offset' and 'limit' to inspect specific line ranges.",
-		promptSnippet: "Read file contents (clean plain text), inspect line ranges via offset/limit, or extract AST symbols via 'symbol'",
+						? "Read source with line numbers. Prefer unique search/replace; use line ranges when needed."
+						: "Read file contents (plain text), extract a symbol via 'symbol', or read multiple files via 'paths'. Bounded at 2,000 lines or 50KB. Use 'offset'/'limit' for ranges.",
+		promptSnippet: "Read file contents, inspect line ranges, extract symbols, or read multiple files via 'paths'",
 		renderShell: "default",
 		parameters: Type.Object({
-			path: Type.String({
-				description: "File path (relative or absolute)",
-			}),
+			path: Type.Optional(
+				Type.String({
+					description: "File path (relative or absolute). For multiple files, use 'paths'",
+				}),
+			),
+			paths: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Read multiple files in one turn",
+				}),
+			),
 			symbol: Type.Optional(
 				Type.String({
-					description: "Top-level function, class, or type name to extract (omit for plain files or object keys)",
+					description: "Function, class, or type to extract",
 				}),
 			),
 			offset: Type.Optional(
@@ -122,17 +129,17 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			),
 			surrounding_lines: Type.Optional(
 				Type.Number({
-					description: "Extra surrounding context lines for symbol (default: 0)",
+					description: "Extra surrounding context lines for symbol",
 				}),
 			),
 			anchors: Type.Optional(
 				Type.Boolean({
-					description: "Optional: format lines with LINE#HASH│ anchors (default: false, plain text)",
+					description: "Narrow ranges (<100 lines) with LINE#HASH│ anchors (default: false, plain text)",
 				}),
 			),
 			raw: Type.Optional(
 				Type.Boolean({
-					description: "Output clean raw text without line numbers or anchors",
+					description: "Clean raw text without line numbers or anchors",
 				}),
 			),
 		}),
@@ -143,15 +150,113 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			onUpdate: any,
 			ctx: any,
 		): Promise<any> {
-			if (!params || typeof params !== "object" || !params.path) {
+			let targetPaths: string[] = [];
+			if (params && typeof params === "object") {
+				if (Array.isArray(params.paths)) {
+					targetPaths = params.paths.filter((p: any) => typeof p === "string" && p.trim().length > 0);
+				} else if (typeof params.paths === "string" && params.paths.trim().length > 0) {
+					targetPaths = [params.paths.trim()];
+				} else if (Array.isArray(params.path)) {
+					targetPaths = params.path.filter((p: any) => typeof p === "string" && p.trim().length > 0);
+				} else if (typeof params.path === "string" && params.path.trim().length > 0) {
+					targetPaths = [params.path.trim()];
+				}
+			}
+
+			if (targetPaths.length === 0) {
 				return {
 					content: [
-						{ type: "text", text: "[READ ERROR] Missing required 'path' parameter." },
+						{ type: "text", text: "[READ ERROR] Missing required 'path' or 'paths' parameter." },
 					],
 					isError: true,
 				};
 			}
 
+			// Batch mode: multiple files in one turn
+			if (targetPaths.length > 1) {
+				const MAX_BATCH_PATHS = 20;
+				const MAX_BATCH_BYTES = 24 * 1024; // 24KB aggregate ceiling across batch
+				const MAX_BATCH_FILE_LINES = 150; // max 150 lines per file in batch mode
+				const pathsToRead = targetPaths.slice(0, MAX_BATCH_PATHS);
+				const results: string[] = [];
+				const detailsList: any[] = [];
+				let hasAnySuccess = false;
+				let cumulativeBytes = 0;
+
+				for (let i = 0; i < pathsToRead.length; i++) {
+					const filePath = pathsToRead[i];
+					if (cumulativeBytes >= MAX_BATCH_BYTES) {
+						results.push(`[...] Remaining ${pathsToRead.length - i} file(s) skipped: batch byte limit reached (24KB) [...]`);
+						break;
+					}
+					const resolvedPath = resolveUserPath(filePath, ctx.cwd);
+					const relPath = path.relative(ctx.cwd, resolvedPath) || filePath;
+					if (!fs.existsSync(resolvedPath)) {
+						results.push(`=== file: ${relPath} ===\nFile not found: ${filePath}`);
+						continue;
+					}
+					try {
+						const content = fs.readFileSync(resolvedPath, "utf-8");
+						const lines = content.split("\n");
+						const totalLines = lines.length;
+						const fileOffset = params.offset && params.offset > 0 ? params.offset : 1;
+						const fileLimit = params.limit ? Math.min(params.limit, MAX_BATCH_FILE_LINES) : MAX_BATCH_FILE_LINES;
+						const startIdx = Math.max(0, fileOffset - 1);
+						const endIdx = Math.min(totalLines, startIdx + fileLimit);
+
+						const numberWidth = String(totalLines).length;
+						// Batch reads are always plain text to protect token budgets
+						const formatLine = (index: number) => formatReadLine(lines, index, false, numberWidth, benchmarkMethod);
+						const visibleIndexes = selectReadLineIndexes(lines, startIdx, endIdx, formatLine);
+						const outputLines = visibleIndexes.map(formatLine);
+						const isTruncated = (startIdx + visibleIndexes.length) < totalLines || startIdx > 0;
+						if (isTruncated) {
+							outputLines.push(`[truncated: ${relPath}, returned lines ${startIdx + 1}-${startIdx + visibleIndexes.length} of ${totalLines}. Continue with read(path, offset=${startIdx + visibleIndexes.length + 1})]`);
+						}
+
+						globalEpistemicGuard.recordFileRead(
+							resolvedPath,
+							deps.getSessionId(ctx),
+							ctx.cwd,
+							content,
+							{
+								coverage: {
+									complete: !isTruncated,
+									ranges: lineRanges(visibleIndexes),
+									totalLines,
+								},
+								provenance: "read",
+							},
+						);
+
+						const formattedOutput = `=== file: ${relPath} (${totalLines} lines) ===\n${outputLines.join("\n")}`;
+						cumulativeBytes += Buffer.byteLength(formattedOutput, "utf8");
+						results.push(formattedOutput);
+						detailsList.push({ path: filePath, totalLines, shownLines: visibleIndexes.length, truncated: isTruncated });
+						hasAnySuccess = true;
+
+						if (cumulativeBytes >= MAX_BATCH_BYTES && i < pathsToRead.length - 1) {
+							results.push(`[...] Remaining ${pathsToRead.length - 1 - i} file(s) skipped: batch byte limit reached (24KB) [...]`);
+							break;
+						}
+					} catch (err: any) {
+						results.push(`=== file: ${relPath} ===\nError reading file: ${err.message}`);
+					}
+				}
+
+				if (targetPaths.length > MAX_BATCH_PATHS) {
+					results.push(`[...] Note: Truncated to first ${MAX_BATCH_PATHS} files (${targetPaths.length - MAX_BATCH_PATHS} omitted).`);
+				}
+
+				return {
+					content: [{ type: "text", text: results.join("\n\n") }],
+					details: { batch: true, count: pathsToRead.length, files: detailsList },
+					isError: !hasAnySuccess,
+				};
+			}
+
+			// Single file read
+			params.path = targetPaths[0];
 			const resolvedPath = resolveUserPath(params.path, ctx.cwd);
 			if (!fs.existsSync(resolvedPath)) {
 				return {
@@ -389,11 +494,21 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						isError: true,
 					};
 				}
-				const endIdx = Math.min(totalLines, startIdx + limit);
 				const config = deps.getConfig?.(ctx.cwd);
 				const defaultAnchors = config?.editing?.default_anchors ?? true;
 				const configuredReadMode = readMode ?? config?.editing?.read_mode ?? "auto";
 				const useAnchors = shouldUseAnchors(params, benchmarkMethod, configuredReadMode, defaultAnchors, false);
+
+				// Guardrail against excessive anchored line bloat
+				const MAX_ANCHOR_LINES = 100;
+				let effectiveLimit = limit;
+				let anchorNotice = "";
+				if (useAnchors && effectiveLimit > MAX_ANCHOR_LINES) {
+					effectiveLimit = MAX_ANCHOR_LINES;
+					anchorNotice = `\n[Notice: Anchored read capped to 100 lines to prevent token bloat. For broader inspection, use plain read without 'anchors'.]`;
+				}
+				const endIdx = Math.min(totalLines, startIdx + effectiveLimit);
+
 				const numberWidth = String(totalLines).length;
 				const formatLine = (index: number) => formatReadLine(lines, index, useAnchors, numberWidth, benchmarkMethod);
 				const firstLineBytes = Buffer.byteLength(formatLine(startIdx), "utf8");
@@ -406,6 +521,9 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					: visibleIndexes.map(formatLine);
 				if (hiddenLines > 0 && !oversizedFirstLine) {
 					outputLines.push(`[...] ${hiddenLines} lines omitted [...]. Use offset=${startIdx + visibleIndexes.length + 1} to continue.`);
+				}
+				if (anchorNotice) {
+					outputLines.push(anchorNotice);
 				}
 				const isTruncated = oversizedFirstLine || hasMore || startIdx > 0;
 				if (isTruncated && hasMore && !oversizedFirstLine && hiddenLines === 0) {
@@ -443,7 +561,14 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			}
 		},
 		renderCall(args: any, theme: any, context: any) {
-			const rawPath = args?.path || "";
+			const targetPaths = Array.isArray(args?.paths) ? args.paths : (Array.isArray(args?.path) ? args.path : []);
+			if (targetPaths.length > 1) {
+				const pathsSummary = targetPaths.map((p: string) => path.relative(context.cwd, p) || p).join(", ");
+				return makeOutputText(
+					`${theme.fg("toolTitle", theme.bold("read"))} [${theme.fg("accent", pathsSummary)}]`,
+				);
+			}
+			const rawPath = args?.path || (Array.isArray(args?.paths) ? args.paths[0] : "") || "";
 			const relPath = rawPath
 				? path.relative(context.cwd, rawPath) || rawPath
 				: "";

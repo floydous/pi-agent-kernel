@@ -253,6 +253,14 @@ export class HybridSearchIndex {
 			this.persistedVectorCaches = [];
 
 			for (const chunk of data.chunks as CodeChunk[]) {
+				// Normalize chunk.filePath alias if chunk was serialized with file
+				if (!chunk.filePath && (chunk as any).file) {
+					chunk.filePath = (chunk as any).file;
+				}
+				// Rebase absolutePath to the current workspace root if paths differ
+				if (chunk.filePath && this.cwd) {
+					chunk.absolutePath = path.resolve(this.cwd, chunk.filePath);
+				}
 				this.chunks.set(chunk.id, chunk);
 				this.bm25.addChunk(chunk);
 			}

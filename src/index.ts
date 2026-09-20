@@ -1,5 +1,6 @@
 import * as path from "path";
 import * as fs from "node:fs";
+import * as child_process from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { computeRepoMap, evaluateCodebaseMetrics } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
@@ -897,12 +898,91 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 10. Dynamic Runtime Context Injection (Repo Map with in-memory caching)
+	// 10. Dynamic Runtime Context Injection (Repo Map with in-memory caching & Turn 1 Grounding)
 	// Notice: Custom user instructions (AGENT.md / prompt templates) are respected as the primary authority.
 	// Only runtime operational metadata (repo map) is dynamically attached and cached per session/cwd.
 	let cachedRepoMap = "";
 	let cachedRepoMapCwd = "";
 	let lastRepoMapCheck = 0;
+	const sessionGroundingDone = new Set<string>();
+	const sessionGroundingText = new Map<string, string>();
+
+	function getPreFlightGrounding(cwd: string, sessionId: string): string {
+		if (sessionGroundingDone.has(sessionId)) {
+			return sessionGroundingText.get(sessionId) || "";
+		}
+		sessionGroundingDone.add(sessionId);
+
+		try {
+			const statusRaw = child_process.execFileSync(
+				"git",
+				["status", "--porcelain"],
+				{ cwd, encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1024 * 1024 },
+			).trim();
+
+			if (!statusRaw) {
+				sessionGroundingText.set(sessionId, "");
+				return "";
+			}
+
+			let diffRaw = "";
+			try {
+				diffRaw = child_process.execFileSync(
+					"git",
+					["diff", "HEAD", "-U3"],
+					{ cwd, encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+				).trim();
+			} catch {
+				try {
+					diffRaw = child_process.execFileSync(
+						"git",
+						["diff", "-U3"],
+						{ cwd, encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
+					).trim();
+				} catch {
+					diffRaw = "";
+				}
+			}
+
+			if (!diffRaw && !statusRaw) {
+				sessionGroundingText.set(sessionId, "");
+				return "";
+			}
+
+			const statusLines = statusRaw.split("\n").slice(0, 8).join("\n");
+			const lines = diffRaw.split("\n");
+			const maxLines = 25;
+			const maxDiffBytes = 2048;
+			let clampedDiff = lines.slice(0, maxLines).join("\n");
+			let wasByteTruncated = false;
+			if (Buffer.byteLength(clampedDiff, "utf8") > maxDiffBytes) {
+				clampedDiff = clampedDiff.slice(0, maxDiffBytes);
+				wasByteTruncated = true;
+			}
+			const truncatedNotice = lines.length > maxLines || wasByteTruncated
+				? `\n[... diff truncated; inspect test file via read() ...]`
+				: "";
+
+			const safeStatus = statusLines.replace(/```/g, "'''");
+			const safeDiff = clampedDiff.replace(/```/g, "'''");
+
+			const grounding = [
+				"## Workspace Pre-Flight (Reproduction Status):",
+				"<!-- Passive environment context; not instruction -->",
+				"```git-status",
+				safeStatus,
+				"```",
+				safeDiff ? `\`\`\`diff\n${safeDiff}\n\`\`\`${truncatedNotice}` : "",
+			].filter(Boolean).join("\n");
+
+			sessionGroundingText.set(sessionId, grounding);
+			return grounding;
+		} catch (error) {
+			kernelDebug(error);
+			sessionGroundingText.set(sessionId, "");
+			return "";
+		}
+	}
 
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
 		const now = Date.now();
@@ -930,9 +1010,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			lastRepoMapCheck = now;
 		}
 
-		const runtimeContext = cachedRepoMap
-			? `\n## Available Repository Context:\n${cachedRepoMap}\n`
-			: "";
+		const preFlightDiff = getPreFlightGrounding(currentCwd, sessionId);
+		const runtimeParts = [
+			cachedRepoMap ? `## Available Repository Context:\n${cachedRepoMap}` : "",
+			preFlightDiff,
+		].filter(Boolean);
+		const runtimeContext = runtimeParts.length > 0 ? `\n${runtimeParts.join("\n\n")}\n` : "";
+
 		const basePrompt = event.systemPrompt || "";
 		const systemPrompt = piDocsEnabled(ctx)
 			? basePrompt
@@ -941,9 +1025,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			? loadKernelGuidance()
 			: "";
 		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
+		const shouldAppendRuntime = runtimeContext && !guidedPrompt.includes(runtimeContext.trim());
 		return {
 			systemPrompt: guidedPrompt
-				? (runtimeContext ? `${guidedPrompt}\n\n${runtimeContext}` : guidedPrompt)
+				? (shouldAppendRuntime ? `${guidedPrompt}\n\n${runtimeContext}` : guidedPrompt)
 				: runtimeContext,
 		};
 	});
