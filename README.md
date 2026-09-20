@@ -26,7 +26,7 @@ Evaluating 6 coding agent harnesses across 8 real-world bug fixes (`hono`, `ky`,
 
 | Harness | Solved | Success | Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| Pi + Agent-Kernel | 8 / 8 | 100% | 20m 23s | 331k | 13.6k | 763k | 112 |
+| Pi + Agent-Kernel | 8 / 8 | 100% | 10m 00s | 270k | 13.5k | 861k | 107 |
 | Pi (Vanilla) | 8 / 8 | 100% | 20m 24s | 709k | 32.3k | 1.54M | 149 |
 | Codex CLI | 8 / 8 | 100% | 20m 28s | 3.24M | 40.1k | 3.28M | 102 |
 | OpenCode | 8 / 8 | 100% | 25m 57s | 1.42M | 23.0k | 3.61M | 229 |
