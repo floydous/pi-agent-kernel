@@ -19,12 +19,36 @@ export async function testExtensionRegistration(): Promise<void> {
 		},
 	};
 
+	delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
 	kernelExt(mockPi);
 	const toolNames = registeredTools.map((t: any) => t.name);
-	assertPass("Core essential tools (read, edit) are always registered",
-		["read", "edit"].every((n) => toolNames.includes(n)),
+	assertPass("Exact core essential tools (read, edit, code_search) are registered by default",
+		toolNames.length === 3 && ["read", "edit", "code_search"].every((n) => toolNames.includes(n)),
 		{ toolNames }
 	);
+	assertPass("Speculative tools are gated by default (Passive Shield)",
+		!toolNames.includes("ast_search") && !toolNames.includes("get_repo_map") && !toolNames.includes("lsp"),
+		{ toolNames }
+	);
+
+	// Test opt-in registration when PI_ENABLE_ALL_RETRIEVAL_TOOLS is active
+	const optInTools: any[] = [];
+	const mockOptInPi: any = {
+		registerTool(tool: any) { optInTools.push(tool); },
+		registerCommand() {},
+		on() {},
+	};
+	process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS = "1";
+	try {
+		kernelExt(mockOptInPi);
+		const optInNames = optInTools.map((t: any) => t.name);
+		assertPass("Speculative tools registered when opt-in flag enabled",
+			["ast_search", "get_repo_map", "lsp"].every((n) => optInNames.includes(n)),
+			{ optInNames }
+		);
+	} finally {
+		delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
+	}
 	assertPass("At least one command is registered", registeredCommands.length > 0, { registeredCommands });
 	assertPass("Event handlers are registered (before_agent_start etc.)", Object.keys(eventHandlers).length > 0, { eventHandlers });
 

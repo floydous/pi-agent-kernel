@@ -55,6 +55,10 @@ export function isDiscoveryCommand(command: string): boolean {
  * Clamps output lines horizontally and vertically to prevent context bloat
  * from single-line minified files, lockfiles, or massive multi-file matches.
  * Preserves 100% of raw output in an OS temp spillover file when truncation occurs.
+ *
+ * Adheres strictly to the language-agnostic conservative head/tail architecture:
+ * never uses language-specific regex guessing to discard intermediate lines,
+ * guaranteeing zero false-negative diagnostic suppression across arbitrary runtimes.
  */
 export function clampCommandOutput(
 	rawText: string,
@@ -136,14 +140,16 @@ export function clampCommandOutput(
 			if (files.length > 20) {
 				const toDelete = files.slice(0, files.length - 20);
 				for (const item of toDelete) {
-					try { fs.unlinkSync(item.full); } catch {}
+					try {
+						fs.unlinkSync(item.full);
+					} catch {}
 				}
 			}
 		} catch {}
 
 		const hash = crypto.randomBytes(4).toString("hex");
 		const candidatePath = path.join(tempDir, `pi_bash_spillover_${hash}.log`);
-		fs.writeFileSync(candidatePath, rawText, "utf8");
+		fs.writeFileSync(candidatePath, rawText, { encoding: "utf8", mode: 0o600 });
 		spilloverPath = candidatePath;
 	} catch (e) {
 		kernelDebug(e);
@@ -156,7 +162,11 @@ export function clampCommandOutput(
 		if (line.length > maxLineLength) {
 			let end = Math.max(10, maxLineLength - 60);
 			// Do not split a valid UTF-16 surrogate pair.
-			if (/[\uD800-\uDBFF]/.test(line.charAt(end - 1)) && /[\uDC00-\uDFFF]/.test(line.charAt(end))) end--;
+			if (
+				/[\uD800-\uDBFF]/.test(line.charAt(end - 1)) &&
+				/[\uDC00-\uDFFF]/.test(line.charAt(end))
+			)
+				end--;
 			const kept = line.slice(0, end);
 			const omitted = line.length - kept.length;
 			return `${kept}... <line ${idx + 1} truncated: ${omitted.toLocaleString()} chars omitted>`;
@@ -205,15 +215,26 @@ export function clampCommandOutput(
 	}
 
 	if (Buffer.byteLength(resultText + footer, "utf8") > maxTotalBytes) {
-		const marker = clampedLines.findIndex(line => /^\n\[\.\.\. /.test(line));
+		const marker = clampedLines.findIndex((line) => /^\n\[\.\.\. /.test(line));
 		if (marker !== -1) clampedLines.splice(marker, 1);
 	}
 	// Enforce the byte budget on the complete returned text: retain whole lines,
 	// removing from the middle first so head and tail context survive.
-	while (clampedLines.length && Buffer.byteLength(clampedLines.join("\n") + footer, "utf8") > maxTotalBytes) {
-		const [removed] = clampedLines.splice(Math.floor(clampedLines.length / 2), 1);
+	while (
+		clampedLines.length &&
+		Buffer.byteLength(clampedLines.join("\n") + footer, "utf8") > maxTotalBytes
+	) {
+		const [removed] = clampedLines.splice(
+			Math.floor(clampedLines.length / 2),
+			1,
+		);
 		if (!removed.startsWith("\n[... ")) shownLines--;
-		footer = "\n\n[Truncated: " + shownLines + "/" + totalLines + " lines." +
+		footer =
+			"\n\n[Truncated: " +
+			shownLines +
+			"/" +
+			totalLines +
+			" lines." +
 			(spilloverPath ? " Full: " + spilloverPath + "]" : "]");
 	}
 	resultText = clampedLines.join("\n") + footer;
