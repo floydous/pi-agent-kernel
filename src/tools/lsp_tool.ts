@@ -519,7 +519,12 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						if (params.exclude_declaration) {
 							res = res.filter((loc) => {
 								const locPath = uriToPath(loc.uri);
-								const sameFile = locPath === absPath || path.resolve(locPath) === path.resolve(absPath);
+								const isWindows = process.platform === "win32";
+								const normLoc = path.resolve(locPath);
+								const normAbs = path.resolve(absPath);
+								const sameFile = isWindows
+									? normLoc.toLowerCase() === normAbs.toLowerCase()
+									: normLoc === normAbs;
 								const sameLine = loc.range?.start?.line === line0;
 								return !(sameFile && sameLine);
 							});
@@ -567,7 +572,12 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 						let astRefs = findSymbolReferences(ctx.cwd, targetSym);
 						if (params.exclude_declaration) {
 							astRefs = astRefs.filter((r) => {
-								const sameFile = path.resolve(ctx.cwd, r.filePath) === path.resolve(absPath);
+								const isWindows = process.platform === "win32";
+								const normRef = path.resolve(ctx.cwd, r.filePath);
+								const normAbs = path.resolve(absPath);
+								const sameFile = isWindows
+									? normRef.toLowerCase() === normAbs.toLowerCase()
+									: normRef === normAbs;
 								return !(sameFile && r.line === (line0 + 1));
 							});
 						}

@@ -210,6 +210,11 @@ const suites: TestEntry[] = [
 		key: "security-hardening",
 		loader: () => runSuiteModule(() => import("./security-hardening")),
 	},
+	{
+		name: "Windows Deep Cross-Platform Verification Suite",
+		key: "windows-deep-verification",
+		loader: () => runSuiteModule(() => import("./windows-deep-verification")),
+	},
 ];
 
 async function main(): Promise<void> {

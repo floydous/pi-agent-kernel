@@ -994,9 +994,12 @@ export function findSymbolSuggestions(
 			const nameLower = h.name.toLowerCase();
 			const dist = levenshteinDistance(qLower, nameLower);
 			const normHitPath = h.filePath.replace(/\\/g, "/");
+			const isWindows = process.platform === "win32";
+			const r1 = path.resolve(cwd, normHitPath);
+			const r2 = path.resolve(cwd, targetFilePath);
 			const isSameFile =
 				normHitPath === relTarget ||
-				path.resolve(cwd, normHitPath) === path.resolve(cwd, targetFilePath);
+				(isWindows ? r1.toLowerCase() === r2.toLowerCase() : r1 === r2);
 			const exactCaseSub = h.name.includes(qTrim);
 			return {
 				hit: h,

@@ -771,16 +771,16 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// 9. Tool Result Interceptor: Syntax Validation & Output Clamping (ACI)
 	pi.on("tool_result", async (event: any, ctx: any) => {
-		const isBash = event.toolName === "bash";
-		if (event.isError && !isBash) return;
+		const isShell = event.toolName === "bash" || event.toolName === "powershell";
+		if (event.isError && !isShell) return;
 
 		// resultContent === undefined means "no transformation, return event.content as-is".
 		const toolName = event.toolName;
 		let resultContent: any = undefined;
 		let didBail = false;
 
-		// 9a. Intercept bash & terminal output to clamp minified lines & massive match floods
-		if (toolName === "bash") {
+		// 9a. Intercept bash & powershell output to clamp minified lines & massive match floods
+		if (toolName === "bash" || toolName === "powershell") {
 			const command = (event.input as any)?.command || "";
 			const outputConfig = getConfig(
 				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),

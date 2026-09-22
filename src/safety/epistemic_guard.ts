@@ -34,7 +34,7 @@ function commandName(token: string): string {
 	return path
 		.basename(token)
 		.toLowerCase()
-		.replace(/\.exe$/, "");
+		.replace(/\.(exe|cmd|bat)$/i, "");
 }
 
 /** Resolve the path forms accepted by Pi's file tools, including ~ paths. */

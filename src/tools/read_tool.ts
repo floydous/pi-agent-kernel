@@ -190,7 +190,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						break;
 					}
 					const resolvedPath = resolveUserPath(filePath, ctx.cwd);
-					const relPath = path.relative(ctx.cwd, resolvedPath) || filePath;
+					const relPath = (path.relative(ctx.cwd, resolvedPath) || filePath).replace(/\\/g, "/");
 					if (!fs.existsSync(resolvedPath)) {
 						results.push(`=== file: ${relPath} ===\nFile not found: ${filePath}`);
 						continue;
@@ -359,7 +359,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				const allFileLines = symbolSnapshot.split("\n");
 				const formatted = res.symbols
 					.map((s) => {
-						const header = `// ${path.relative(ctx.cwd, s.filePath) || s.filePath}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}`;
+						const header = `// ${(path.relative(ctx.cwd, s.filePath) || s.filePath).replace(/\\/g, "/")}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}`;
 						const body = useAnchors
 							? formatSmartAnchorLines(allFileLines, s.startLine, s.endLine)
 							: benchmarkMethod === "line-range"
@@ -563,14 +563,14 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		renderCall(args: any, theme: any, context: any) {
 			const targetPaths = Array.isArray(args?.paths) ? args.paths : (Array.isArray(args?.path) ? args.path : []);
 			if (targetPaths.length > 1) {
-				const pathsSummary = targetPaths.map((p: string) => path.relative(context.cwd, p) || p).join(", ");
+				const pathsSummary = targetPaths.map((p: string) => (path.relative(context.cwd, p) || p).replace(/\\/g, "/")).join(", ");
 				return makeOutputText(
 					`${theme.fg("toolTitle", theme.bold("read"))} [${theme.fg("accent", pathsSummary)}]`,
 				);
 			}
 			const rawPath = args?.path || (Array.isArray(args?.paths) ? args.paths[0] : "") || "";
 			const relPath = rawPath
-				? path.relative(context.cwd, rawPath) || rawPath
+				? (path.relative(context.cwd, rawPath) || rawPath).replace(/\\/g, "/")
 				: "";
 			if (args?.symbol) {
 				return makeOutputText(

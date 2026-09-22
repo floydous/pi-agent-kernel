@@ -346,7 +346,10 @@ export function applySmartAnchorEdits(
 		};
 	}
 
-	const preflight = preflightSmartAnchorEdits(originalContent, edits);
+	const hadCrlf = originalContent.includes("\r\n");
+	const contentNorm = originalContent.replace(/\r\n/g, "\n");
+
+	const preflight = preflightSmartAnchorEdits(contentNorm, edits);
 	if (!preflight.success || !preflight.resolvedSpans) {
 		return {
 			success: false,
@@ -356,7 +359,7 @@ export function applySmartAnchorEdits(
 		};
 	}
 
-	const fileLines = originalContent.split("\n");
+	const fileLines = contentNorm.split("\n");
 	const currentLines = [...fileLines];
 
 	// Sort spans strictly bottom-to-top (descending line number) so edits do not shift earlier lines
@@ -364,10 +367,16 @@ export function applySmartAnchorEdits(
 
 	for (const span of sortedSpans) {
 		const deleteCount = span.endLine - span.startLine + 1;
-		currentLines.splice(span.startLine - 1, deleteCount, ...span.replacementLines);
+		const cleanReplacementLines = span.replacementLines.flatMap((line) =>
+			line.replace(/\r\n/g, "\n").split("\n"),
+		);
+		currentLines.splice(span.startLine - 1, deleteCount, ...cleanReplacementLines);
 	}
 
-	const candidateContent = currentLines.join("\n");
+	const candidateContentNorm = currentLines.join("\n");
+	const candidateContent = hadCrlf
+		? candidateContentNorm.replace(/\n/g, "\r\n")
+		: candidateContentNorm;
 
 	// Syntax validation gate
 	const syntax = checkSyntaxContent(resolvedPath, candidateContent);
@@ -404,10 +413,10 @@ export function applySmartAnchorEdits(
 	// Unified diff output
 	const diffOutput = diff.createPatch(
 		resolvedPath,
-		originalContent,
-		candidateContent,
+		contentNorm,
+		candidateContentNorm,
 		"original",
-		"modified",
+		"updated",
 	);
 
 	return {

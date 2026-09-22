@@ -53,7 +53,7 @@ function preflightFileEdit(
 		return { error: `[EDIT ERROR] Missing required 'path' parameter or malformed argument payload.` };
 	}
 	const resolvedPath = resolveUserPath(item.path, ctx.cwd);
-	const relPath = path.relative(ctx.cwd, resolvedPath) || item.path;
+	const relPath = (path.relative(ctx.cwd, resolvedPath) || item.path).replace(/\\/g, "/");
 
 	if (!fs.existsSync(resolvedPath)) {
 		return { error: `[EDIT FAILED] File not found: '${item.path}'.` };
@@ -423,20 +423,23 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			// Multi-file atomic execution
 			if (fileEdits.length > 0) {
+				const effectiveCwd = ctx?.cwd || process.cwd();
+				const effectiveCtx = ctx || { cwd: effectiveCwd };
 				// Check for duplicate canonical paths
 				const seenPaths = new Set<string>();
 				for (const item of fileEdits) {
 					if (!item || typeof item !== "object" || !item.path) {
 						return { content: [{ type: "text", text: "[EDIT ERROR] Malformed file edit entry." }], isError: true };
 					}
-					const canonical = resolveUserPath(item.path, ctx.cwd);
-					if (seenPaths.has(canonical)) {
+					const canonical = resolveUserPath(item.path, effectiveCwd);
+					const lookupKey = process.platform === "win32" ? canonical.toLowerCase() : canonical;
+					if (seenPaths.has(lookupKey)) {
 						return {
 							content: [{ type: "text", text: `[EDIT ERROR] Duplicate target path in multi-file edit: '${item.path}'.` }],
 							isError: true,
 						};
 					}
-					seenPaths.add(canonical);
+					seenPaths.add(lookupKey);
 				}
 
 				onUpdate?.({
@@ -446,7 +449,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				// Step 1: Preflight ALL files atomically
 				const preparedList: PreparedFileEdit[] = [];
 				for (const item of fileEdits) {
-					const preflight = preflightFileEdit(item, ctx, deps, benchmarkMethod);
+					const preflight = preflightFileEdit(item, effectiveCtx, deps, benchmarkMethod);
 					if (preflight.error || !preflight.prepared) {
 						return {
 							content: [{ type: "text", text: preflight.error || "[EDIT FAILED] Preflight check failed." }],
@@ -561,11 +564,11 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			const fileEdits: string[] = [];
 			if (Array.isArray(args?.files)) {
 				for (const f of args.files) {
-					if (f?.path) fileEdits.push(path.relative(context.cwd, resolveUserPath(f.path, context.cwd)) || f.path);
+					if (f?.path) fileEdits.push((path.relative(context.cwd, resolveUserPath(f.path, context.cwd)) || f.path).replace(/\\/g, "/"));
 				}
 			} else if (Array.isArray(args?.edits) && args.edits.some((e: any) => e?.path)) {
 				for (const e of args.edits) {
-					if (e?.path) fileEdits.push(path.relative(context.cwd, resolveUserPath(e.path, context.cwd)) || e.path);
+					if (e?.path) fileEdits.push((path.relative(context.cwd, resolveUserPath(e.path, context.cwd)) || e.path).replace(/\\/g, "/"));
 				}
 			}
 			if (fileEdits.length > 0) {
@@ -575,7 +578,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			}
 			const rawPath = args?.path || "";
 			const relPath = rawPath
-				? path.relative(context.cwd, rawPath) || rawPath
+				? (path.relative(context.cwd, rawPath) || rawPath).replace(/\\/g, "/")
 				: "";
 			return makeOutputText(
 				`${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", relPath)}`,
