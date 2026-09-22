@@ -969,7 +969,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			let clampedDiff = lines.slice(0, maxLines).join("\n");
 			let wasByteTruncated = false;
 			if (Buffer.byteLength(clampedDiff, "utf8") > maxDiffBytes) {
-				clampedDiff = clampedDiff.slice(0, maxDiffBytes);
+				const buf = Buffer.from(clampedDiff, "utf8").subarray(0, maxDiffBytes);
+				clampedDiff = new TextDecoder("utf-8", { fatal: false }).decode(buf);
+				if (/[\uD800-\uDBFF]$/.test(clampedDiff)) {
+					clampedDiff = clampedDiff.slice(0, -1);
+				}
 				wasByteTruncated = true;
 			}
 			const truncatedNotice = lines.length > maxLines || wasByteTruncated

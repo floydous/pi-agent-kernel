@@ -2,6 +2,10 @@ import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import { getPiHomeDir } from "../config";
+import { writeFileSyncAtomic } from "../safety/atomic_write";
+
+const MAX_SESSION_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MAX_SESSIONS_SCANNED = 20;
 
 /**
  * Sanitizes and repairs session JSONL files in ~/.pi/agent/sessions/
@@ -21,18 +25,32 @@ export function sanitizeSessionFiles(agentDir?: string): { repairedFiles: number
 			return { repairedFiles: 0, repairedEntries: 0 };
 		}
 
-		const sessionFolders = fs.readdirSync(sessionsDir);
+		const sessionFolders = fs.readdirSync(sessionsDir)
+			.map((folder) => {
+				const folderPath = path.join(sessionsDir, folder);
+				try {
+					const stat = fs.lstatSync(folderPath);
+					return { folder, folderPath, isDir: stat.isDirectory() && !stat.isSymbolicLink(), mtime: stat.mtimeMs };
+				} catch {
+					return { folder, folderPath, isDir: false, mtime: 0 };
+				}
+			})
+			.filter((f) => f.isDir)
+			.sort((a, b) => b.mtime - a.mtime)
+			.slice(0, MAX_SESSIONS_SCANNED);
 
-		for (const folder of sessionFolders) {
-			const folderPath = path.join(sessionsDir, folder);
-			if (!fs.statSync(folderPath).isDirectory()) continue;
-
+		for (const { folderPath } of sessionFolders) {
 			const files = fs.readdirSync(folderPath);
 			for (const file of files) {
 				if (!file.endsWith(".jsonl")) continue;
 
 				const filePath = path.join(folderPath, file);
 				try {
+					const stat = fs.lstatSync(filePath);
+					if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_SESSION_FILE_SIZE) {
+						continue;
+					}
+
 					const content = fs.readFileSync(filePath, "utf8");
 					const lines = content.split("\n");
 					let fileModified = false;
@@ -83,7 +101,7 @@ export function sanitizeSessionFiles(agentDir?: string): { repairedFiles: number
 					});
 
 					if (fileModified) {
-						fs.writeFileSync(filePath, repairedLines.join("\n"), "utf8");
+						writeFileSyncAtomic(filePath, repairedLines.join("\n"));
 						repairedFiles++;
 					}
 				} catch (err) {

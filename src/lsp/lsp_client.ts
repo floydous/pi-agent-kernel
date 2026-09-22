@@ -50,6 +50,9 @@ export class StdioLspClient {
   private openDocuments = new Map<string, { version: number; text: string }>();
   private lastActivityTime = Date.now();
   private serverCapabilities: any = {};
+  private static readonly MAX_HEADER_SIZE = 8192;
+  private static readonly MAX_BUFFER_SIZE = 50 * 1024 * 1024;
+  private static readonly MAX_CONTENT_LENGTH = 25 * 1024 * 1024;
 
   constructor(id: string, options: StdioLspClientOptions) {
     this.id = id;
@@ -181,21 +184,52 @@ export class StdioLspClient {
     this.touch();
     this.buffer = Buffer.concat([this.buffer, chunk]);
 
+    if (this.buffer.length > StdioLspClient.MAX_BUFFER_SIZE) {
+      kernelDebug(new Error("LSP client buffer exceeded maximum allowed size. Clearing buffer."));
+      this.buffer = Buffer.alloc(0);
+      return;
+    }
+
     while (true) {
+      // Resynchronize if buffer has leading garbage before Content-Length
+      const clIndex = this.buffer.indexOf("Content-Length:");
+      const lowerClIndex = clIndex === -1 ? this.buffer.indexOf("content-length:") : clIndex;
+      if (lowerClIndex > 0) {
+        this.buffer = this.buffer.subarray(lowerClIndex);
+      }
+
       const headerEndIndex = this.buffer.indexOf("\r\n\r\n");
-      if (headerEndIndex === -1) break;
+      if (headerEndIndex === -1) {
+        if (this.buffer.length > StdioLspClient.MAX_HEADER_SIZE) {
+          kernelDebug(new Error("LSP header exceeds max allowable size without delimiter. Discarding corrupt stream."));
+          this.buffer = Buffer.alloc(0);
+        }
+        break;
+      }
 
       const headerText = this.buffer
         .subarray(0, headerEndIndex)
         .toString("utf8");
-      const match = /Content-Length:\s*(\d+)/i.exec(headerText);
+      const match = /(?:^|\r?\n)Content-Length:\s*(\d+)\s*(?:\r?\n|$)/i.exec(headerText);
       if (!match) {
         // Corrupted header, skip past \r\n\r\n
         this.buffer = this.buffer.subarray(headerEndIndex + 4);
         continue;
       }
 
-      const contentLength = parseInt(match[1], 10);
+      const contentLengthStr = match[1];
+      const contentLength = Number(contentLengthStr);
+
+      if (
+        !Number.isSafeInteger(contentLength) ||
+        contentLength < 0 ||
+        contentLength > StdioLspClient.MAX_CONTENT_LENGTH
+      ) {
+        kernelDebug(new Error(`Invalid or oversized LSP Content-Length: ${contentLengthStr}`));
+        this.buffer = Buffer.alloc(0);
+        break;
+      }
+
       const bodyStartIndex = headerEndIndex + 4;
       const totalMessageLength = bodyStartIndex + contentLength;
 

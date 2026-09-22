@@ -26,6 +26,22 @@ export interface InstallResult {
   binPath?: string;
 }
 
+function verifyInstalledBinary(binName: string): InstallResult {
+  clearExecutableCache();
+  const bin = findExecutable(binName);
+  if (bin) {
+    return {
+      success: true,
+      message: `Successfully installed ${binName} (${bin})`,
+      binPath: bin,
+    };
+  }
+  return {
+    success: false,
+    message: `Installer completed, but binary '${binName}' was not found in PATH or LSP bin directory.`,
+  };
+}
+
 /**
  * Install language server via npm, uv, cargo, or binary release
  */
@@ -49,14 +65,9 @@ export async function installLanguageServer(
     try {
       execSync(`npm install -g @vtsls/language-server typescript`, {
         stdio: "pipe",
+        timeout: 120_000,
       });
-      clearExecutableCache();
-      const bin = findExecutable("vtsls");
-      return {
-        success: true,
-        message: `Successfully installed vtsls (${bin || "vtsls"})`,
-        binPath: bin || undefined,
-      };
+      return verifyInstalledBinary("vtsls");
     } catch (e: any) {
       return {
         success: false,
@@ -90,14 +101,8 @@ export async function installLanguageServer(
     // Fall back to pyright via npm
     onProgress?.("Installing pyright via npm...");
     try {
-      execSync(`npm install -g pyright`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("pyright-langserver");
-      return {
-        success: true,
-        message: `Successfully installed pyright (${bin || "pyright-langserver"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`npm install -g pyright`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("pyright-langserver");
     } catch (e: any) {
       return {
         success: false,
@@ -110,14 +115,8 @@ export async function installLanguageServer(
   if (norm === "rust" || norm === "rs") {
     onProgress?.("Installing rust-analyzer via rustup...");
     try {
-      execSync(`rustup component add rust-analyzer`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("rust-analyzer");
-      return {
-        success: true,
-        message: `Successfully installed rust-analyzer (${bin || "rust-analyzer"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`rustup component add rust-analyzer`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("rust-analyzer");
     } catch (e: any) {
       return {
         success: false,
@@ -130,14 +129,8 @@ export async function installLanguageServer(
   if (norm === "go" || norm === "golang") {
     onProgress?.("Installing gopls via go install...");
     try {
-      execSync(`go install golang.org/x/tools/gopls@latest`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("gopls");
-      return {
-        success: true,
-        message: `Successfully installed gopls (${bin || "gopls"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`go install golang.org/x/tools/gopls@latest`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("gopls");
     } catch (e: any) {
       return {
         success: false,
@@ -152,14 +145,9 @@ export async function installLanguageServer(
     try {
       execSync(`cargo install taplo-cli --locked --features lsp`, {
         stdio: "pipe",
+        timeout: 120_000,
       });
-      clearExecutableCache();
-      const bin = findExecutable("taplo");
-      return {
-        success: true,
-        message: `Successfully installed taplo (${bin || "taplo"})`,
-        binPath: bin || undefined,
-      };
+      return verifyInstalledBinary("taplo");
     } catch (e: any) {
       return {
         success: false,
@@ -172,14 +160,8 @@ export async function installLanguageServer(
   if (norm === "shell" || norm === "bash" || norm === "sh") {
     onProgress?.("Installing bash-language-server via npm...");
     try {
-      execSync(`npm install -g bash-language-server`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("bash-language-server");
-      return {
-        success: true,
-        message: `Successfully installed bash-language-server (${bin || "bash-language-server"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`npm install -g bash-language-server`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("bash-language-server");
     } catch (e: any) {
       return {
         success: false,
@@ -258,14 +240,9 @@ export async function installLanguageServer(
     try {
       execSync(`npm install -g vscode-langservers-extracted`, {
         stdio: "pipe",
+        timeout: 120_000,
       });
-      clearExecutableCache();
-      const bin = findExecutable("vscode-json-language-server");
-      return {
-        success: true,
-        message: `Successfully installed vscode-json-language-server (${bin || "vscode-json-language-server"})`,
-        binPath: bin || undefined,
-      };
+      return verifyInstalledBinary("vscode-json-language-server");
     } catch (e: any) {
       return {
         success: false,
@@ -278,14 +255,8 @@ export async function installLanguageServer(
   if (norm === "yaml" || norm === "yml") {
     onProgress?.("Installing yaml-language-server via npm...");
     try {
-      execSync(`npm install -g yaml-language-server`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("yaml-language-server");
-      return {
-        success: true,
-        message: `Successfully installed yaml-language-server (${bin || "yaml-language-server"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`npm install -g yaml-language-server`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("yaml-language-server");
     } catch (e: any) {
       return {
         success: false,
@@ -300,14 +271,9 @@ export async function installLanguageServer(
     try {
       execSync(`npm install -g dockerfile-language-server-nodejs`, {
         stdio: "pipe",
+        timeout: 120_000,
       });
-      clearExecutableCache();
-      const bin = findExecutable("docker-langserver");
-      return {
-        success: true,
-        message: `Successfully installed docker-langserver (${bin || "docker-langserver"})`,
-        binPath: bin || undefined,
-      };
+      return verifyInstalledBinary("docker-langserver");
     } catch (e: any) {
       return {
         success: false,
@@ -320,14 +286,8 @@ export async function installLanguageServer(
   if (norm === "php") {
     onProgress?.("Installing intelephense via npm...");
     try {
-      execSync(`npm install -g intelephense`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("intelephense");
-      return {
-        success: true,
-        message: `Successfully installed intelephense (${bin || "intelephense"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`npm install -g intelephense`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("intelephense");
     } catch (e: any) {
       return {
         success: false,
@@ -496,14 +456,8 @@ export async function installLanguageServer(
   if (norm === "csharp" || norm === "cs") {
     onProgress?.("Installing csharp-ls via dotnet tool...");
     try {
-      execSync(`dotnet tool install -g csharp-ls`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("csharp-ls");
-      return {
-        success: true,
-        message: `Successfully installed csharp-ls (${bin || "csharp-ls"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`dotnet tool install -g csharp-ls`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("csharp-ls");
     } catch (e: any) {
       return {
         success: false,
@@ -516,14 +470,8 @@ export async function installLanguageServer(
   if (norm === "ruby" || norm === "rb") {
     onProgress?.("Installing ruby-lsp via gem...");
     try {
-      execSync(`gem install ruby-lsp`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("ruby-lsp");
-      return {
-        success: true,
-        message: `Successfully installed ruby-lsp (${bin || "ruby-lsp"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`gem install ruby-lsp`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("ruby-lsp");
     } catch (e: any) {
       return {
         success: false,
@@ -538,14 +486,9 @@ export async function installLanguageServer(
     try {
       execSync(`go install github.com/sqls-server/sqls@latest`, {
         stdio: "pipe",
+        timeout: 120_000,
       });
-      clearExecutableCache();
-      const bin = findExecutable("sqls");
-      return {
-        success: true,
-        message: `Successfully installed sqls (${bin || "sqls"})`,
-        binPath: bin || undefined,
-      };
+      return verifyInstalledBinary("sqls");
     } catch (e: any) {
       return {
         success: false,
@@ -558,14 +501,8 @@ export async function installLanguageServer(
   if (norm === "latex" || norm === "tex" || norm === "texlab") {
     onProgress?.("Installing texlab via cargo...");
     try {
-      execSync(`cargo install --locked texlab`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("texlab");
-      return {
-        success: true,
-        message: `Successfully installed texlab (${bin || "texlab"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`cargo install --locked texlab`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("texlab");
     } catch (e: any) {
       return {
         success: false,
@@ -578,14 +515,8 @@ export async function installLanguageServer(
   if (norm === "protobuf" || norm === "proto" || norm === "protols") {
     onProgress?.("Installing protols via cargo...");
     try {
-      execSync(`cargo install --locked protols`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("protols");
-      return {
-        success: true,
-        message: `Successfully installed protols (${bin || "protols"})`,
-        binPath: bin || undefined,
-      };
+      execSync(`cargo install --locked protols`, { stdio: "pipe", timeout: 120_000 });
+      return verifyInstalledBinary("protols");
     } catch (e: any) {
       return {
         success: false,

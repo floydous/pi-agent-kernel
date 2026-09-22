@@ -130,11 +130,13 @@ export function clampCommandOutput(
 				.map((name) => {
 					const full = path.join(tempDir, name);
 					try {
-						return { name, full, mtime: fs.statSync(full).mtimeMs };
+						const stat = fs.lstatSync(full);
+						return { name, full, isFile: stat.isFile() && !stat.isSymbolicLink(), mtime: stat.mtimeMs };
 					} catch {
-						return { name, full, mtime: 0 };
+						return { name, full, isFile: false, mtime: 0 };
 					}
 				})
+				.filter((item) => item.isFile)
 				.sort((a, b) => a.mtime - b.mtime);
 
 			if (files.length > 20) {

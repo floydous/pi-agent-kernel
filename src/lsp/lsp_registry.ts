@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { LspServerConfig } from "./lsp_types";
 import { getPiHomeDir, loadKernelConfig, saveGlobalKernelConfig } from "../config";
 import { kernelDebug } from "../safety/kernel_debug";
@@ -363,7 +363,7 @@ function isBinaryUsable(fullPath: string, binName: string): boolean {
   // but fail to execute if the component was never installed in the active toolchain.
   if (binName === "rust-analyzer") {
     try {
-      execSync(`"${fullPath}" --version`, {
+      execFileSync(fullPath, ["--version"], {
         stdio: ["ignore", "ignore", "ignore"],
         timeout: 1500,
       });
@@ -457,36 +457,44 @@ export function findExecutable(
     }
   }
 
-  // 2. System PATH lookup via which/where
-  try {
-    const cmd = isWindows ? `where "${binName}"` : `which "${binName}"`;
-    const stdout = execSync(cmd, {
-      stdio: ["pipe", "pipe", "ignore"],
-      encoding: "utf8",
-      timeout: 800,
-    });
-    const matches = stdout
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0 && fs.existsSync(l));
+  // 2. System PATH lookup without shell execution
+  const pathEnv = process.env.PATH || process.env.Path || "";
+  const pathDirs = pathEnv.split(path.delimiter).map((d) => d.trim()).filter(Boolean);
 
-    if (matches.length > 0) {
-      let selected = matches[0];
-      if (isWindows) {
-        // On Windows, prefer .cmd / .exe / .bat over extensionless bash scripts
-        const preferred = matches.find((m) =>
-          [".cmd", ".exe", ".bat"].some((ext) => m.toLowerCase().endsWith(ext)),
-        );
-        if (preferred) selected = preferred;
-      }
+  const pathext = (isWindows ? (process.env.PATHEXT || ".COM;.EXE;.BAT;.CMD") : "")
+    .split(";")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 
-      if (isBinaryUsable(selected, binName)) {
-        executableCache.set(binName, selected);
-        return selected;
+  for (const dir of pathDirs) {
+    if (!dir || !fs.existsSync(dir)) continue;
+    const candidates = isWindows
+      ? [
+          ...pathext.map((ext) => `${binName}${ext}`),
+          `${binName}.cmd`,
+          `${binName}.exe`,
+          `${binName}.bat`,
+          binName,
+        ]
+      : [binName];
+
+    for (const cand of candidates) {
+      const fullPath = path.join(dir, cand);
+      try {
+        if (fs.existsSync(fullPath)) {
+          const stat = fs.statSync(fullPath);
+          if (stat.isFile()) {
+            if (!isBinaryUsable(fullPath, binName)) {
+              continue;
+            }
+            executableCache.set(binName, fullPath);
+            return fullPath;
+          }
+        }
+      } catch (e) {
+        kernelDebug(e);
       }
     }
-  } catch (e) {
-    kernelDebug(e);
   }
 
   executableCache.set(binName, null);

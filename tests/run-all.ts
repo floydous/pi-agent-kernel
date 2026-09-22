@@ -205,6 +205,11 @@ const suites: TestEntry[] = [
 		key: "multifile-edit",
 		loader: () => runSuiteModule(() => import("./editing/multifile_edit_test")),
 	},
+	{
+		name: "Security Hardening & Penetration Suite",
+		key: "security-hardening",
+		loader: () => runSuiteModule(() => import("./security-hardening")),
+	},
 ];
 
 async function main(): Promise<void> {

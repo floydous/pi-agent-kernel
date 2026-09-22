@@ -311,6 +311,8 @@ export function saveProjectKernelConfig(cwd: string, updates: KernelConfigOverri
 function mergeDeep(target: any, source: any) {
 	if (!source || typeof source !== "object") return;
 	for (const key of Object.keys(source)) {
+		if (key === "__proto__" || key === "prototype" || key === "constructor") continue;
+		if (!Object.prototype.hasOwnProperty.call(source, key)) continue;
 		const sVal = source[key];
 		if (sVal && typeof sVal === "object" && !Array.isArray(sVal)) {
 			if (!target[key] || typeof target[key] !== "object") {

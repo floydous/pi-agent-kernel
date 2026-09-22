@@ -16,8 +16,12 @@ export type TomlValue =
 	| TomlValue[]
 	| { [key: string]: TomlValue };
 
+function isDangerousKey(key: string): boolean {
+	return key === "__proto__" || key === "prototype" || key === "constructor";
+}
+
 export function parseToml(tomlStr: string): Record<string, TomlValue> {
-	const root: Record<string, TomlValue> = {};
+	const root: Record<string, TomlValue> = Object.create(null);
 	let currentTable: Record<string, TomlValue> = root;
 
 	const lines = tomlStr.split(/\r?\n/);
@@ -33,12 +37,15 @@ export function parseToml(tomlStr: string): Record<string, TomlValue> {
 		// Table header: [table] or [table.sub]
 		if (line.startsWith("[") && line.endsWith("]") && !line.startsWith("[[")) {
 			const tableName = line.slice(1, -1).trim();
-			const parts = tableName.split(".").map((p) => p.trim());
+			const parts = tableName.split(".").map((p) => p.trim().replace(/^["']|["']$/g, ""));
+			if (parts.some(isDangerousKey)) {
+				continue;
+			}
 			let cursor = root;
 			for (const part of parts) {
-				const existing = cursor[part];
+				const existing = Object.prototype.hasOwnProperty.call(cursor, part) ? cursor[part] : undefined;
 				if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
-					cursor[part] = {};
+					cursor[part] = Object.create(null);
 				}
 				cursor = cursor[part] as Record<string, TomlValue>;
 			}
@@ -51,6 +58,10 @@ export function parseToml(tomlStr: string): Record<string, TomlValue> {
 		if (eqIndex === -1) continue;
 
 		const key = line.slice(0, eqIndex).trim();
+		const cleanKey = key.replace(/^["']|["']$/g, "").trim();
+		if (isDangerousKey(cleanKey) || cleanKey.split(".").some(isDangerousKey)) {
+			continue;
+		}
 		let rawValue = line.slice(eqIndex + 1).trim();
 
 		// Handle multi-line arrays if open bracket without close bracket

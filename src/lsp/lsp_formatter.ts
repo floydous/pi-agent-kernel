@@ -133,7 +133,8 @@ export function formatDefinitions(
 
   const lines = locations.map((loc) => {
     const filePath = uriToPath(loc.uri);
-    const displayPath = cwd ? path.relative(cwd, filePath) || filePath : filePath;
+    const rawDisplay = cwd ? path.relative(cwd, filePath) || filePath : filePath;
+    const displayPath = rawDisplay.replace(/\\/g, "/");
     const line = loc.range.start.line + 1;
     const col = loc.range.start.character + 1;
     return `${displayPath}:${line}:${col}`;
@@ -199,7 +200,8 @@ export function formatReferences(
 
   const lines = references.map((loc) => {
     const filePath = uriToPath(loc.uri);
-    const displayPath = cwd ? path.relative(cwd, filePath) || filePath : filePath;
+    const rawDisplay = cwd ? path.relative(cwd, filePath) || filePath : filePath;
+    const displayPath = rawDisplay.replace(/\\/g, "/");
     const line1 = loc.range.start.line + 1;
     const col1 = loc.range.start.character + 1;
     const baseLoc = `${displayPath}:${line1}:${col1}`;

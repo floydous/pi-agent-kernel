@@ -52,7 +52,7 @@ function regexCanStart(prevSig: string, lastWord: string): boolean {
 }
 
 function checkTsStructure(content: string): string | null {
-	const stack: { ch: string; line: number }[] = [];
+	const stack: { ch: string; line: number; isTemplateInterp?: boolean }[] = [];
 	let line = 1;
 	let i = 0;
 	// State machine over raw source: code | 'str' | "str" | `tpl` | //line | /*block */ | /regex/
@@ -106,11 +106,15 @@ function checkTsStructure(content: string): string | null {
 				else if (ch === '"') state = "code";
 				break;
 			case "template":
-				if (ch === "\\") i++;
-				else if (ch === "`") state = "code";
-				// NOTE: ${...} interpolations are tracked as part of the template
-				// body; braces inside them are balanced by JS itself, and any
-				// imbalance surfaces as an unbalanced delimiter anyway.
+				if (ch === "\\") {
+					i++;
+				} else if (ch === "$" && next === "{") {
+					stack.push({ ch: "{", line, isTemplateInterp: true });
+					state = "code";
+					i++;
+				} else if (ch === "`") {
+					state = "code";
+				}
 				break;
 			case "code":
 				if (ch === "/" && next === "/") {
@@ -144,6 +148,9 @@ function checkTsStructure(content: string): string | null {
 					if (!top || top.ch !== closers[ch]) {
 						return `Unbalanced '${ch}' on line ${line}${top ? ` (unclosed '${top.ch}' from line ${top.line})` : " (no matching opener)"}`;
 					}
+					if (top.isTemplateInterp) {
+						state = "template";
+					}
 				}
 				if (!/\s/.test(ch)) prevSig = ch;
 				// Accumulate identifier/number tokens; whitespace preserves the
@@ -167,8 +174,11 @@ function checkTsStructure(content: string): string | null {
 		i++;
 	}
 
-	if (state === "squote" || state === "dquote" || state === "template") {
+	if (state === "squote" || state === "dquote") {
 		return `Unterminated string literal (reached end of file, last line ${line})`;
+	}
+	if (state === "template") {
+		return `Unterminated template literal (reached end of file, last line ${line})`;
 	}
 	if (state === "blockComment") {
 		return `Unterminated block comment (last line ${line})`;
