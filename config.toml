@@ -28,3 +28,4 @@ enable_pastel_footer = true
 
 [instructions]
 enabled = true
+pi_docs = true

@@ -54,6 +54,7 @@ export interface UiConfig {
 
 export interface InstructionsConfig {
 	enabled: boolean;
+	pi_docs: boolean;
 }
 
 export interface KernelConfig {
@@ -99,6 +100,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 	},
 	instructions: {
 		enabled: true,
+		pi_docs: true,
 	},
 };
 
@@ -233,6 +235,77 @@ export function saveGlobalKernelConfig(updates: KernelConfigOverrides): void {
 	mergeDeep(existing, updates);
 	const tomlString = stringifyToml(existing);
 	writeFileSyncAtomic(globalPath, tomlString);
+}
+
+/**
+ * Remove a single setting key from global configuration file (~/.pi/agent/config.toml)
+ */
+export function removeGlobalKernelConfigKey(section: string, key: string): void {
+	const globalPath = getGlobalConfigPath();
+	if (!fs.existsSync(globalPath)) return;
+
+	try {
+		const existing: any = parseToml(fs.readFileSync(globalPath, "utf-8"));
+		if (existing && existing[section] && existing[section][key] !== undefined) {
+			delete existing[section][key];
+			if (Object.keys(existing[section]).length === 0) {
+				delete existing[section];
+			}
+			const tomlString = stringifyToml(existing);
+			writeFileSyncAtomic(globalPath, tomlString);
+		}
+	} catch (e) {
+		kernelDebug(e);
+	}
+}
+
+/**
+ * Read raw global configuration TOML if it exists
+ */
+export function getGlobalRawConfig(): Record<string, any> {
+	const globalPath = getGlobalConfigPath();
+	if (fs.existsSync(globalPath)) {
+		try {
+			return parseToml(fs.readFileSync(globalPath, "utf-8")) as any;
+		} catch (e) {
+			kernelDebug(e);
+		}
+	}
+	return {};
+}
+
+/**
+ * Determine the target path for saving project-local configuration
+ */
+export function getTargetProjectConfigPath(cwd = process.cwd()): string {
+	const existing = getProjectConfigPath(cwd);
+	if (existing) return existing;
+	return path.join(path.resolve(cwd), ".pi", "config.toml");
+}
+
+/**
+ * Save user overrides to project-local configuration file (.pi/config.toml)
+ */
+export function saveProjectKernelConfig(cwd: string, updates: KernelConfigOverrides): string {
+	const projectPath = getTargetProjectConfigPath(cwd);
+	const parentDir = path.dirname(projectPath);
+	if (!fs.existsSync(parentDir)) {
+		fs.mkdirSync(parentDir, { recursive: true });
+	}
+
+	let existing: Record<string, TomlValue> = {};
+	if (fs.existsSync(projectPath)) {
+		try {
+			existing = parseToml(fs.readFileSync(projectPath, "utf-8"));
+		} catch (e) {
+			kernelDebug(e);
+		}
+	}
+
+	mergeDeep(existing, updates);
+	const tomlString = stringifyToml(existing);
+	writeFileSyncAtomic(projectPath, tomlString);
+	return projectPath;
 }
 
 function mergeDeep(target: any, source: any) {

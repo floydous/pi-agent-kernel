@@ -122,7 +122,30 @@ To install a language server directly:
 
 ---
 
-### 5. Disable Pi documentation for external projects
+### 5. Unified settings & configuration (`/agent-kernel`)
+
+Manage all Agent Kernel settings interactively or from the command line:
+
+```text
+/agent-kernel
+```
+
+- **Interactive TUI Modal**: Mirrors native Pi component layouts (`/thinking` and `/settings`) with 4 categorized domains (`Retrieval & Exploration`, `Safety & Verification`, `Editing Engine`, `System Guidance & UI`).
+- **Interactive Search**: Type to filter across setting IDs, labels, categories, and descriptions in real time.
+- **Dynamic Descriptions**: Updates in real time to explain the active option value.
+- **Global Scope Toggle (`G`)**: Press `G` (or `Ctrl+G`) on any setting to toggle applying it globally (`~/.pi/agent/config.toml`) vs. workspace-local (`.pi/config.toml`). Global settings are highlighted in **yellow**.
+- **Tab Navigation**: Jump between categories with `Tab` / `Shift+Tab`.
+
+Headless CLI commands:
+```text
+/agent-kernel status             # Print current configuration and file paths
+/agent-kernel set <key> <val>    # Update a specific setting globally
+/agent-kernel reset              # Reset global configuration to defaults
+```
+
+---
+
+### 6. Disable Pi documentation for external projects
 
 Pi loads instructions for developing Pi extensions, skills, and themes by default. When working on standard application code, you can disable those instructions to free up prompt space:
 

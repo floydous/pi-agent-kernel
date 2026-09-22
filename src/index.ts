@@ -11,7 +11,7 @@ import {
 	globalEpistemicGuard,
 	resolveUserPath,
 } from "./safety/epistemic_guard";
-import { loadKernelConfig } from "./config";
+import { loadKernelConfig, registerAgentKernelCommand } from "./config";
 import { kernelDebug } from "./safety/kernel_debug";
 import { registerRepoMapTool } from "./tools/repo_map_tool";
 import { registerAstSearchTool } from "./tools/ast_search_tool";
@@ -66,7 +66,10 @@ function withoutPiDocumentation(systemPrompt: string): string {
 }
 
 function piDocsEnabled(ctx: any): boolean {
-	return piDocsEnabledBySession.get(getSessionId(ctx)) ?? true;
+	const sessionVal = piDocsEnabledBySession.get(getSessionId(ctx));
+	if (sessionVal !== undefined) return sessionVal;
+	const cwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
+	return loadKernelConfig(cwd).instructions.pi_docs ?? true;
 }
 
 function loadKernelGuidance(): string {
@@ -254,6 +257,16 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			});
 		}
 	};
+
+	registerAgentKernelCommand(pi, {
+		getConfig,
+		invalidateConfig: (cwd) => {
+			configByWorkspace.delete(path.resolve(cwd));
+		},
+		clearCaches: () => {
+			cachedRepoMap = "";
+		},
+	});
 
 	pi.registerCommand("pi-docs", {
 		description: "Toggle Pi documentation guidance in the system prompt",
