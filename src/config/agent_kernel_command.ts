@@ -27,7 +27,7 @@ import {
 
 export interface AgentKernelCommandDeps {
 	getConfig: (cwd: string) => KernelConfig;
-	invalidateConfig: (cwd: string) => void;
+	invalidateConfig: (cwd: string, ctx?: any) => void;
 	clearCaches?: () => void;
 }
 
@@ -121,7 +121,11 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					if (fs.existsSync(globalPath)) {
 						fs.unlinkSync(globalPath);
 					}
-					deps.invalidateConfig(currentCwd);
+					const legacySettings = path.join(path.dirname(globalPath), "search_settings.json");
+					if (fs.existsSync(legacySettings)) {
+						try { fs.unlinkSync(legacySettings); } catch {}
+					}
+					deps.invalidateConfig(currentCwd, ctx);
 					deps.clearCaches?.();
 					const msg = "Reset global Agent Kernel configuration to defaults.";
 					ctx.ui?.notify?.(msg, "info");
@@ -145,7 +149,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					case "passive_shield": {
 						const enable = val === "all" || val === "true" || val === "1";
 						updates.retrieval = { enable_tools: enable };
-						desc = `Passive Shield tools set to '${enable ? "all (6 tools)" : "gated (core 3 tools)"}'`;
+						desc = `Passive Shield tools set to '${enable ? "all (6 tools)" : "gated (core 3 tools)"}' (takes effect on reload)`;
 						break;
 					}
 					case "profile":
@@ -237,7 +241,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				}
 
 				saveGlobalKernelConfig(updates);
-				deps.invalidateConfig(currentCwd);
+				deps.invalidateConfig(currentCwd, ctx);
 				deps.clearCaches?.();
 				ctx.ui?.notify?.(`Saved to ~/.pi/agent/config.toml: ${desc}`, "info");
 				console.log(`[agent-kernel] ${desc} (persisted globally)`);
@@ -596,7 +600,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 								"info",
 							);
 						}
-						deps.invalidateConfig(currentCwd);
+						deps.invalidateConfig(currentCwd, ctx);
 						deps.clearCaches?.();
 					}
 
@@ -611,7 +615,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							// Revert/remove single setting from global config
 							removeGlobalKernelConfigKey(meta.section, meta.key);
 							item.isGlobal = false;
-							deps.invalidateConfig(currentCwd);
+							deps.invalidateConfig(currentCwd, ctx);
 							deps.clearCaches?.();
 
 							ctx.ui?.notify?.(
@@ -623,7 +627,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							const { patch } = createPatchForSetting(item.id, item.currentValue);
 							saveGlobalKernelConfig(patch);
 							item.isGlobal = true;
-							deps.invalidateConfig(currentCwd);
+							deps.invalidateConfig(currentCwd, ctx);
 							deps.clearCaches?.();
 
 							ctx.ui?.notify?.(

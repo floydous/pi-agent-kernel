@@ -15,7 +15,6 @@ import {
 	getSearchConfig,
 	type SearchConfig,
 	type SearchProfile,
-	savePersistedProfile,
 } from "./search_config";
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
@@ -69,7 +68,7 @@ export class HybridSearchIndex {
 
 	constructor(cwd: string, profile?: SearchProfile) {
 		this.cwd = cwd;
-		this.config = getSearchConfig(profile);
+		this.config = getSearchConfig(profile, cwd);
 		this.embedder = new LocalEmbedder(this.config);
 		this.loadFromDisk();
 	}
@@ -84,8 +83,7 @@ export class HybridSearchIndex {
 
 	public setProfile(profile: SearchProfile): void {
 		const oldEffective = this.config.effectiveProfile;
-		savePersistedProfile(profile);
-		this.config = getSearchConfig(profile);
+		this.config = getSearchConfig(profile, this.cwd);
 		this.embedder.updateConfig(this.config);
 
 		if (oldEffective !== this.config.effectiveProfile) {
@@ -93,6 +91,7 @@ export class HybridSearchIndex {
 			// changes when switching profiles.
 			this.vectors.clear();
 			this.isInitialized = false;
+			this.loadFromDisk();
 		}
 
 		if (

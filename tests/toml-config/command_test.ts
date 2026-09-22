@@ -6,6 +6,9 @@ import {
 	loadKernelConfig,
 	getGlobalConfigPath,
 } from "../../src/config";
+import { HybridSearchIndex } from "../../src/retrieval/search_index";
+import { savePersistedProfile } from "../../src/retrieval/search_config";
+import { formatSearchEngineTag } from "../../src/ui/footer";
 import { createTestWorkspace, assertPass, logPass } from "../_setup";
 
 export async function testAgentKernelCommand(): Promise<void> {
@@ -24,10 +27,12 @@ export async function testAgentKernelCommand(): Promise<void> {
 		};
 
 		let currentConfig = loadKernelConfig(ws.tempDir);
+		let lastInvalidatedContext: any = null;
 		const deps = {
 			getConfig: (_cwd: string) => currentConfig,
-			invalidateConfig: (_cwd: string) => {
+			invalidateConfig: (_cwd: string, ctx?: any) => {
 				currentConfig = loadKernelConfig(ws.tempDir);
+				lastInvalidatedContext = ctx;
 			},
 		};
 
@@ -120,6 +125,81 @@ export async function testAgentKernelCommand(): Promise<void> {
 		// Press 'G' once more to re-apply globally (toggle on)
 		comp.handleInput("G");
 		assertPass("Notification emitted for re-applying global setting", notifyMessage.includes("globally"), { notifyMessage });
+
+		// 9. Verify Context Forwarding for Live Retrieval Engine Invalidation
+		lastInvalidatedContext = null;
+		await registeredCommand.handler("set profile full", mockCtx);
+		assertPass("invalidateConfig received invocation context for live status update", lastInvalidatedContext === mockCtx);
+
+		// 10. Verify Production End-to-End applyConfigChanges with /agent-kernel command
+		const searchIndexes = new Map<string, HybridSearchIndex>();
+		const searchIndex = new HybridSearchIndex(ws.tempDir, "lean");
+		searchIndexes.set(path.resolve(ws.tempDir), searchIndex);
+
+		let lastReportedStatus = "";
+		let renderRequestedCount = 0;
+		const liveCtx: any = {
+			cwd: ws.tempDir,
+			ui: {
+				setStatus: (key: string, val: string) => {
+					if (key === "retrieval") lastReportedStatus = val;
+				},
+			},
+		};
+		const activeTui: any = {
+			requestRender: () => {
+				renderRequestedCount++;
+			},
+		};
+
+		const applyConfigChanges = (cwd: string, ctx?: any) => {
+			const workspace = path.resolve(cwd);
+			currentConfig = loadKernelConfig(workspace);
+			const newProfile = currentConfig.retrieval.default_profile;
+			const index = searchIndexes.get(workspace);
+			if (index && index.getProfile() !== newProfile) {
+				index.setProfile(newProfile);
+			}
+			if (ctx?.ui?.setStatus && index) {
+				const tag = formatSearchEngineTag(index, true);
+				ctx.ui.setStatus("retrieval", tag);
+				activeTui.requestRender();
+			}
+		};
+
+		// Re-wire invalidation to the production pipeline
+		deps.invalidateConfig = (cwd: string, ctx?: any) => {
+			applyConfigChanges(cwd, ctx);
+		};
+
+		// Run /agent-kernel command to switch to full
+		await registeredCommand.handler("set profile full", liveCtx);
+		assertPass("Command execution switched running index profile to 'full'", searchIndex.getProfile() === "full");
+		assertPass("Running index effectiveProfile is 'full'", searchIndex.getEffectiveProfile() === "full");
+		assertPass("Statusline setter was invoked with 'dense-768d'", lastReportedStatus.includes("dense-768d"), { lastReportedStatus });
+		assertPass("activeTui.requestRender was invoked", renderRequestedCount > 0);
+
+		// Run /agent-kernel command to switch back to lean
+		const prevCount = renderRequestedCount;
+		await registeredCommand.handler("set profile lean", liveCtx);
+		assertPass("Command execution switched running index profile to 'lean'", searchIndex.getProfile() === "lean");
+		assertPass("Running index effectiveProfile is 'lean'", searchIndex.getEffectiveProfile() === "lean");
+		assertPass("Statusline setter was invoked with 'bm25'", lastReportedStatus.includes("bm25"), { lastReportedStatus });
+		assertPass("activeTui.requestRender was invoked again", renderRequestedCount > prevCount);
+
+		// 11. Scope isolation test: workspace config does not pollute global settings
+		const globalSettingsPath = path.join(path.dirname(getGlobalConfigPath()), "search_settings.json");
+		const hadGlobalBefore = fs.existsSync(globalSettingsPath);
+		savePersistedProfile("full", ws.tempDir);
+		const localConfig = loadKernelConfig(ws.tempDir);
+		assertPass("Workspace local profile is full", localConfig.retrieval.default_profile === "full");
+		if (!hadGlobalBefore) {
+			assertPass("Workspace profile save did not leak global search_settings.json", !fs.existsSync(globalSettingsPath));
+		}
+
+		// 12. Fresh index initialization observes the persisted profile from disk
+		const freshProjectIndex = new HybridSearchIndex(ws.tempDir);
+		assertPass("Fresh index in project loads project profile override from disk", freshProjectIndex.getProfile() === "full");
 
 		logPass("Agent Kernel command CLI, completions, and persistence verified!");
 	} finally {

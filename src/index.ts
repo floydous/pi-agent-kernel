@@ -4,7 +4,7 @@ import * as child_process from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { computeRepoMap, evaluateCodebaseMetrics } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
-import type { SearchProfile } from "./retrieval/search_config";
+import { type SearchProfile, savePersistedProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
 import { checkSyntax } from "./editing/syntax-verify";
 import {
@@ -138,7 +138,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const workspace = path.resolve(cwd);
 		let index = searchIndexes.get(workspace);
 		if (!index) {
-			index = new HybridSearchIndex(workspace);
+			const profile = getConfig(workspace).retrieval.default_profile;
+			index = new HybridSearchIndex(workspace, profile);
 			searchIndexes.set(workspace, index);
 		}
 		return index;
@@ -148,6 +149,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	const syncRetrievalStatus = (ctx: any, customText?: string) => {
 		if (!ctx?.ui?.setStatus) return;
 		const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
+		const config = getConfig(cwd);
+		if (!config.ui.enable_pastel_footer) {
+			ctx.ui.setStatus("retrieval", "");
+			activeTui?.requestRender?.();
+			return;
+		}
+
 		const index = getSearchIndex(cwd);
 		const eff = index.getEffectiveProfile();
 		if (eff === "off") {
@@ -220,6 +228,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		// while progress stays cleanly reported on the statusline.
 		void runSync()
 			.then((result) => {
+				if (index.getEffectiveProfile() === "off") {
+					ctx?.ui?.setStatus?.("retrieval", "");
+					activeTui?.requestRender?.();
+					return;
+				}
 				syncRetrievalStatus(ctx); // Reset to clean idle tag on status line
 				if (
 					(result.indexedCount !== undefined ? result.indexedCount > 0 : false) ||
@@ -258,10 +271,38 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	};
 
+	const applyConfigChanges = (cwd: string, ctx?: any) => {
+		const workspace = path.resolve(cwd);
+		configByWorkspace.delete(workspace);
+		const newConfig = getConfig(workspace);
+		const newProfile = newConfig.retrieval.default_profile;
+
+		// 1. Live update of running in-memory search index if profile changed
+		const index = searchIndexes.get(workspace);
+		if (index) {
+			if (index.getProfile() !== newProfile) {
+				index.setProfile(newProfile);
+				const sessionId = ctx ? getSessionId(ctx) : undefined;
+				if (sessionId) {
+					codebaseProfileBySession.delete(sessionId);
+				}
+				if (ctx) {
+					triggerBackgroundIndexing(index, ctx, false);
+				}
+			}
+		}
+
+		// 2. Refresh statusline and footer immediately
+		if (ctx) {
+			syncRetrievalStatus(ctx);
+			activeTui?.requestRender?.();
+		}
+	};
+
 	registerAgentKernelCommand(pi, {
 		getConfig,
-		invalidateConfig: (cwd) => {
-			configByWorkspace.delete(path.resolve(cwd));
+		invalidateConfig: (cwd, ctx) => {
+			applyConfigChanges(cwd, ctx);
 		},
 		clearCaches: () => {
 			cachedRepoMap = "";
@@ -412,8 +453,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				sub === "full" ||
 				sub === "off"
 			) {
-				index.setProfile(sub as SearchProfile);
-				activeTui?.requestRender?.();
+				const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
+				savePersistedProfile(sub as SearchProfile, currentCwd);
+				applyConfigChanges(currentCwd, ctx);
 				const status = index.getStatus();
 				const msg = `Default search profile saved: ${sub.toUpperCase()} (Effective: ${status.effectiveProfile.toUpperCase()})`;
 				ctx.ui?.notify?.(msg, "info");
@@ -472,6 +514,11 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					const effName = eff.toUpperCase();
 
 					if (res.action === "select") {
+						const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
+						if (res.profile) {
+							savePersistedProfile(res.profile, currentCwd);
+							applyConfigChanges(currentCwd, ctx);
+						}
 						ctx.ui?.notify?.(
 							`Engine set to ${profileName} (Effective: ${effName})`,
 							"info",
@@ -509,42 +556,34 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				);
 				if (!choice || choice.startsWith("──")) return;
 
-				let profileChanged = false;
-				let isReindex = false;
+				const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
+				let newProfile: SearchProfile | null = null;
+				if (choice.includes("Auto Detect")) newProfile = "auto";
+				else if (choice.includes("Lean Mode")) newProfile = "lean";
+				else if (choice.includes("Hybrid Mode")) newProfile = "hybrid";
+				else if (choice.includes("Full Mode")) newProfile = "full";
+				else if (choice.includes("Disable Engine")) newProfile = "off";
 
-				if (choice.includes("Auto Detect")) {
-					index.setProfile("auto");
-					ctx.ui.notify("Default search profile saved: AUTO", "info");
-					profileChanged = true;
-				} else if (choice.includes("Lean Mode")) {
-					index.setProfile("lean");
-					ctx.ui.notify("Default search profile saved: LEAN", "info");
-					profileChanged = true;
-				} else if (choice.includes("Hybrid Mode")) {
-					index.setProfile("hybrid");
-					ctx.ui.notify("Default search profile saved: HYBRID", "info");
-					profileChanged = true;
-				} else if (choice.includes("Full Mode")) {
-					index.setProfile("full");
-					ctx.ui.notify("Default search profile saved: FULL", "info");
-					profileChanged = true;
-				} else if (choice.includes("Disable Engine")) {
-					index.setProfile("off");
-					ctx.ui.notify("Default search profile saved: OFF", "info");
-				} else if (choice.includes("Re-index")) {
-					isReindex = true;
-				} else if (choice.includes("View Status")) {
+				if (newProfile) {
+					savePersistedProfile(newProfile, currentCwd);
+					applyConfigChanges(currentCwd, ctx);
+					ctx.ui?.notify?.(`Default search profile saved: ${newProfile.toUpperCase()}`, "info");
+					return;
+				}
+
+				if (choice.includes("Re-index")) {
+					triggerBackgroundIndexing(index, ctx, true);
+					return;
+				}
+
+				if (choice.includes("View Status")) {
 					const s = index.getStatus();
 					ctx.ui.notify(
 						`Engine: ${s.engineState} | Profile: ${s.profile.toUpperCase()} (Effective: ${s.effectiveProfile.toUpperCase()}) | Files: ${s.fileCount} | Chunks: ${s.chunkCount} | Model: ${s.modelStatus} | RSS: ${s.rssMemoryMB}MB`,
 						"info",
 					);
+					return;
 				}
-
-				if (profileChanged || isReindex) {
-					triggerBackgroundIndexing(index, ctx, isReindex);
-				}
-				return;
 			}
 
 			// CLI fallback if not in UI mode

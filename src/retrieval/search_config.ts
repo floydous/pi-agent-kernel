@@ -1,9 +1,18 @@
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { getPiHomeDir, loadKernelConfig } from "../config";
+import {
+	getPiHomeDir,
+	loadKernelConfig,
+	saveProjectKernelConfig,
+	saveGlobalKernelConfig,
+	getProjectConfigPath,
+	getGlobalConfigPath,
+	getGlobalRawConfig,
+} from "../config";
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
+import { parseToml } from "../config/toml";
 
 export type SearchProfile = "lean" | "hybrid" | "full" | "off" | "auto";
 
@@ -42,7 +51,34 @@ export function detectBestProfile(): "lean" | "hybrid" | "full" {
 /**
  * Load persisted search settings or default to config.toml setting.
  */
-export function loadPersistedProfile(): SearchProfile {
+export function loadPersistedProfile(cwd?: string): SearchProfile {
+	// 1. Explicit project-local config (.pi/config.toml or config.toml)
+	const projectPath = cwd ? getProjectConfigPath(cwd) : null;
+	if (projectPath && fs.existsSync(projectPath)) {
+		try {
+			const raw = parseToml(fs.readFileSync(projectPath, "utf-8"));
+			const retrieval = raw.retrieval;
+			if (retrieval && typeof retrieval === "object" && !Array.isArray(retrieval)) {
+				const p = (retrieval as any).default_profile;
+				if (p && ["lean", "hybrid", "full", "off", "auto"].includes(p)) {
+					return p as SearchProfile;
+				}
+			}
+		} catch (e) {
+			kernelDebug(e);
+		}
+	}
+
+	// 2. Explicit global configuration (~/.pi/agent/config.toml)
+	const globalRaw = getGlobalRawConfig();
+	if (
+		globalRaw.retrieval?.default_profile &&
+		["lean", "hybrid", "full", "off", "auto"].includes(globalRaw.retrieval.default_profile as string)
+	) {
+		return globalRaw.retrieval.default_profile as SearchProfile;
+	}
+
+	// 3. Legacy search_settings.json fallback
 	try {
 		if (fs.existsSync(SETTINGS_FILE)) {
 			const data = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf-8"));
@@ -56,23 +92,31 @@ export function loadPersistedProfile(): SearchProfile {
 	} catch (e) {
 		kernelDebug(e);
 	}
-	const kernelCfg = loadKernelConfig();
-	return (kernelCfg.retrieval.default_profile as SearchProfile) || "lean";
+
+	// 4. Canonical hardcoded default fallback
+	return "lean";
 }
 
 /**
- * Persist search settings to disk.
+ * Persist search settings to disk and config.toml.
  */
-export function savePersistedProfile(profile: SearchProfile): void {
+export function savePersistedProfile(profile: SearchProfile, cwd?: string): void {
 	try {
-		const dir = path.dirname(SETTINGS_FILE);
-		if (!fs.existsSync(dir)) {
-			fs.mkdirSync(dir, { recursive: true });
+		if (cwd) {
+			// Workspace-local profile update: writes only to project-local config.toml
+			saveProjectKernelConfig(cwd, { retrieval: { default_profile: profile as any } });
+		} else {
+			// Global profile update: writes to global ~/.pi/agent/config.toml and legacy search_settings.json
+			saveGlobalKernelConfig({ retrieval: { default_profile: profile as any } });
+			const dir = path.dirname(SETTINGS_FILE);
+			if (!fs.existsSync(dir)) {
+				fs.mkdirSync(dir, { recursive: true });
+			}
+			writeFileSyncAtomic(
+				SETTINGS_FILE,
+				JSON.stringify({ profile, updatedAt: new Date().toISOString() }, null, 2),
+			);
 		}
-		writeFileSyncAtomic(
-			SETTINGS_FILE,
-			JSON.stringify({ profile, updatedAt: new Date().toISOString() }, null, 2),
-		);
 	} catch (e) {
 		kernelDebug(e);
 	}
@@ -84,8 +128,9 @@ export function savePersistedProfile(profile: SearchProfile): void {
  */
 export function getSearchConfig(
 	requestedProfile?: SearchProfile,
+	cwd?: string,
 ): SearchConfig {
-	const profile = requestedProfile || loadPersistedProfile();
+	const profile = requestedProfile || loadPersistedProfile(cwd);
 	const effectiveProfile: "lean" | "hybrid" | "full" | "off" =
 		profile === "auto" ? detectBestProfile() : profile || "lean";
 
