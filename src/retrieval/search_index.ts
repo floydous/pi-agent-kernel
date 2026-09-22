@@ -55,6 +55,14 @@ export class HybridSearchIndex {
 	private isIndexing = false;
 	private dirtyFiles = new Set<string>();
 	private generation = 0;
+	private fileGenerations = new Map<string, number>();
+	private activeFileUpdates = new Map<string, Promise<void>>();
+	private debouncedSaveTimer: NodeJS.Timeout | null = null;
+	private debouncedSaveDeadline: number | null = null;
+	private isSaving = false;
+	private hasPendingSave = false;
+	private isShuttingDown = false;
+	private activeSavePromise: Promise<void> | null = null;
 	private activeSync: Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> | null = null;
 	private liveCheckPromise: Promise<boolean> | null = null;
 	private persistedVectorCaches: PersistedVectorCache[] = [];
@@ -383,6 +391,71 @@ export class HybridSearchIndex {
 	}
 
 	/**
+	 * Schedule debounced disk persistence to coalesce rapid edits.
+	 */
+	public scheduleDebouncedSave(delayMs = 500, maxDelayMs = 2000): void {
+		const now = Date.now();
+		if (!this.debouncedSaveDeadline) {
+			this.debouncedSaveDeadline = now + maxDelayMs;
+		}
+
+		if (this.debouncedSaveTimer) {
+			clearTimeout(this.debouncedSaveTimer);
+			this.debouncedSaveTimer = null;
+		}
+
+		const remainingMax = Math.max(0, this.debouncedSaveDeadline - now);
+		const actualDelay = Math.min(delayMs, remainingMax);
+
+		this.debouncedSaveTimer = setTimeout(() => {
+			this.debouncedSaveTimer = null;
+			this.debouncedSaveDeadline = null;
+			void this.flushPendingSave();
+		}, actualDelay);
+	}
+
+	/**
+	 * Flush any pending index updates to disk cache.
+	 */
+	public async flushPendingSave(isFinalShutdown = false): Promise<void> {
+		if (isFinalShutdown) {
+			this.isShuttingDown = true;
+		}
+
+		// Disarm debounce timer immediately to prevent reentrancy while awaiting tasks
+		if (this.debouncedSaveTimer) {
+			clearTimeout(this.debouncedSaveTimer);
+			this.debouncedSaveTimer = null;
+			this.debouncedSaveDeadline = null;
+		}
+
+		// Await any in-flight full workspace sync
+		await this.waitForActiveSync();
+
+		// Drain all active in-flight file updates first so latest edits commit to RAM before saving
+		while (this.activeFileUpdates.size > 0) {
+			await Promise.allSettled(Array.from(this.activeFileUpdates.values()));
+		}
+
+		// Await any active in-flight save before starting final save
+		while (this.activeSavePromise) {
+			await this.activeSavePromise;
+		}
+
+		const saveTask = (async () => {
+			this.saveToDisk();
+		})();
+		this.activeSavePromise = saveTask;
+		try {
+			await saveTask;
+		} finally {
+			if (this.activeSavePromise === saveTask) {
+				this.activeSavePromise = null;
+			}
+		}
+	}
+
+	/**
 	 * Synchronize and incrementally update workspace index.
 	 */
 	public async syncWorkspace(
@@ -652,6 +725,181 @@ export class HybridSearchIndex {
 	}
 
 	/**
+	 * Transactional incremental update of a single file in the index.
+	 * Chunks only this file, reuses existing vectors for unchanged chunks by content hash,
+	 * embeds only new/modified chunks off-to-the-side, and commits atomically.
+	 */
+	public async updateFile(filePath: string): Promise<void> {
+		if (this.isShuttingDown) return;
+
+		const resolvedPath = path.resolve(this.cwd, filePath);
+		const relPath = path
+			.relative(this.cwd, resolvedPath)
+			.replace(/\\/g, "/");
+		if (
+			!relPath ||
+			relPath === ".." ||
+			relPath.startsWith("../") ||
+			path.isAbsolute(relPath)
+		) return;
+
+		// If a full workspace sync is active, mark dirty and let full sync capture the latest file content
+		if (this.isIndexing || this.activeSync) {
+			this.dirtyFiles.add(relPath);
+			return;
+		}
+
+		const currentGen = (this.fileGenerations.get(relPath) ?? 0) + 1;
+		this.fileGenerations.set(relPath, currentGen);
+
+		const task = (async () => {
+			if (this.fileGenerations.get(relPath) !== currentGen) return;
+
+			// Check if file was deleted
+			if (!fs.existsSync(resolvedPath)) {
+				if (this.fileGenerations.get(relPath) !== currentGen) return;
+				this.bm25.removeFile(relPath);
+				this.fileHashes.delete(relPath);
+				for (const chunkId of Array.from(this.chunks.keys())) {
+					if (chunkId.startsWith(`${relPath}:`)) {
+						this.chunks.delete(chunkId);
+						this.vectors.delete(chunkId);
+					}
+				}
+				this.dirtyFiles.delete(relPath);
+				this.bm25.recalculateStats();
+				this.scheduleDebouncedSave();
+				return;
+			}
+
+			// Read file content with TOCTOU protection
+			let content: string;
+			try {
+				content = fs.readFileSync(resolvedPath, "utf-8");
+			} catch (err: any) {
+				if (err?.code === "ENOENT") {
+					// File was removed concurrently between existsSync and readFileSync
+					if (this.fileGenerations.get(relPath) !== currentGen) return;
+					this.bm25.removeFile(relPath);
+					this.fileHashes.delete(relPath);
+					for (const chunkId of Array.from(this.chunks.keys())) {
+						if (chunkId.startsWith(`${relPath}:`)) {
+							this.chunks.delete(chunkId);
+							this.vectors.delete(chunkId);
+						}
+					}
+					this.dirtyFiles.delete(relPath);
+					this.bm25.recalculateStats();
+					this.scheduleDebouncedSave();
+					return;
+				}
+				kernelDebug(`Failed reading ${resolvedPath} for updateFile: ${err}`);
+				return;
+			}
+
+			const fileHash = computeHash(content);
+			// If file hasn't changed at all and is already indexed, nothing to do
+			if (this.fileHashes.get(relPath) === fileHash && !this.dirtyFiles.has(relPath)) {
+				return;
+			}
+
+			// Ensure TreeSitter parser for this file's language is loaded
+			const ext = path.extname(resolvedPath).toLowerCase();
+			if (ext) {
+				try {
+					await TreeSitterEngine.getInstance().loadLanguages([ext]);
+				} catch (e) {
+					kernelDebug(e);
+				}
+			}
+
+			const newChunks = chunkFile(this.cwd, resolvedPath, content);
+			const wantsVectors =
+				this.config.effectiveProfile === "hybrid" ||
+				this.config.effectiveProfile === "full";
+
+			// Map content hash -> vector from existing chunks
+			const hashToVector = new Map<string, Float32Array>();
+			for (const chunk of this.chunks.values()) {
+				const vec = this.vectors.get(chunk.id);
+				if (vec && vec.length === this.config.matryoshkaDim) {
+					hashToVector.set(chunk.hash, vec);
+				}
+			}
+
+			const newVectors = new Map<string, Float32Array>();
+			const missingChunks: CodeChunk[] = [];
+
+			for (const chunk of newChunks) {
+				const reused = hashToVector.get(chunk.hash);
+				if (reused) {
+					newVectors.set(chunk.id, reused);
+				} else if (wantsVectors) {
+					missingChunks.push(chunk);
+				}
+			}
+
+			// Embed missing chunks off to the side
+			if (wantsVectors && missingChunks.length > 0) {
+				const batchSize = this.config.batchSize || 2;
+				const texts = missingChunks.map((c) => c.textForEmbedding);
+				for (let i = 0; i < missingChunks.length; i += batchSize) {
+					// Check generation before each batch
+					if (this.fileGenerations.get(relPath) !== currentGen) return;
+					const batchChunks = missingChunks.slice(i, i + batchSize);
+					const batchTexts = texts.slice(i, i + batchSize);
+					const vecs = await this.embedder.embedBatch(batchTexts, false);
+					for (let j = 0; j < batchChunks.length; j++) {
+						if (vecs[j]) {
+							newVectors.set(batchChunks[j].id, vecs[j]);
+						}
+					}
+				}
+			}
+
+			// Generation check: if a newer update started, discard this older result
+			if (this.fileGenerations.get(relPath) !== currentGen) {
+				return;
+			}
+
+			// Atomic in-memory swap:
+			this.bm25.removeFile(relPath);
+			for (const chunkId of Array.from(this.chunks.keys())) {
+				if (chunkId.startsWith(`${relPath}:`)) {
+					this.chunks.delete(chunkId);
+					this.vectors.delete(chunkId);
+				}
+			}
+
+			this.fileHashes.set(relPath, fileHash);
+			for (const chunk of newChunks) {
+				this.chunks.set(chunk.id, chunk);
+				this.bm25.addChunk(chunk);
+				const vec = newVectors.get(chunk.id);
+				if (vec) {
+					this.vectors.set(chunk.id, vec);
+				}
+			}
+			this.bm25.recalculateStats();
+			this.dirtyFiles.delete(relPath);
+			if (this.dirtyFiles.size === 0) {
+				this.isInitialized = true;
+			}
+
+			this.scheduleDebouncedSave();
+		})();
+
+		this.activeFileUpdates.set(relPath, task);
+		try {
+			await task;
+		} finally {
+			if (this.activeFileUpdates.get(relPath) === task) {
+				this.activeFileUpdates.delete(relPath);
+			}
+		}
+	}
+
+	/**
 	 * Drop cached chunks for a file; the next search performs an incremental rescan.
 	 */
 	public invalidateFile(filePath: string): void {
@@ -700,6 +948,9 @@ export class HybridSearchIndex {
 		// is active. This also covers startup/reindex work where the old index is
 		// still initialized and would otherwise look usable.
 		await this.waitForActiveSync();
+		if (this.activeFileUpdates.size > 0) {
+			await Promise.all(Array.from(this.activeFileUpdates.values()));
+		}
 		if (this.dirtyFiles.size > 0 || !this.isInitialized) {
 			if (!this.isIndexing) {
 				await this.syncWorkspace(false);

@@ -215,6 +215,11 @@ const suites: TestEntry[] = [
 		key: "windows-deep-verification",
 		loader: () => runSuiteModule(() => import("./windows-deep-verification")),
 	},
+	{
+		name: "Incremental Vector Indexing Suite",
+		key: "incremental-update",
+		loader: () => runSuiteModule(() => import("./retrieval/incremental_update.test")),
+	},
 ];
 
 async function main(): Promise<void> {

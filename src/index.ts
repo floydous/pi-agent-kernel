@@ -704,13 +704,24 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		} catch (e) {
 			kernelDebug(e);
 		}
+		// Flush any debounced search index writes to disk on shutdown and halt further admissions
+		for (const index of searchIndexes.values()) {
+			try {
+				await index.flushPendingSave(true);
+			} catch (e) {
+				kernelDebug(e);
+			}
+		}
 	});
 
 	// 4-8. Tools: Core tools (read, edit) and code_search are registered.
 	// Speculative AST dump and heavy daemon tools (ast_search, repo_map, lsp) remain optional
 	// to avoid prompt bloat on routine tasks.
 	const invalidateSearchFile = (cwd: string, filePath: string) => {
-		getSearchIndex(cwd).invalidateFile(filePath);
+		const index = getSearchIndex(cwd);
+		void index.updateFile(filePath).catch((err) => {
+			kernelDebug(`Incremental updateFile error for ${filePath}: ${err}`);
+		});
 	};
 	registerReadTool(pi, { getSessionId, getConfig });
 	registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
@@ -843,7 +854,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				const resultCwd =
 					ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 				const resolvedPath = resolveUserPath(targetPath, resultCwd);
-				getSearchIndex(resultCwd).invalidateFile(resolvedPath);
+				void getSearchIndex(resultCwd).updateFile(resolvedPath).catch((err) => {
+					kernelDebug(`Incremental updateFile error for ${resolvedPath}: ${err}`);
+				});
 
 				// Update epistemic guard ledger with the newly written file
 				try {
