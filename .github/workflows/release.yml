@@ -64,5 +64,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" || \
-          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes-file CHANGELOG.md
+          if ! gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            node -e '
+              const fs = require("fs");
+              const tag = process.env.GITHUB_REF_NAME.replace(/^v/, "");
+              const cl = fs.readFileSync("CHANGELOG.md", "utf8");
+              const startIdx = cl.search(new RegExp("## \\[" + tag.replace(/\./g, "\\.") + "\\]"));
+              if (startIdx === -1) {
+                fs.writeFileSync("RELEASE_NOTES.tmp", cl.slice(0, 2000));
+                process.exit(0);
+              }
+              const rest = cl.slice(startIdx);
+              const nextIdx = rest.slice(1).search(/## \[/);
+              const section = nextIdx !== -1 ? rest.slice(0, nextIdx + 1).trim() : rest.trim();
+              fs.writeFileSync("RELEASE_NOTES.tmp", section);
+            '
+            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes-file RELEASE_NOTES.tmp
+            rm -f RELEASE_NOTES.tmp
+          fi
