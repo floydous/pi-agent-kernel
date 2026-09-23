@@ -2,7 +2,7 @@ import * as path from "path";
 import * as fs from "node:fs";
 import * as child_process from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { computeRepoMap, evaluateCodebaseMetrics } from "./retrieval/repomap";
+import { computeRepoMap } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
 import { type SearchProfile, savePersistedProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
@@ -51,7 +51,6 @@ const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
 const KERNEL_GUIDANCE_MARKER = "## Agent Kernel Guidance";
 let kernelGuidance: string | null | undefined;
 const piDocsEnabledBySession = new Map<string, boolean>();
-const codebaseProfileBySession = new Map<string, "auto" | "light" | "heavy">();
 
 function withoutPiDocumentation(systemPrompt: string): string {
 	const start = systemPrompt.indexOf(PI_DOCS_START);
@@ -173,28 +172,32 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		activeTui?.requestRender?.();
 	};
 
+	let activeIndexingGeneration = 0;
+
 	const triggerBackgroundIndexing = (
 		index: HybridSearchIndex,
 		ctx: any,
 		isFullSync = false,
 	) => {
+		const currentGeneration = ++activeIndexingGeneration;
 		const eff = index.getEffectiveProfile();
 		if (eff === "off") {
 			syncRetrievalStatus(ctx);
 			return;
 		}
 
-		const engineTag = formatSearchEngineTag(index, true);
 		const streamArrow = "\x1b[38;2;155;210;170m⇢\x1b[0m";
 		syncRetrievalStatus(
 			ctx,
-			`${engineTag} ${streamArrow} \x1b[38;2;165;175;190m(indexing...)\x1b[0m`,
+			`${formatSearchEngineTag(index, true)} ${streamArrow} \x1b[38;2;165;175;190m(indexing...)\x1b[0m`,
 		);
 
 		const runSync = async () => {
 			return await index.syncWorkspace(
 				isFullSync,
 				(msg: string) => {
+					if (currentGeneration !== activeIndexingGeneration) return;
+					const engineTag = formatSearchEngineTag(index, true);
 					const pctMatch = msg.match(/(\d+)%/);
 					const speedMatch = msg.match(/([\d.]+\s*chunk\/s)/);
 					const countMatch = msg.match(/\((\d+)\/(\d+)/);
@@ -228,6 +231,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		// while progress stays cleanly reported on the statusline.
 		void runSync()
 			.then((result) => {
+				if (currentGeneration !== activeIndexingGeneration) return;
 				if (index.getEffectiveProfile() === "off") {
 					ctx?.ui?.setStatus?.("retrieval", "");
 					activeTui?.requestRender?.();
@@ -245,6 +249,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				}
 			})
 			.catch((err: any) => {
+				if (currentGeneration !== activeIndexingGeneration) return;
 				syncRetrievalStatus(ctx);
 				ctx.ui?.notify?.(`Indexing error: ${err.message}`, "error");
 			});
@@ -282,10 +287,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		if (index) {
 			if (index.getProfile() !== newProfile) {
 				index.setProfile(newProfile);
-				const sessionId = ctx ? getSessionId(ctx) : undefined;
-				if (sessionId) {
-					codebaseProfileBySession.delete(sessionId);
-				}
 				if (ctx) {
 					triggerBackgroundIndexing(index, ctx, false);
 				}
@@ -358,44 +359,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			} else if (!ctx.hasUI) {
 				console.log("\n" + map + "\n");
 			}
-		},
-	});
-
-	// Slash Command: /profile [auto|smart|light|heavy|status]
-	pi.registerCommand("profile", {
-		description: "Configure codebase scale profile (auto/smart | light | heavy | status)",
-		getArgumentCompletions: (prefix: string) => {
-			const options = [
-				{ value: "auto", label: "auto (smart) - Auto-detect scale from codebase metrics" },
-				{ value: "light", label: "light - Force light profile (suppress auto repo-map)" },
-				{ value: "heavy", label: "heavy - Force heavy profile (always inject repo-map)" },
-				{ value: "status", label: "status - Display current profile & codebase metrics" },
-			];
-			const filtered = options.filter((o) => o.value.startsWith(prefix.toLowerCase()));
-			return filtered.length > 0 ? filtered : null;
-		},
-		handler: async (args: string, ctx: any) => {
-			const sessionId = getSessionId(ctx);
-			const raw = (args || "").trim().toLowerCase();
-			const val = raw === "smart" ? "auto" : raw;
-
-			if (val === "auto" || val === "light" || val === "heavy") {
-				codebaseProfileBySession.set(sessionId, val);
-				cachedRepoMap = "";
-				const msg = `Codebase profile set to '${val}' for this session.`;
-				ctx.ui?.notify?.(msg, "info");
-				if (!ctx.hasUI) console.log(msg);
-				return;
-			}
-
-			const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
-			const current = codebaseProfileBySession.get(sessionId) ?? getConfig(currentCwd).retrieval.codebase_profile;
-			const metrics = evaluateCodebaseMetrics(currentCwd);
-			const detected = metrics.isLight ? "light" : "heavy";
-			const effective = current === "auto" ? detected : current;
-			const statusMsg = `Profile: ${current} (effective: ${effective})\nMetrics: ${metrics.implFiles} impl files (${Math.round(metrics.implBytes / 1024)} KB), ${metrics.testFiles} test files (${Math.round(metrics.testBytes / 1024)} KB)`;
-			ctx.ui?.notify?.(statusMsg, "info");
-			if (!ctx.hasUI) console.log("\n" + statusMsg + "\n");
 		},
 	});
 
@@ -1058,7 +1021,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
 		const kernelConfig = getConfig(currentCwd);
 		const sessionId = getSessionId(ctx);
-		const profile = codebaseProfileBySession.get(sessionId) ?? kernelConfig.retrieval.codebase_profile ?? "auto";
 
 		let shouldInjectMap = false;
 		// Disabled automatic AST repo map injection to evaluate prompt token footprint and latency

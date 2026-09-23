@@ -5,6 +5,7 @@ import {
 	formatConfigDashboard,
 	loadKernelConfig,
 	getGlobalConfigPath,
+	getProjectConfigPath,
 } from "../../src/config";
 import { HybridSearchIndex } from "../../src/retrieval/search_index";
 import { savePersistedProfile } from "../../src/retrieval/search_config";
@@ -112,19 +113,15 @@ export async function testAgentKernelCommand(): Promise<void> {
 			{},
 			() => {},
 		);
-		// Move down to profile (index 1) and press 'G' to apply globally
+		// Move down to profile (index 1) and press 'G' to mark for global application
 		comp.handleInput("\x1b[B");
 		comp.handleInput("G");
-		assertPass("Global config file created by hotkey G", fs.existsSync(globalPath), { globalPath });
-		assertPass("Notification emitted for global setting application", notifyMessage.includes("globally"), { notifyMessage });
+		assertPass("Global config file NOT created yet before modal close", !fs.existsSync(globalPath), { globalPath });
 
-		// Press 'G' again to revert/redo global setting (toggle off)
-		comp.handleInput("G");
-		assertPass("Notification emitted for reverting global setting", notifyMessage.includes("Reverted"), { notifyMessage });
-
-		// Press 'G' once more to re-apply globally (toggle on)
-		comp.handleInput("G");
-		assertPass("Notification emitted for re-applying global setting", notifyMessage.includes("globally"), { notifyMessage });
+		// Close modal (Esc) -> commits changes in single batch
+		comp.handleInput("\x1b");
+		assertPass("Global config file created on modal close", fs.existsSync(globalPath), { globalPath });
+		assertPass("Notification emitted on modal close", notifyMessage.includes("Applied"), { notifyMessage });
 
 		// 9. Verify Context Forwarding for Live Retrieval Engine Invalidation
 		lastInvalidatedContext = null;
@@ -187,6 +184,19 @@ export async function testAgentKernelCommand(): Promise<void> {
 		assertPass("Statusline setter was invoked with 'bm25'", lastReportedStatus.includes("bm25"), { lastReportedStatus });
 		assertPass("activeTui.requestRender was invoked again", renderRequestedCount > prevCount);
 
+		// Run /agent-kernel command to switch to off
+		await registeredCommand.handler("set profile off", liveCtx);
+		assertPass("Command execution switched running index profile to 'off'", searchIndex.getProfile() === "off");
+		assertPass("Running index effectiveProfile is 'off'", searchIndex.getEffectiveProfile() === "off");
+		assertPass("Statusline setter was invoked with 'off'", lastReportedStatus.includes("off"), { lastReportedStatus });
+		const offHits = await searchIndex.search("anything");
+		assertPass("Search returns empty array immediately when profile is 'off'", offHits.length === 0);
+
+		// Run /agent-kernel command to switch to auto
+		await registeredCommand.handler("set profile auto", liveCtx);
+		assertPass("Command execution switched running index profile to 'auto'", searchIndex.getProfile() === "auto");
+		assertPass("Running index effectiveProfile is valid auto resolution", ["lean", "hybrid", "full"].includes(searchIndex.getEffectiveProfile()));
+
 		// 11. Scope isolation test: workspace config does not pollute global settings
 		const globalSettingsPath = path.join(path.dirname(getGlobalConfigPath()), "search_settings.json");
 		const hadGlobalBefore = fs.existsSync(globalSettingsPath);
@@ -200,6 +210,56 @@ export async function testAgentKernelCommand(): Promise<void> {
 		// 12. Fresh index initialization observes the persisted profile from disk
 		const freshProjectIndex = new HybridSearchIndex(ws.tempDir);
 		assertPass("Fresh index in project loads project profile override from disk", freshProjectIndex.getProfile() === "full");
+
+		// 13. Verify TUI modal defers execution until closed (cycling lean -> hybrid -> full does not trigger hybrid)
+		await registeredCommand.handler("reset", liveCtx);
+		const projectCfgPath = getProjectConfigPath(ws.tempDir);
+		if (projectCfgPath && fs.existsSync(projectCfgPath)) {
+			fs.unlinkSync(projectCfgPath);
+		}
+		applyConfigChanges(ws.tempDir, liveCtx);
+		assertPass("Index reset to lean", searchIndex.getProfile() === "lean");
+
+		const intermediateProfiles: string[] = [];
+		const origSetProfile = searchIndex.setProfile.bind(searchIndex);
+		searchIndex.setProfile = (p: any) => {
+			intermediateProfiles.push(p);
+			return origSetProfile(p);
+		};
+
+		liveCtx.hasUI = true;
+		liveCtx.mode = "tui";
+		liveCtx.ui.custom = async (factory: any) => {
+			capturedFactory = factory;
+		};
+
+		await registeredCommand.handler("", liveCtx);
+		const tuiModalComp = capturedFactory(
+			{ requestRender: () => {} },
+			{ fg: (_col: string, s: string) => s, bold: (s: string) => s },
+			{},
+			() => {},
+		);
+
+		// Navigate to profile (index 1)
+		tuiModalComp.handleInput("\x1b[B");
+		// Cycle once: lean -> hybrid
+		tuiModalComp.handleInput(" ");
+		assertPass("Profile not applied yet when passing hybrid", intermediateProfiles.length === 0);
+		assertPass("Index profile still lean while modal open", searchIndex.getProfile() === "lean");
+
+		// Cycle again: hybrid -> full
+		tuiModalComp.handleInput(" ");
+		assertPass("Profile not applied yet when selecting full", intermediateProfiles.length === 0);
+		assertPass("Index profile still lean while modal open", searchIndex.getProfile() === "lean");
+
+		// Close modal (Esc) -> commits full in one shot
+		tuiModalComp.handleInput("\x1b");
+		assertPass("Index profile now switched to full", searchIndex.getProfile() === "full");
+		assertPass("Intermediate profile 'hybrid' was NEVER applied", !intermediateProfiles.includes("hybrid"));
+		assertPass("Applied full directly in single transition", intermediateProfiles.length === 1 && intermediateProfiles[0] === "full");
+		assertPass("Intermediate profile 'hybrid' was NEVER applied", !intermediateProfiles.includes("hybrid"));
+		assertPass("Applied full directly in single transition", intermediateProfiles.length === 1 && intermediateProfiles[0] === "full");
 
 		logPass("Agent Kernel command CLI, completions, and persistence verified!");
 	} finally {

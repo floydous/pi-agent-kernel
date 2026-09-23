@@ -1,0 +1,36 @@
+# Agent Kernel - Configuration Example
+# Copy to `.pi/config.toml` (workspace) or `~/.pi/agent/config.toml` (global).
+# All fields are optional; defaults apply when omitted.
+
+[retrieval]
+# "auto" (VPS=lean, laptop=hybrid, desktop=full), "lean" (BM25 only),
+# "hybrid" (BM25 + 256d vectors), "full" (768d dense vectors), or "off"
+default_profile = "lean"
+repo_map_budget = 1024
+max_search_results = 5
+# true exposes ast_search, get_repo_map, and lsp tools directly to the model
+enable_tools = false
+
+[safety]
+enable_epistemic_guard = true
+max_line_length = 300
+max_lines = 40
+max_total_bytes = 20480
+exec_timeout_ms = 5000
+
+[editing]
+mode = "smart_anchor"
+default_anchors = true
+read_mode = "auto"
+
+[lsp]
+idle_timeout_ms = 300000
+spinner_interval_ms = 80
+disabled_servers = []
+
+[ui]
+enable_pastel_footer = true
+
+[instructions]
+enabled = true
+pi_docs = true

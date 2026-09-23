@@ -55,6 +55,7 @@ export class HybridSearchIndex {
 	private isIndexing = false;
 	private dirtyFiles = new Set<string>();
 	private generation = 0;
+	private syncAbortController: AbortController | null = null;
 	private fileGenerations = new Map<string, number>();
 	private activeFileUpdates = new Map<string, Promise<void>>();
 	private debouncedSaveTimer: NodeJS.Timeout | null = null;
@@ -84,10 +85,23 @@ export class HybridSearchIndex {
 
 	public setProfile(profile: SearchProfile): void {
 		const oldEffective = this.config.effectiveProfile;
+		const oldProfile = this.config.profile;
 		this.config = getSearchConfig(profile, this.cwd);
 		this.embedder.updateConfig(this.config);
 
-		if (oldEffective !== this.config.effectiveProfile) {
+		if (oldProfile !== this.config.profile || oldEffective !== this.config.effectiveProfile) {
+			this.generation++;
+			if (this.debouncedSaveTimer) {
+				clearTimeout(this.debouncedSaveTimer);
+				this.debouncedSaveTimer = null;
+				this.debouncedSaveDeadline = null;
+			}
+			if (this.syncAbortController) {
+				this.syncAbortController.abort();
+				this.syncAbortController = null;
+			}
+			this.activeSync = null;
+
 			// Keep vector caches on disk; only the active in-memory representation
 			// changes when switching profiles.
 			this.vectors.clear();
@@ -474,14 +488,24 @@ export class HybridSearchIndex {
 	): Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> {
 		if (this.activeSync) return this.activeSync;
 
+		const abortController = new AbortController();
+		this.syncAbortController = abortController;
+		const syncGeneration = ++this.generation;
+
 		const sync = (async () => {
 			for (let attempt = 0; attempt < 3; attempt++) {
-				const syncGeneration = this.generation;
+				if (abortController.signal.aborted) {
+					return { chunkCount: this.chunks.size, fileCount: this.fileHashes.size, indexedCount: 0 };
+				}
 				const result = await this.performSyncWorkspace(
 					forceReindex && attempt === 0,
 					onProgress,
 					syncGeneration,
+					abortController.signal,
 				);
+				if (abortController.signal.aborted) {
+					return result;
+				}
 				if (
 					this.generation !== syncGeneration ||
 					!this.isWorkspaceSnapshotFresh()
@@ -499,7 +523,12 @@ export class HybridSearchIndex {
 		try {
 			return await sync;
 		} finally {
-			if (this.activeSync === sync) this.activeSync = null;
+			if (this.activeSync === sync) {
+				this.activeSync = null;
+				if (this.syncAbortController === abortController) {
+					this.syncAbortController = null;
+				}
+			}
 		}
 	}
 
@@ -606,7 +635,14 @@ export class HybridSearchIndex {
 		forceReindex: boolean,
 		onProgress: ((msg: string) => void) | undefined,
 		syncGeneration: number,
+		signal?: AbortSignal,
 	): Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> {
+		if (this.config.effectiveProfile === "off") {
+			return { chunkCount: 0, fileCount: 0, indexedCount: 0 };
+		}
+		if (signal?.aborted || this.generation !== syncGeneration) {
+			return { chunkCount: this.chunks.size, fileCount: this.fileHashes.size, indexedCount: 0 };
+		}
 		this.isIndexing = true;
 		try {
 			if (
@@ -725,32 +761,52 @@ export class HybridSearchIndex {
 					const sleepMs = this.config.sleepBetweenBatchesMs || 50;
 					const embedStartTime = Date.now();
 
-					for (let i = 0; i < chunksToEmbed.length; i += batchSize) {
-						const batch = chunksToEmbed.slice(i, i + batchSize);
-						const texts = batch.map((c) => c.textForEmbedding);
-						const processed = Math.min(i + batch.length, chunksToEmbed.length);
-						const pct = Math.round((processed / chunksToEmbed.length) * 100);
-						const elapsedSec = Math.max(0.001, (Date.now() - embedStartTime) / 1000);
-						const chunkSpeed = (processed / elapsedSec).toFixed(1);
-						onProgress?.(
-							`Embedding code chunks: ${pct}% (${processed}/${chunksToEmbed.length} • ${chunkSpeed} chunk/s)`,
-						);
-						const vecs = await this.embedder.embedBatch(texts, false, onProgress);
+				for (let i = 0; i < chunksToEmbed.length; i += batchSize) {
+					if (signal?.aborted || this.generation !== syncGeneration) {
+						kernelDebug("[Search Index] Aborting embedding loop due to cancellation signal or newer generation");
+						break;
+					}
+					const batch = chunksToEmbed.slice(i, i + batchSize);
+					const texts = batch.map((c) => c.textForEmbedding);
+					const processed = Math.min(i + batch.length, chunksToEmbed.length);
+					const pct = Math.round((processed / chunksToEmbed.length) * 100);
+					const elapsedSec = Math.max(0.001, (Date.now() - embedStartTime) / 1000);
+					const chunkSpeed = (processed / elapsedSec).toFixed(1);
+					onProgress?.(
+						`Embedding code chunks: ${pct}% (${processed}/${chunksToEmbed.length} • ${chunkSpeed} chunk/s)`,
+					);
+					const vecs = await this.embedder.embedBatch(texts, false, onProgress);
+					if (signal?.aborted || this.generation !== syncGeneration) {
+						kernelDebug("[Search Index] Aborting post-embedBatch due to cancellation signal or newer generation");
+						break;
+					}
 
-						for (let j = 0; j < batch.length; j++) {
-							if (vecs[j]) {
-								this.vectors.set(batch[j].id, vecs[j]);
-							}
-						}
-
-						// Async sleep to yield CPU and prevent freezing system daemons
-						if (sleepMs > 0 && i + batchSize < chunksToEmbed.length) {
-							await new Promise((r) => setTimeout(r, sleepMs));
+					for (let j = 0; j < batch.length; j++) {
+						if (vecs[j] && vecs[j].length === this.config.matryoshkaDim) {
+							this.vectors.set(batch[j].id, vecs[j]);
 						}
 					}
+
+					// Async sleep to yield CPU and prevent freezing system daemons
+					if (sleepMs > 0 && i + batchSize < chunksToEmbed.length) {
+						await new Promise((r) => {
+							const timeout = setTimeout(r, sleepMs);
+							signal?.addEventListener(
+								"abort",
+								() => {
+									clearTimeout(timeout);
+									r(undefined);
+								},
+								{ once: true },
+							);
+						});
+					}
+				}
 				}
 
-				this.saveToDisk();
+				if (!signal?.aborted && this.generation === syncGeneration) {
+					this.saveToDisk();
+				}
 			}
 
 			// Track ignore configuration hashes in dedicated metadata
@@ -1003,6 +1059,9 @@ export class HybridSearchIndex {
 			scope?: "code" | "all" | "prose";
 		} = {},
 	): Promise<SearchHit[]> {
+		if (this.config.effectiveProfile === "off") {
+			return [];
+		}
 		// Do not return the previous snapshot while a background synchronization
 		// is active. This also covers startup/reindex work where the old index is
 		// still initialized and would otherwise look usable.

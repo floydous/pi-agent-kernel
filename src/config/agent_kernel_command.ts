@@ -17,13 +17,14 @@ import {
 	saveGlobalKernelConfig,
 	removeGlobalKernelConfigKey,
 	saveProjectKernelConfig,
+	mergeDeep,
 	getGlobalConfigPath,
 	getGlobalRawConfig,
 	getProjectConfigPath,
 	type KernelConfig,
 	type KernelConfigOverrides,
-	type CodebaseProfile,
 } from "./kernel_config";
+import { kernelDebug } from "../safety/kernel_debug";
 
 export interface AgentKernelCommandDeps {
 	getConfig: (cwd: string) => KernelConfig;
@@ -43,8 +44,7 @@ export function formatConfigDashboard(cwd: string, config: KernelConfig): string
 		`Project Config: ${projectPath ?? "none"} [${projectExists ? "ACTIVE" : "NONE"}]`,
 		``,
 		`[Retrieval & Tools]`,
-		`  • Profile (Engine)      : ${config.retrieval.default_profile} (lean | hybrid | full)`,
-		`  • Codebase Scale        : ${config.retrieval.codebase_profile} (auto | light | heavy)`,
+		`  • Profile (Engine)      : ${config.retrieval.default_profile} (auto | lean | hybrid | full | off)`,
 		`  • Passive Shield        : ${config.retrieval.enable_tools ? "all (6 tools exposed)" : "gated (core 3 tools default)"}`,
 		`  • Repo Map Budget       : ${config.retrieval.repo_map_budget} tokens`,
 		`  • Max Search Results    : ${config.retrieval.max_search_results}`,
@@ -85,8 +85,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 
 			const keys = [
 				{ value: "set tools", label: "set tools <gated|all> - Toggle Passive Shield tool gating" },
-				{ value: "set profile", label: "set profile <lean|hybrid|full> - Retrieval engine profile" },
-				{ value: "set codebase", label: "set codebase <auto|light|heavy> - Codebase scale profile" },
+				{ value: "set profile", label: "set profile <auto|lean|hybrid|full|off> - Retrieval engine profile" },
 				{ value: "set epistemic", label: "set epistemic <on|off> - Toggle Epistemic Guard" },
 				{ value: "set editing", label: "set editing <smart_anchor|standard> - Editing engine mode" },
 				{ value: "set read_mode", label: "set read_mode <plain|anchored|auto> - Reading anchor mode" },
@@ -154,22 +153,11 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					}
 					case "profile":
 					case "engine": {
-						if (val === "lean" || val === "hybrid" || val === "full") {
+						if (val === "auto" || val === "lean" || val === "hybrid" || val === "full" || val === "off") {
 							updates.retrieval = { default_profile: val };
 							desc = `Retrieval profile set to '${val}'`;
 						} else {
-							ctx.ui?.notify?.("Invalid profile. Options: lean | hybrid | full", "error");
-							return;
-						}
-						break;
-					}
-					case "codebase":
-					case "codebase_profile": {
-						if (val === "auto" || val === "light" || val === "heavy") {
-							updates.retrieval = { codebase_profile: val };
-							desc = `Codebase scale profile set to '${val}'`;
-						} else {
-							ctx.ui?.notify?.("Invalid codebase profile. Options: auto | light | heavy", "error");
+							ctx.ui?.notify?.("Invalid profile. Options: auto | lean | hybrid | full | off", "error");
 							return;
 						}
 						break;
@@ -280,7 +268,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				function checkIsGlobal(id: string): boolean {
 					if (id === "tools") return globalRaw.retrieval?.enable_tools !== undefined;
 					if (id === "profile") return globalRaw.retrieval?.default_profile !== undefined;
-					if (id === "codebase") return globalRaw.retrieval?.codebase_profile !== undefined;
 					if (id === "epistemic") return globalRaw.safety?.enable_epistemic_guard !== undefined;
 					if (id === "max_lines") return globalRaw.safety?.max_lines !== undefined;
 					if (id === "editing") return globalRaw.editing?.mode !== undefined;
@@ -301,9 +288,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					} else if (id === "profile") {
 						patch.retrieval = { default_profile: value as any };
 						desc = `Retrieval profile = ${value}`;
-					} else if (id === "codebase") {
-						patch.retrieval = { codebase_profile: value as any };
-						desc = `Codebase scale profile = ${value}`;
 					} else if (id === "epistemic") {
 						const enable = value === "enabled";
 						patch.safety = { enable_epistemic_guard: enable };
@@ -342,8 +326,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							return { section: "retrieval", key: "enable_tools" };
 						case "profile":
 							return { section: "retrieval", key: "default_profile" };
-						case "codebase":
-							return { section: "retrieval", key: "codebase_profile" };
 						case "epistemic":
 							return { section: "safety", key: "enable_epistemic_guard" };
 						case "max_lines":
@@ -384,28 +366,15 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						id: "profile",
 						label: "Retrieval Engine Profile",
 						currentValue: currentConfig.retrieval.default_profile,
-						values: ["lean", "hybrid", "full"],
+						values: ["auto", "lean", "hybrid", "full", "off"],
 						isGlobal: checkIsGlobal("profile"),
 						descriptions: {
+							auto: "Auto profile: Dynamically selects lean (VPS), hybrid (laptop), or full (desktop) based on system specs.",
 							lean: "Lean profile: BM25 keyword index + AST code chunking. Zero RAM overhead, sub-millisecond retrieval, ideal for VPS and standard tasks.",
 							hybrid:
 								"Hybrid profile: BM25 keyword matching blended with Matryoshka sub-vector embeddings for balanced lexical and semantic retrieval.",
-							full: "Full profile: Dense 768-dim embeddings with deep semantic chunking. Maximizes recall on complex multi-repository conceptual queries.",
-						},
-					},
-					{
-						category: "Retrieval & Exploration",
-						id: "codebase",
-						label: "Codebase Scale Profile",
-						currentValue: currentConfig.retrieval.codebase_profile,
-						values: ["auto", "light", "heavy"],
-						isGlobal: checkIsGlobal("codebase"),
-						descriptions: {
-							auto: "Auto scale mode: Automatically analyzes repository file count and git metrics to dynamically size AST repo-mapping token budget.",
-							light:
-								"Light scale mode: Enforces minimal indexing and suppresses automatic repo-map injection for small repos and resource-tight environments.",
-							heavy:
-								"Heavy scale mode: Always injects full PageRank AST repository map for large multi-package enterprise codebases.",
+							full: "Full profile: Dense 768d embeddings + BM25 keyword index. Maximum semantic recall, ideal for large workstations.",
+							off: "Off profile: Retrieval subsystem disabled. Searches return empty results.",
 						},
 					},
 
@@ -536,6 +505,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					onCancel: () => void;
 					searchInput: Input;
 					categoryOrder: string[];
+					private initialStates = new Map<string, { value: string; isGlobal: boolean }>();
 
 					constructor(
 						items: CategorizedSettingItem[],
@@ -549,6 +519,13 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						this.onCancel = onCancel;
 						this.categoryOrder = categoryOrder;
 						this.searchInput = new Input();
+
+						for (const item of items) {
+							this.initialStates.set(item.id, {
+								value: item.currentValue,
+								isGlobal: !!item.isGlobal,
+							});
+						}
 					}
 
 					applyFilter(query: string) {
@@ -585,56 +562,60 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						const curIdx = item.values.indexOf(item.currentValue);
 						const nextIdx = (curIdx + 1) % item.values.length;
 						item.currentValue = item.values[nextIdx];
-
-						const { patch } = createPatchForSetting(item.id, item.currentValue);
-						if (item.isGlobal) {
-							saveGlobalKernelConfig(patch);
-							ctx.ui?.notify?.(
-								`Saved '${item.label}' = '${item.currentValue}' globally (~/.pi/agent/config.toml)`,
-								"info",
-							);
-						} else {
-							saveProjectKernelConfig(currentCwd, patch);
-							ctx.ui?.notify?.(
-								`Saved '${item.label}' = '${item.currentValue}' to project (.pi/config.toml)`,
-								"info",
-							);
-						}
-						deps.invalidateConfig(currentCwd, ctx);
-						deps.clearCaches?.();
 					}
 
 					toggleGlobalSetting() {
 						const item = this.filteredItems[this.selectedIndex];
 						if (!item) return;
+						item.isGlobal = !item.isGlobal;
+					}
 
-						const meta = getSettingSectionAndKey(item.id);
-						if (!meta) return;
+					closeAndApply() {
+						let hasChanges = false;
+						const globalUpdates: KernelConfigOverrides = {};
+						const projectUpdates: KernelConfigOverrides = {};
+						const revertedGlobals: Array<{ section: string; key: string }> = [];
 
-						if (item.isGlobal) {
-							// Revert/remove single setting from global config
-							removeGlobalKernelConfigKey(meta.section, meta.key);
-							item.isGlobal = false;
-							deps.invalidateConfig(currentCwd, ctx);
-							deps.clearCaches?.();
+						for (const item of this.items) {
+							const initial = this.initialStates.get(item.id);
+							if (!initial) continue;
 
-							ctx.ui?.notify?.(
-								`Reverted '${item.label}' from global (now using workspace/default)`,
-								"info",
-							);
-						} else {
-							// Apply single setting to global config
-							const { patch } = createPatchForSetting(item.id, item.currentValue);
-							saveGlobalKernelConfig(patch);
-							item.isGlobal = true;
-							deps.invalidateConfig(currentCwd, ctx);
-							deps.clearCaches?.();
+							const valueChanged = item.currentValue !== initial.value;
+							const scopeChanged = !!item.isGlobal !== initial.isGlobal;
 
-							ctx.ui?.notify?.(
-								`Applied '${item.label}' = '${item.currentValue}' globally to ~/.pi/agent/config.toml`,
-								"info",
-							);
+							if (valueChanged || scopeChanged) {
+								hasChanges = true;
+								const { patch } = createPatchForSetting(item.id, item.currentValue);
+
+								if (item.isGlobal) {
+									mergeDeep(globalUpdates, patch);
+								} else {
+									if (initial.isGlobal) {
+										const meta = getSettingSectionAndKey(item.id);
+										if (meta) revertedGlobals.push(meta);
+									}
+									mergeDeep(projectUpdates, patch);
+								}
+							}
 						}
+
+						if (hasChanges) {
+							for (const { section, key } of revertedGlobals) {
+								removeGlobalKernelConfigKey(section, key);
+							}
+							if (Object.keys(globalUpdates).length > 0) {
+								saveGlobalKernelConfig(globalUpdates);
+							}
+							if (Object.keys(projectUpdates).length > 0) {
+								saveProjectKernelConfig(currentCwd, projectUpdates);
+							}
+
+							deps.invalidateConfig(currentCwd, ctx);
+							deps.clearCaches?.();
+							ctx.ui?.notify?.("Applied Agent Kernel configuration changes.", "info");
+						}
+
+						this.onCancel();
 					}
 
 					jumpCategory(forward = true) {
@@ -689,8 +670,8 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							(data === " " && this.searchInput.getValue().length === 0)
 						) {
 							this.activateItem();
-						} else if (kb.matches(data, "tui.select.cancel")) {
-							this.onCancel();
+						} else if (kb.matches(data, "tui.select.cancel") || data === "q") {
+							this.closeAndApply();
 						} else {
 							this.searchInput.handleInput(data);
 							this.applyFilter(this.searchInput.getValue());
@@ -768,7 +749,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						lines.push("");
 						lines.push(
 							this.theme.hint(
-								"  Type to search · Enter/Space change · G toggle global · Tab category · Esc cancel",
+								"  Type to search · Enter/Space cycle · G toggle global · Tab category · Esc close & apply",
 							),
 						);
 						return lines;

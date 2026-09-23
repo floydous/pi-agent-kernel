@@ -5,11 +5,8 @@ import { parseToml, stringifyToml, type TomlValue } from "./toml";
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 
-export type CodebaseProfile = "auto" | "light" | "heavy";
-
 export interface RetrievalConfig {
-	default_profile: "lean" | "hybrid" | "full";
-	codebase_profile: CodebaseProfile;
+	default_profile: "auto" | "lean" | "hybrid" | "full" | "off";
 	repo_map_budget: number;
 	repo_map_min_files: number;
 	repo_map_min_bytes: number;
@@ -69,7 +66,6 @@ export interface KernelConfig {
 const DEFAULT_CONFIG: KernelConfig = {
 	retrieval: {
 		default_profile: "lean",
-		codebase_profile: "auto",
 		repo_map_budget: 1024,
 		repo_map_min_files: 10,
 		repo_map_min_bytes: 50 * 1024,
@@ -141,9 +137,9 @@ export function getProjectConfigPath(cwd = process.cwd()): string | null {
 
 	while (current && current !== root) {
 		const candidates = [
+			path.join(current, ".pi", "config.toml"),
 			path.join(current, "config.toml"),
 			path.join(current, "agent-kernel", "config.toml"),
-			path.join(current, ".pi", "config.toml"),
 		];
 		for (const candidate of candidates) {
 			if (fs.existsSync(candidate)) {
@@ -200,13 +196,6 @@ export function loadKernelConfig(cwd = process.cwd()): KernelConfig {
 		const p = process.env.PI_RETRIEVAL_PROFILE.toLowerCase();
 		if (p === "lean" || p === "hybrid" || p === "full") {
 			config.retrieval.default_profile = p as any;
-		}
-	}
-
-	if (process.env.PI_CODEBASE_PROFILE) {
-		const cp = process.env.PI_CODEBASE_PROFILE.toLowerCase();
-		if (cp === "auto" || cp === "smart" || cp === "light" || cp === "heavy") {
-			config.retrieval.codebase_profile = (cp === "smart" ? "auto" : cp) as CodebaseProfile;
 		}
 	}
 
@@ -308,7 +297,7 @@ export function saveProjectKernelConfig(cwd: string, updates: KernelConfigOverri
 	return projectPath;
 }
 
-function mergeDeep(target: any, source: any) {
+export function mergeDeep(target: any, source: any) {
 	if (!source || typeof source !== "object") return;
 	for (const key of Object.keys(source)) {
 		if (key === "__proto__" || key === "prototype" || key === "constructor") continue;

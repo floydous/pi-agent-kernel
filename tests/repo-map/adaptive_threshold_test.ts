@@ -90,7 +90,7 @@ export async function testAdaptiveRepoMapThreshold(): Promise<void> {
 
 		logPass("Adaptive repo map threshold, test separation, and compact tool schemas verified!");
 
-		// 7. Test /profile slash command integration
+		// 7. Verify extension commands (/repomap registered, legacy /profile removed)
 		const registeredCommands: Record<string, any> = {};
 		const eventHandlers: Record<string, Function[]> = {};
 		const mockPiApp: any = {
@@ -106,36 +106,10 @@ export async function testAdaptiveRepoMapThreshold(): Promise<void> {
 		const kernelExt = (await import("../../src/index")).default;
 		await kernelExt(mockPiApp);
 
-		assertPass("/profile command registered", !!registeredCommands["profile"]);
-		const profileCmd = registeredCommands["profile"];
+		assertPass("/repomap command registered", !!registeredCommands["repomap"]);
+		assertPass("Legacy /profile command is not registered", !registeredCommands["profile"]);
 
-		// Test argument completions
-		const completions = profileCmd.getArgumentCompletions("");
-		assertPass("Profile completions include auto, light, heavy, status",
-			completions && completions.some((c: any) => c.value === "auto") &&
-			completions.some((c: any) => c.value === "light") &&
-			completions.some((c: any) => c.value === "heavy") &&
-			completions.some((c: any) => c.value === "status")
-		);
-
-		// Test handlers
-		let lastNotification = "";
-		const mockCtx = {
-			cwd: ws.tempDir,
-			sessionManager: { getSessionId: () => "test-sess-1" },
-			ui: { notify: (msg: string) => { lastNotification = msg; } },
-		};
-
-		await profileCmd.handler("light", mockCtx);
-		assertPass("Setting profile to light notifies session", lastNotification.includes("'light'"));
-
-		await profileCmd.handler("smart", mockCtx);
-		assertPass("Setting profile to smart sets to auto", lastNotification.includes("'auto'"));
-
-		await profileCmd.handler("status", mockCtx);
-		assertPass("Status command shows profile and metrics", lastNotification.includes("Profile:") && lastNotification.includes("Metrics:"));
-
-		logPass("/profile command and completions fully verified!");
+		logPass("/repomap command verified!");
 	} finally {
 		ws.cleanup();
 	}

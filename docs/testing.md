@@ -6,11 +6,13 @@ independently runnable and uses isolated temporary workspaces where needed.
 ## Commands
 
 ```sh
-# Full suite
-npm test
+# Full verification
+npm run typecheck && npm test
 
 # One focused section
-npx tsx tests/epistemic-guard/index.ts
+npx tsx tests/retrieval/incremental_update.test.ts
+npx tsx tests/retrieval/gitignore_traversal.test.ts
+npx tsx tests/security-hardening/index.ts
 ```
 
 `npm test` runs the suite orchestrator under `tests/`.

@@ -210,6 +210,26 @@ export function computeDelta(w: number): number {
 		);
 		console.log("  ✓ flushPendingSave drained in-flight updates before persisting (shutdown race prevented)");
 
+		// Profile switch while sync is actively in-flight
+		const switchIndex = new HybridSearchIndex(tempDir, "hybrid");
+		const hybridSyncPromise = switchIndex.syncWorkspace(true);
+
+		// Switch to full while hybrid sync is running
+		switchIndex.setProfile("full");
+		assert.strictEqual(switchIndex.getProfile(), "full", "Profile must immediately reflect full");
+		assert.strictEqual(switchIndex.getEffectiveProfile(), "full", "Effective profile must reflect full");
+
+		// Run sync for full
+		const fullSyncResult = await switchIndex.syncWorkspace(true);
+		await hybridSyncPromise.catch(() => {});
+
+		const fullVectors = (switchIndex as any).vectors as Map<string, Float32Array>;
+		assert.ok(fullVectors.size > 0, "Vectors must be present after full sync");
+		for (const [id, vec] of fullVectors.entries()) {
+			assert.strictEqual(vec.length, 768, `Vector ${id} must be 768d (full), not 256d (hybrid)`);
+		}
+		console.log("  ✓ Switching profile while sync is in-flight superseded old sync and produced 768d vectors");
+
 		console.log("\n✓ All Incremental Vector Indexing Tests Passed Successfully!");
 	} finally {
 		try {
