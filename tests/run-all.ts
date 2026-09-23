@@ -220,6 +220,11 @@ const suites: TestEntry[] = [
 		key: "incremental-update",
 		loader: () => runSuiteModule(() => import("./retrieval/incremental_update.test")),
 	},
+	{
+		name: "Gitignore & Workspace Traversal Suite",
+		key: "gitignore-traversal",
+		loader: () => runSuiteModule(() => import("./retrieval/gitignore_traversal.test")),
+	},
 ];
 
 async function main(): Promise<void> {

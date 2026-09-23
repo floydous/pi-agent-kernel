@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS } from "./workspace_walker";
 import { extractFileTags, isTestPath, SymbolDef } from "./repomap";
 import { TreeSitterEngine } from "./tree_sitter_engine";
 
@@ -19,13 +20,11 @@ export interface CodeChunk {
 	hash: string;            // SHA-256 hash of content
 }
 
-const SUPPORTED_EXTENSIONS = new Set([
+export const SUPPORTED_EXTENSIONS = new Set([
 	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql", ".md", ".mdx", ".txt", ".rst"
 ]);
 
-const IGNORED_DIRS = new Set([
-	".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", "coverage", ".pi", ".hermes", ".next", ".turbo", ".cache", "target", "vendor"
-]);
+export const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
 
 /** Prose extensions are excluded from the default code-search scope. */
 export const PROSE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".rst"]);
@@ -282,36 +281,12 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
  * without reparsing unchanged files.
  */
 export function findChunkableFiles(rootDir: string, maxFiles = 500): string[] {
-	const files: string[] = [];
-
-	function scan(dir: string) {
-		if (files.length >= maxFiles) return;
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-
-		for (const entry of entries) {
-			if (entry.name.startsWith(".") && entry.name !== ".github") continue;
-			if (IGNORED_DIRS.has(entry.name)) continue;
-
-			const fullPath = path.join(dir, entry.name);
-			if (entry.isDirectory()) {
-				scan(fullPath);
-			} else if (entry.isFile()) {
-				const ext = path.extname(entry.name).toLowerCase();
-				if (SUPPORTED_EXTENSIONS.has(ext)) {
-					files.push(fullPath);
-					if (files.length >= maxFiles) return;
-				}
-			}
-		}
-	}
-
-	scan(rootDir);
-	return files;
+	return walkWorkspaceFiles({
+		rootDir,
+		maxFiles,
+		extensions: SUPPORTED_EXTENSIONS,
+		includeGithub: true,
+	});
 }
 
 /**

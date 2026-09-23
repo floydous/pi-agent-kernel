@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { extractFileTags } from "./repomap";
 import { kernelDebug } from "../safety/kernel_debug";
+import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS } from "./workspace_walker";
 
 export interface AstQueryResult {
 	filePath: string;
@@ -104,18 +105,7 @@ const SUPPORTED_EXTENSIONS = new Set([
 	".lua",
 ]);
 
-const IGNORED_DIRS = new Set([
-	"node_modules",
-	".git",
-	"target",
-	"dist",
-	"build",
-	".next",
-	"__pycache__",
-	".pytest_cache",
-	".venv",
-	"venv",
-]);
+const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
 
 /**
  * Extract top-level symbols from a single file using fast AST tagging
@@ -204,88 +194,73 @@ export function findSymbolReferences(
 	const escaped = cleanSym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	const regex = new RegExp(`\\b${escaped}\\b`, "g");
 
-	function walk(dir: string) {
-		if (results.length >= maxResults) return;
-		let entries: fs.Dirent[] = [];
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
+	walkWorkspaceFiles({
+		rootDir,
+		extensions: SUPPORTED_EXTENSIONS,
+		includeGithub: false,
+		onFile: (fullPath) => {
+			if (results.length >= maxResults) return false;
+			try {
+				const content = fs.readFileSync(fullPath, "utf-8");
+				const lines = content.split("\n");
+				let inBlockComment = false;
 
-		for (const entry of entries) {
-			if (results.length >= maxResults) break;
-			if (entry.name.startsWith(".") || IGNORED_DIRS.has(entry.name)) continue;
+				for (let i = 0; i < lines.length; i++) {
+					if (results.length >= maxResults) return false;
+					const lineText = lines[i];
+					const trimmed = lineText.trim();
 
-			const fullPath = path.join(dir, entry.name);
-			if (entry.isDirectory()) {
-				walk(fullPath);
-			} else if (entry.isFile()) {
-				const ext = path.extname(entry.name).toLowerCase();
-				if (!SUPPORTED_EXTENSIONS.has(ext)) continue;
-
-				try {
-					const content = fs.readFileSync(fullPath, "utf-8");
-					const lines = content.split("\n");
-					let inBlockComment = false;
-
-					for (let i = 0; i < lines.length; i++) {
-						if (results.length >= maxResults) break;
-						const lineText = lines[i];
-						const trimmed = lineText.trim();
-
-						// Block comment handling (/* ... */)
-						if (inBlockComment) {
-							if (trimmed.includes("*/")) {
-								inBlockComment = false;
-							}
-							continue;
+					// Block comment handling (/* ... */)
+					if (inBlockComment) {
+						if (trimmed.includes("*/")) {
+							inBlockComment = false;
 						}
-						if (trimmed.startsWith("/*")) {
-							if (!trimmed.includes("*/")) {
-								inBlockComment = true;
-							}
-							continue;
-						}
-
-						// Skip lines starting with comment markers
-						if (
-							trimmed.startsWith("//") ||
-							trimmed.startsWith("///") ||
-							trimmed.startsWith("//!") ||
-							trimmed.startsWith("#") ||
-							trimmed.startsWith("*") ||
-							trimmed.startsWith("--")
-						) {
-							continue;
-						}
-
-						let match;
-						regex.lastIndex = 0;
-						while ((match = regex.exec(lineText)) !== null) {
-							// Filter out matches inside inline comments or string literals
-							if (isInsideCommentOrString(lineText, match.index)) {
-								continue;
-							}
-
-							results.push({
-								filePath:
-									path.relative(rootDir, fullPath).replace(/\\/g, "/") || fullPath,
-								line: i + 1,
-								column: match.index + 1,
-								lineText: lineText.trim(),
-							});
-							if (results.length >= maxResults) break;
-						}
+						continue;
 					}
-				} catch (e) {
-					kernelDebug(e);
-				}
-			}
-		}
-	}
+					if (trimmed.startsWith("/*")) {
+						if (!trimmed.includes("*/")) {
+							inBlockComment = true;
+						}
+						continue;
+					}
 
-	walk(rootDir);
+					// Skip lines starting with comment markers
+					if (
+						trimmed.startsWith("//") ||
+						trimmed.startsWith("///") ||
+						trimmed.startsWith("//!") ||
+						trimmed.startsWith("#") ||
+						trimmed.startsWith("*") ||
+						trimmed.startsWith("--")
+					) {
+						continue;
+					}
+
+					let match;
+					regex.lastIndex = 0;
+					while ((match = regex.exec(lineText)) !== null) {
+						// Filter out matches inside inline comments or string literals
+						if (isInsideCommentOrString(lineText, match.index)) {
+							continue;
+						}
+
+						results.push({
+							filePath:
+								path.relative(rootDir, fullPath).replace(/\\/g, "/") || fullPath,
+							line: i + 1,
+							column: match.index + 1,
+							lineText: lineText.trim(),
+						});
+						if (results.length >= maxResults) return false;
+					}
+				}
+			} catch (e) {
+				kernelDebug(e);
+			}
+			return results.length < maxResults;
+		},
+	});
+
 	return results;
 }
 
@@ -747,100 +722,86 @@ export function searchAstSymbols(
 			: cleanQueryName;
 	const includeBody = query.includeBody ?? false;
 
-	function walk(dir: string) {
-		let entries: fs.Dirent[] = [];
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-
-		for (const entry of entries) {
-			if (entry.name.startsWith(".") || IGNORED_DIRS.has(entry.name)) {
-				continue;
+	walkWorkspaceFiles({
+		rootDir,
+		extensions: SUPPORTED_EXTENSIONS,
+		includeGithub: false,
+		onFile: (fullPath) => {
+			const relPath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
+			if (
+				query.filePattern &&
+				!relPath
+					.toLowerCase()
+					.includes(query.filePattern.replace(/\\/g, "/").toLowerCase())
+			) {
+				return;
 			}
-			const fullPath = path.join(dir, entry.name);
-			if (entry.isDirectory()) {
-				walk(fullPath);
-			} else if (entry.isFile()) {
-				const relPath = path.relative(rootDir, fullPath).replace(/\\/g, "/");
-				if (
-					query.filePattern &&
-					!relPath
-						.toLowerCase()
-						.includes(query.filePattern.replace(/\\/g, "/").toLowerCase())
-				) {
-					continue;
-				}
-				const ext = path.extname(entry.name).toLowerCase();
-				if (!SUPPORTED_EXTENSIONS.has(ext)) {
-					continue;
-				}
-				try {
-					const content = fs.readFileSync(fullPath, "utf-8");
-					const tags = extractFileTags(fullPath, content);
-					const lines = content.split("\n");
-					const fileDefs: AstQueryResult[] = [];
+			const ext = path.extname(fullPath).toLowerCase();
+			if (!SUPPORTED_EXTENSIONS.has(ext)) {
+				return;
+			}
+			try {
+				const content = fs.readFileSync(fullPath, "utf-8");
+				const tags = extractFileTags(fullPath, content);
+				const lines = content.split("\n");
+				const fileDefs: AstQueryResult[] = [];
 
-					for (const def of tags.definitions) {
-						let codeBlock: string | undefined;
-						let bodyTruncated = false;
-						let visibleEndLine: number | undefined;
-						if (includeBody) {
-							const start = Math.max(0, def.line - 1);
-							const end = Math.min(lines.length, start + 25);
-							codeBlock = lines.slice(start, end).join("\n");
-							visibleEndLine = end;
-							bodyTruncated = end < lines.length;
-						}
-
-						const item: AstQueryResult = {
-							filePath: relPath,
-							name: def.name,
-							kind: def.kind,
-							signature: def.signature,
-							line: def.line,
-							endLine: def.endLine && def.endLine >= def.line ? def.endLine : findSymbolEndLine(lines, def.line - 1, ext),
-							codeBlock,
-							visibleEndLine,
-							bodyTruncated: includeBody ? bodyTruncated : undefined,
-							aliasedFrom: def.aliasedFrom,
-						};
-
-						fileDefs.push(item);
-
-						if (query.kind) {
-							const qKind = query.kind.toLowerCase();
-							const dKind = def.kind.toLowerCase();
-							const matchKind =
-								qKind === dKind ||
-								(qKind === "struct" && dKind === "class") ||
-								(qKind === "trait" && dKind === "class") ||
-								(qKind === "constant" && (dKind === "constant" || dKind === "variable")) ||
-								(qKind === "variable" && (dKind === "variable" || dKind === "constant"));
-							if (!matchKind) continue;
-						}
-
-						if (queryLeaf) {
-							const qName = queryLeaf.toLowerCase();
-							const dName = def.name.toLowerCase();
-							if (query.exactMatch) {
-								if (dName !== qName) continue;
-							} else if (!dName.includes(qName)) continue;
-						}
-
-						rawResults.push(item);
+				for (const def of tags.definitions) {
+					let codeBlock: string | undefined;
+					let bodyTruncated = false;
+					let visibleEndLine: number | undefined;
+					if (includeBody) {
+						const start = Math.max(0, def.line - 1);
+						const end = Math.min(lines.length, start + 25);
+						codeBlock = lines.slice(start, end).join("\n");
+						visibleEndLine = end;
+						bodyTruncated = end < lines.length;
 					}
 
-					allDefsByFile.set(relPath, fileDefs);
-				} catch {
-					// skip unreadable
-				}
-			}
-		}
-	}
+					const item: AstQueryResult = {
+						filePath: relPath,
+						name: def.name,
+						kind: def.kind,
+						signature: def.signature,
+						line: def.line,
+						endLine: def.endLine && def.endLine >= def.line ? def.endLine : findSymbolEndLine(lines, def.line - 1, ext),
+						codeBlock,
+						visibleEndLine,
+						bodyTruncated: includeBody ? bodyTruncated : undefined,
+						aliasedFrom: def.aliasedFrom,
+					};
 
-	walk(rootDir);
+					fileDefs.push(item);
+
+					if (query.kind) {
+						const qKind = query.kind.toLowerCase();
+						const dKind = def.kind.toLowerCase();
+						const matchKind =
+							qKind === dKind ||
+							(qKind === "struct" && dKind === "class") ||
+							(qKind === "trait" && dKind === "class") ||
+							(qKind === "constant" && (dKind === "constant" || dKind === "variable")) ||
+							(qKind === "variable" && (dKind === "variable" || dKind === "constant"));
+						if (!matchKind) continue;
+					}
+
+					if (queryLeaf) {
+						const qName = queryLeaf.toLowerCase();
+						const dName = def.name.toLowerCase();
+						if (query.exactMatch) {
+							if (dName !== qName) continue;
+						} else if (!dName.includes(qName)) continue;
+					}
+
+					rawResults.push(item);
+				}
+
+				allDefsByFile.set(relPath, fileDefs);
+			} catch {
+				// skip unreadable
+			}
+		},
+	});
 
 	// Resolve aliased re-exports (e.g. `WebSocketClient` -> `client` in `.websocket`)
 	const resolvedResults: AstQueryResult[] = [...rawResults];

@@ -50,6 +50,7 @@ export class HybridSearchIndex {
 	private chunks: Map<string, CodeChunk> = new Map();
 	private vectors: Map<string, Float32Array> = new Map();
 	private fileHashes: Map<string, string> = new Map(); // relPath -> SHA256 hash
+	private ignoreConfigHashes: Map<string, string> = new Map(); // ignore config file -> SHA256 hash
 	private isInitialized = false;
 	private isIndexing = false;
 	private dirtyFiles = new Set<string>();
@@ -277,6 +278,15 @@ export class HybridSearchIndex {
 				this.fileHashes.set(f, h as string);
 			}
 
+			this.ignoreConfigHashes.clear();
+			if (data.ignoreConfigHashes && typeof data.ignoreConfigHashes === "object") {
+				for (const [f, h] of Object.entries(data.ignoreConfigHashes)) {
+					if (typeof h === "string") {
+						this.ignoreConfigHashes.set(f, h);
+					}
+				}
+			}
+
 			this.persistedVectorCaches = this.getPersistedVectorCaches(data);
 			const wantsVectors =
 				this.config.effectiveProfile === "hybrid" ||
@@ -376,6 +386,7 @@ export class HybridSearchIndex {
 				updatedAt: new Date().toISOString(),
 				profile: this.config.profile,
 				fileHashes: fileHashesObj,
+				ignoreConfigHashes: Object.fromEntries(this.ignoreConfigHashes),
 				chunks: chunkList,
 				vectorCaches: this.persistedVectorCaches,
 			};
@@ -492,6 +503,36 @@ export class HybridSearchIndex {
 		}
 	}
 
+	private getWorkspaceIgnoreHashes(): Map<string, string> {
+		const hashes = new Map<string, string>();
+		const gitIgnorePath = path.join(this.cwd, ".gitignore");
+		if (fs.existsSync(gitIgnorePath)) {
+			try {
+				hashes.set(".gitignore", computeHash(fs.readFileSync(gitIgnorePath, "utf8")));
+			} catch (e) {
+				kernelDebug(e);
+			}
+		}
+		const piIgnorePath = path.join(this.cwd, ".piignore");
+		if (fs.existsSync(piIgnorePath)) {
+			try {
+				hashes.set(".piignore", computeHash(fs.readFileSync(piIgnorePath, "utf8")));
+			} catch (e) {
+				kernelDebug(e);
+			}
+		}
+		return hashes;
+	}
+
+	private isIgnoreConfigFresh(): boolean {
+		const current = this.getWorkspaceIgnoreHashes();
+		if (current.size !== this.ignoreConfigHashes.size) return false;
+		for (const [k, v] of this.ignoreConfigHashes.entries()) {
+			if (current.get(k) !== v) return false;
+		}
+		return true;
+	}
+
 	private getWorkspaceFileHashes(): Map<string, string> | null {
 		const hashes = new Map<string, string>();
 		for (const filePath of findChunkableFiles(this.cwd)) {
@@ -507,6 +548,7 @@ export class HybridSearchIndex {
 	}
 
 	private isWorkspaceSnapshotFresh(): boolean {
+		if (!this.isIgnoreConfigFresh()) return false;
 		const currentHashes = this.getWorkspaceFileHashes();
 		if (!currentHashes || currentHashes.size !== this.fileHashes.size) return false;
 		for (const [relPath, hash] of this.fileHashes.entries()) {
@@ -708,6 +750,24 @@ export class HybridSearchIndex {
 					}
 				}
 
+				this.saveToDisk();
+			}
+
+			// Track ignore configuration hashes in dedicated metadata
+			const oldIgnoreHashes = new Map(this.ignoreConfigHashes);
+			const currentIgnoreHashes = this.getWorkspaceIgnoreHashes();
+			let ignoreConfigChanged = currentIgnoreHashes.size !== oldIgnoreHashes.size;
+			if (!ignoreConfigChanged) {
+				for (const [k, v] of currentIgnoreHashes.entries()) {
+					if (oldIgnoreHashes.get(k) !== v) {
+						ignoreConfigChanged = true;
+						break;
+					}
+				}
+			}
+			this.ignoreConfigHashes = currentIgnoreHashes;
+
+			if (filesToDelete.length > 0 || filesToReindex.length > 0 || ignoreConfigChanged) {
 				this.saveToDisk();
 			}
 

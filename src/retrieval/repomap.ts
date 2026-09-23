@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { TreeSitterEngine } from "./tree_sitter_engine";
+import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS } from "./workspace_walker";
 
 export interface SymbolDef {
 	name: string;
@@ -31,23 +32,7 @@ export interface FileTags {
 	hasSyntaxError?: boolean;
 }
 
-const IGNORED_DIRS = new Set([
-	".git",
-	"node_modules",
-	".venv",
-	"venv",
-	"__pycache__",
-	"dist",
-	"build",
-	"coverage",
-	".pi",
-	".hermes",
-	".next",
-	".turbo",
-	".cache",
-	"target",
-	"vendor",
-]);
+const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
 
 const SUPPORTED_EXTENSIONS = new Set([
 	".ts",
@@ -786,36 +771,12 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 
 // Recursively find all supported code files in a directory
 export function findSourceFiles(rootDir: string, maxFiles = 300): string[] {
-	const results: string[] = [];
-
-	function scan(dir: string) {
-		if (results.length >= maxFiles) return;
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-
-		for (const entry of entries) {
-			if (entry.name.startsWith(".") && entry.name !== ".github") continue;
-			if (IGNORED_DIRS.has(entry.name)) continue;
-
-			const fullPath = path.join(dir, entry.name);
-			if (entry.isDirectory()) {
-				scan(fullPath);
-			} else if (entry.isFile()) {
-				const ext = path.extname(entry.name).toLowerCase();
-				if (SUPPORTED_EXTENSIONS.has(ext)) {
-					results.push(fullPath);
-					if (results.length >= maxFiles) return;
-				}
-			}
-		}
-	}
-
-	scan(rootDir);
-	return results;
+	return walkWorkspaceFiles({
+		rootDir,
+		maxFiles,
+		extensions: SUPPORTED_EXTENSIONS,
+		includeGithub: false,
+	});
 }
 
 // Check if a path corresponds to a test file or test directory
