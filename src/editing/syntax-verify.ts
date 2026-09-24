@@ -190,6 +190,15 @@ function checkTsStructure(content: string): string | null {
 	return null;
 }
 
+export function resolveTypeScriptCompiler(): string {
+  try {
+    return path.join(path.dirname(require.resolve("typescript/package.json")), "bin", "tsc");
+  } catch {
+    // Compatibility fallback for unusual loaders that do not expose require.resolve.
+    return path.resolve(__dirname, "../../node_modules/typescript/bin/tsc");
+  }
+}
+
 function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 	if (!fs.existsSync(resolvedPath)) {
 		return { valid: true, status: "clean" };
@@ -242,10 +251,7 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 			const structuralError = checkTsStructure(tsContent);
 			if (structuralError) throw new Error(structuralError);
 
-			const compiler = path.resolve(
-				__dirname,
-				"../../node_modules/typescript/bin/tsc",
-			);
+			const compiler = resolveTypeScriptCompiler();
 			const compilerArgs = [
 				"--noEmit",
 				"--noCheck",

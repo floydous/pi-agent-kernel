@@ -466,7 +466,7 @@ export function applySurgicalPatch(
 	// Delimiter & Bracket Auto-Healing:
 	if (!syntax.valid) {
 		const ext = path.extname(resolvedPath).toLowerCase();
-		if (ext === ".json") {
+		if (ext === ".json" && options?.autoHeal !== false) {
 			const healedJson = healJsonContent(candidateContent);
 			if (healedJson) {
 				candidateContent = healedJson;
@@ -531,6 +531,7 @@ export function applySurgicalPatch(
 export function applyMultiBlockPatch(
 	filePath: string,
 	blocks: PatchBlock[],
+	options: { autoHeal?: boolean } = {},
 ): PatchResult {
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
@@ -632,7 +633,7 @@ export function applyMultiBlockPatch(
 
 	if (!syntax.valid) {
 		const ext = path.extname(resolvedPath).toLowerCase();
-		if (ext === ".json") {
+		if (ext === ".json" && options.autoHeal !== false) {
 			const healedJson = healJsonContent(candidateContent);
 			if (healedJson) {
 				candidateContent = healedJson;

@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import crossSpawn from "cross-spawn";
+import { type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -15,6 +16,60 @@ import { pathToUri, normalizeUri, normalizeLocations } from "./lsp_formatter";
 import { getLspAdapter, type LspAdapter } from "./adapters";
 import { kernelDebug } from "../safety/kernel_debug";
 import { loadKernelConfig } from "../config";
+
+const LSP_ENV_ALLOWLIST = new Set([
+  "path",
+  "pathext",
+  "home",
+  "userprofile",
+  "homedrive",
+  "homepath",
+  "temp",
+  "tmp",
+  "tmpdir",
+  "systemroot",
+  "windir",
+  "comspec",
+  "appdata",
+  "localappdata",
+  "programdata",
+  "programfiles",
+  "programfiles(x86)",
+  "lang",
+  "lc_all",
+  "java_home",
+  "jdk_home",
+  "goroot",
+  "gopath",
+  "cargo_home",
+  "rustup_home",
+  "pythonhome",
+  "pythonpath",
+  "virtual_env",
+  "node_path",
+  "ld_library_path",
+]);
+
+export function buildLspEnvironment(
+  overrides: Record<string, string> = {},
+): Record<string, string> {
+  const source = new Map<string, { key: string; value: string }>();
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === "string") source.set(key.toLowerCase(), { key, value });
+  }
+  const result: Record<string, string> = {};
+  for (const [lowerKey, entry] of source) {
+    if (LSP_ENV_ALLOWLIST.has(lowerKey)) result[entry.key] = entry.value;
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (LSP_ENV_ALLOWLIST.has(key.toLowerCase())) result[key] = value;
+  }
+  return result;
+}
+
+export const MAX_LSP_STDERR_BYTES = 64 * 1024;
+export const MAX_LSP_DOCUMENT_BYTES = 5 * 1024 * 1024;
+export const MAX_LSP_DIAGNOSTICS = 200;
 
 export interface StdioLspClientOptions {
   command: string;
@@ -84,11 +139,12 @@ export class StdioLspClient {
     this.touch();
 
     try {
-      this.process = spawn(this.options.command, this.options.args, {
+      this.process = crossSpawn(this.options.command, this.options.args, {
         cwd: this.rootDir,
-        env: { ...process.env, ...this.options.env },
+        env: buildLspEnvironment(this.options.env),
         stdio: ["pipe", "pipe", "pipe"],
-        shell: process.platform === "win32",
+        shell: false,
+        windowsHide: true,
       });
 
       this.process.stdout?.on("data", (chunk: Buffer) => {
@@ -97,7 +153,9 @@ export class StdioLspClient {
 
       let serverStderr = "";
       this.process.stderr?.on("data", (chunk: Buffer) => {
-        serverStderr += chunk.toString("utf8");
+        if (serverStderr.length < MAX_LSP_STDERR_BYTES) {
+          serverStderr = `${serverStderr}${chunk.toString("utf8")}`.slice(0, MAX_LSP_STDERR_BYTES);
+        }
       });
 
       this.process.on("error", (err) => {
@@ -321,6 +379,9 @@ export class StdioLspClient {
     if (notif.method === "textDocument/publishDiagnostics") {
       const rawUri = notif.params?.uri;
       let diagnostics = notif.params?.diagnostics || [];
+      if (diagnostics.length > MAX_LSP_DIAGNOSTICS) {
+        diagnostics = diagnostics.slice(0, MAX_LSP_DIAGNOSTICS);
+      }
       if (rawUri) {
         const uri = normalizeUri(rawUri);
         if (this.adapter.transformDiagnostics) {
@@ -406,12 +467,14 @@ export class StdioLspClient {
    */
   public async openDocument(filePath: string, content?: string): Promise<void> {
     const uri = pathToUri(filePath);
-    const text =
-      content === undefined
-        ? fs.existsSync(filePath)
-          ? fs.readFileSync(filePath, "utf8")
-          : ""
-        : content;
+    const fileStat = fs.statSync(filePath);
+    if (!fileStat.isFile() || fileStat.size > MAX_LSP_DOCUMENT_BYTES) {
+      throw new Error(`LSP document exceeds the ${MAX_LSP_DOCUMENT_BYTES}-byte limit`);
+    }
+    const text = content === undefined ? fs.readFileSync(filePath, "utf8") : content;
+    if (Buffer.byteLength(text, "utf8") > MAX_LSP_DOCUMENT_BYTES) {
+      throw new Error(`LSP document exceeds the ${MAX_LSP_DOCUMENT_BYTES}-byte limit`);
+    }
 
     if (this.openDocuments.has(uri)) {
       const existing = this.openDocuments.get(uri);
@@ -652,18 +715,36 @@ export class StdioLspClient {
    * Graceful shutdown and termination
    */
   public async stop(): Promise<void> {
-    if (this.state === "stopped") return;
+    if (this.state === "stopped" && !this.process) return;
     this.state = "shutting_down";
+    const child = this.process;
 
     try {
-      if (this.process && !this.process.killed) {
-        await Promise.race([
-          this.sendRequest("shutdown", undefined, 1000).then(() => {
-            this.sendNotification("exit");
-          }),
-          new Promise((r) => setTimeout(r, 1000)),
-        ]);
-        this.process.kill();
+      if (child) {
+        const exited = new Promise<void>((resolve) => {
+          child.once("exit", () => resolve());
+          child.once("error", () => resolve());
+        });
+        try {
+          await Promise.race([
+            this.sendRequest("shutdown", undefined, 1000).then(() => {
+              this.sendNotification("exit");
+            }),
+            new Promise((resolve) => setTimeout(resolve, 1000)),
+          ]);
+        } catch (error) {
+          kernelDebug(error);
+        }
+
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 250))]);
+        if (child.exitCode === null && child.signalCode === null && !child.killed) {
+          child.kill();
+        }
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 2000))]);
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+          await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1000))]);
+        }
       }
     } catch (e) {
       kernelDebug(e);

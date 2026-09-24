@@ -18,6 +18,20 @@ function countFileLines(filePath: string): number {
 
 const MAX_READ_LINES = 2_000;
 const MAX_READ_BYTES = 50 * 1024;
+const MAX_READ_FILE_BYTES = 5 * 1024 * 1024;
+
+function validateReadableFile(filePath: string): string | null {
+	try {
+		const stat = fs.statSync(filePath);
+		if (!stat.isFile()) return "Path is not a regular file";
+		if (stat.size > MAX_READ_FILE_BYTES) {
+			return `File is ${stat.size} bytes; maximum in-memory source size is ${MAX_READ_FILE_BYTES} bytes`;
+		}
+		return null;
+	} catch (error: any) {
+		return error?.code === "ENOENT" ? "File not found" : error?.message || String(error);
+	}
+}
 
 function shouldUseAnchors(
 	params: any,
@@ -196,6 +210,11 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						continue;
 					}
 					try {
+						const readLimitError = validateReadableFile(resolvedPath);
+						if (readLimitError) {
+							results.push(`=== file: ${relPath} ===\nRead rejected: ${readLimitError}`);
+							continue;
+						}
 						const content = fs.readFileSync(resolvedPath, "utf-8");
 						const lines = content.split("\n");
 						const totalLines = lines.length;
@@ -261,6 +280,15 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			if (!fs.existsSync(resolvedPath)) {
 				return {
 					content: [{ type: "text", text: `File not found: ${params.path}` }],
+					isError: true,
+				};
+			}
+
+			const readLimitError = validateReadableFile(resolvedPath);
+			if (readLimitError) {
+				return {
+					content: [{ type: "text", text: `[READ ERROR] ${readLimitError}: ${params.path}` }],
+					details: { error: "read_limit", maxBytes: MAX_READ_FILE_BYTES },
 					isError: true,
 				};
 			}
@@ -384,6 +412,14 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			// Mode 2: Standard file reading
 			try {
+				const readLimitError = validateReadableFile(resolvedPath);
+				if (readLimitError) {
+					return {
+						content: [{ type: "text", text: `[READ ERROR] ${readLimitError}: ${params.path}` }],
+						details: { error: "read_limit", maxBytes: MAX_READ_FILE_BYTES },
+						isError: true,
+					};
+				}
 				const ext = path.extname(resolvedPath).toLowerCase();
 				const isImage = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(
 					ext,

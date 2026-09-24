@@ -1,6 +1,6 @@
 {
   "name": "@floydous/pi-agent-kernel",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Focused code retrieval, editing, safety checks, and language-server support for Pi.",
   "keywords": [
     "pi-package"
@@ -16,20 +16,21 @@
     "bench:chart": "PATH=\"$HOME/.local/bin:$HOME/.venv/bin:$PATH\" python3 agent-kernel-benchmark/generate_chart.py"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
+    "cross-spawn": "^7.0.6",
     "diff": "^9.0.0",
     "ignore": "^7.0.5",
     "typebox": "^1.3.16",
+    "typescript": "^7.0.2",
     "web-tree-sitter": "^0.26.12"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.3",
-    "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "tsx": "^4.23.13"
   },
   "overrides": {
-    "adm-zip": "^0.6.0",
-    "sharp": "^0.35.3"
+    "adm-zip": "^0.6.1",
+    "sharp": "^0.35.4"
   },
   "pi": {
     "extensions": [

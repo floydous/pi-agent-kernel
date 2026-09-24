@@ -90,38 +90,6 @@ export function registerCodeSearchTool(
 				scope,
 			});
 
-			const sessionId = deps.getSessionId(ctx);
-			for (const hit of hits) {
-				const chunkRange =
-					Number.isFinite(hit.chunk.startLine) && Number.isFinite(hit.chunk.endLine)
-						? [{ startLine: hit.chunk.startLine, endLine: hit.chunk.endLine }]
-						: [];
-				if (chunkRange.length > 0) {
-					globalEpistemicGuard.recordFileRead(
-						hit.chunk.absolutePath,
-						sessionId,
-						ctx.cwd,
-						undefined,
-						{
-							coverage: { complete: false, ranges: chunkRange },
-							provenance: "code_search",
-							query,
-						},
-					);
-				} else {
-					globalEpistemicGuard.recordFileSearched(
-						hit.chunk.absolutePath,
-						sessionId,
-						ctx.cwd,
-						{
-							coverage: { complete: false, ranges: [] },
-							provenance: "code_search",
-							query,
-						},
-					);
-				}
-			}
-
 			const indexStatus = typeof index.getStatus === "function" ? index.getStatus() : undefined;
 			const wantsVectors =
 				indexStatus?.effectiveProfile === "hybrid" ||
@@ -150,6 +118,37 @@ export function registerCodeSearchTool(
 				query,
 				requestedMode as CodeSearchMode,
 			);
+			const sessionId = deps.getSessionId(ctx);
+			const hitById = new Map(hits.map((hit) => [hit.chunk.id, hit]));
+			const visibleIds = new Set<string>();
+			for (const range of formatted.visibleRanges) {
+				const hit = hitById.get(range.chunkId);
+				if (!hit) continue;
+				visibleIds.add(range.chunkId);
+				globalEpistemicGuard.recordFileRead(
+					hit.chunk.absolutePath,
+					sessionId,
+					ctx.cwd,
+					undefined,
+					{
+						coverage: {
+							complete: false,
+							ranges: [{ startLine: range.startLine, endLine: range.endLine }],
+						},
+						provenance: "code_search",
+						query,
+					},
+				);
+			}
+			for (const hit of hits) {
+				if (visibleIds.has(hit.chunk.id)) continue;
+				globalEpistemicGuard.recordFileSearched(
+					hit.chunk.absolutePath,
+					sessionId,
+					ctx.cwd,
+					{ coverage: { complete: false, ranges: [] }, provenance: "code_search", query },
+				);
+			}
 
 			return {
 				content: [
@@ -164,6 +163,7 @@ export function registerCodeSearchTool(
 					requestedMode,
 					scope,
 					truncated: formatted.truncated,
+					visibleRanges: formatted.visibleRanges,
 					hits: hits.map((h) => ({
 						id: h.chunk.id,
 						score: h.rrfScore,

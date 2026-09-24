@@ -101,13 +101,13 @@ export async function run(): Promise<void> {
 			assert.strictEqual(p1.resolvedSpans![0].startLine, 4);
 			assert.strictEqual(p1.resolvedSpans![0].endLine, 5);
 
-			// Neighbor spillover recovery: model attends to line 3 hash when targeting line 4
+			// Attention spillover must not redirect a write to a neighboring line.
 			const h3 = computeLineHash(fileLines, 2); // line 3 hash
 			const pRecover = preflightSmartAnchorEdits(content, [
 				{ pos: `4#${h3}`, end: `5#${h5}`, lines: ["  const sum = 30;"] },
 			]);
-			assert.strictEqual(pRecover.success, true);
-			assert.strictEqual(pRecover.resolvedSpans![0].recoveredNeighbor, true);
+			assert.strictEqual(pRecover.success, false, "neighboring hash must not authorize the requested line");
+			assert.match(pRecover.error || "", /\[E_STALE_ANCHOR\]/);
 
 			// Stale anchor rejection: arbitrary wrong hash
 			const pStale = preflightSmartAnchorEdits(content, [
@@ -125,7 +125,7 @@ export async function run(): Promise<void> {
 			assert.strictEqual(pOverlap.success, false);
 			assert.match(pOverlap.error!, /\[E_EDIT_CONFLICT\]/);
 
-			console.log("  ✓ Preflight and neighbor spillover recovery verified");
+			console.log("  ✓ Preflight, exact hashes, and stale-anchor fail-closed behavior verified");
 		}
 
 		// 4. File Mutation: Pure Deletion, Replacement, & Disjoint Multi-Block

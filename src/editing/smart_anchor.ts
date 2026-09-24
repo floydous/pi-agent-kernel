@@ -248,42 +248,25 @@ export function preflightSmartAnchorEdits(
 			};
 		}
 
-		let recoveredNeighbor = false;
-
-		// Verify Start Anchor Hash
+		// A supplied hash authenticates the exact requested line. Attention
+		// spillover must never redirect a write to a neighboring line.
 		if (startHash) {
 			const actualHash = computeLineHash(fileLines, startLine - 1);
 			if (actualHash !== startHash) {
-				// Neighbor tolerance check: attention spillover across adjacent lines
-				const prevHash = startLine > 1 ? computeLineHash(fileLines, startLine - 2) : undefined;
-				const nextHash = startLine < totalLines ? computeLineHash(fileLines, startLine) : undefined;
-
-				if (startHash === prevHash || startHash === nextHash) {
-					recoveredNeighbor = true;
-				} else {
-					return {
-						success: false,
-						error: formatStaleAnchorError(fileLines, startLine, startHash, actualHash),
-					};
-				}
+				return {
+					success: false,
+					error: formatStaleAnchorError(fileLines, startLine, startHash, actualHash),
+				};
 			}
 		}
 
-		// Verify End Anchor Hash
 		if (endHash) {
 			const actualEndHash = computeLineHash(fileLines, endLine - 1);
 			if (actualEndHash !== endHash) {
-				const prevHash = endLine > 1 ? computeLineHash(fileLines, endLine - 2) : undefined;
-				const nextHash = endLine < totalLines ? computeLineHash(fileLines, endLine) : undefined;
-
-				if (endHash === prevHash || endHash === nextHash) {
-					recoveredNeighbor = true;
-				} else {
-					return {
-						success: false,
-						error: formatStaleAnchorError(fileLines, endLine, endHash, actualEndHash),
-					};
-				}
+				return {
+					success: false,
+					error: formatStaleAnchorError(fileLines, endLine, endHash, actualEndHash),
+				};
 			}
 		}
 
@@ -292,7 +275,7 @@ export function preflightSmartAnchorEdits(
 			startLine,
 			endLine,
 			replacementLines,
-			recoveredNeighbor,
+			recoveredNeighbor: false,
 		});
 		targetRanges.push({ startLine, endLine });
 	}

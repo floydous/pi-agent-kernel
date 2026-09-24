@@ -117,7 +117,7 @@ export class LspManager {
     if (inFlight) return inFlight;
 
     // Resolve installed executable
-    const resolved = resolveLspServer(langKey);
+    const resolved = resolveLspServer(langKey, [], [rootDir]);
     if (!resolved) return null;
 
     const client = new StdioLspClient(clientId, {

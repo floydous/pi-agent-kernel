@@ -55,6 +55,14 @@ export function testMultiChannelStressMatrix(): void {
 		return absPath;
 	}
 
+	function sourceSlice(filePath: string, startLine: number, endLine: number): string {
+		return fs.readFileSync(filePath, "utf8")
+			.replace(/\r\n/g, "\n")
+			.split("\n")
+			.slice(startLine - 1, endLine)
+			.join("\n");
+	}
+
 	try {
 		const checksFile = createSourceFile("packages/zod/src/v4/core/checks.ts", 500);
 		const helperFile = createSourceFile("packages/zod/src/v4/core/util.ts", 300);
@@ -134,7 +142,13 @@ packages/zod/src/v4/core/util.ts:10:export const CONFIG_HEADER = true;
 
 		// SECTION B: SHELL PAGING OBSERVATION
 		// Test 4: head -n 25
-		guard.recordCommandExecution("head -n 25 packages/zod/src/v4/core/isolated.ts", tmpDir, session, true, "...");
+		guard.recordCommandExecution(
+			"head -n 25 packages/zod/src/v4/core/isolated.ts",
+			tmpDir,
+			session,
+			true,
+			sourceSlice(isolatedFile, 1, 25),
+		);
 		const recIso4 = guard.getEvidence(isolatedFile, session, tmpDir);
 		assertPass(
 			"head -n 25 records range [1, 25]",
@@ -143,7 +157,13 @@ packages/zod/src/v4/core/util.ts:10:export const CONFIG_HEADER = true;
 		);
 
 		// Test 5: tail -n 20
-		guard.recordCommandExecution("tail -n 20 packages/zod/src/v4/core/isolated.ts", tmpDir, session, true, "...");
+		guard.recordCommandExecution(
+			"tail -n 20 packages/zod/src/v4/core/isolated.ts",
+			tmpDir,
+			session,
+			true,
+			sourceSlice(isolatedFile, 81, 100),
+		);
 		const recIso5 = guard.getEvidence(isolatedFile, session, tmpDir);
 		assertPass(
 			"tail -n 20 records range [81, 100]",
@@ -157,7 +177,7 @@ packages/zod/src/v4/core/util.ts:10:export const CONFIG_HEADER = true;
 			tmpDir,
 			session,
 			true,
-			"...",
+			sourceSlice(isolatedFile, 40, 60),
 		);
 		const recIso6 = guard.getEvidence(isolatedFile, session, tmpDir);
 		assertPass(
@@ -165,6 +185,34 @@ packages/zod/src/v4/core/util.ts:10:export const CONFIG_HEADER = true;
 			recIso6 !== null && recIso6.coverage.ranges.some((r) => r.startLine === 40 && r.endLine === 60),
 			{ recIso6 },
 		);
+
+		const syntheticPaging = parsePagingAndDiffOutput(
+			"head -n 25 packages/zod/src/v4/core/isolated.ts",
+			"1:fake\n2:fake",
+			[isolatedFile],
+			tmpDir,
+		);
+		assertPass(
+			"Synthetic paging output is rejected",
+			!syntheticPaging.has(isolatedFile),
+			{ syntheticPaging },
+		);
+
+		const emptySession = "paging-empty";
+		guard.recordCommandExecution(
+			`head -n 2 "${isolatedFile}" > /dev/null`,
+			tmpDir,
+			emptySession,
+			false,
+			"",
+		);
+		const emptyEvidence = guard.getEvidence(isolatedFile, emptySession, tmpDir);
+		assertPass(
+			"Redirected head with no output records no read lines",
+			emptyEvidence === null || emptyEvidence.kind !== "read" || emptyEvidence.coverage.ranges.length === 0,
+			{ emptyEvidence },
+		);
+		guard.resetSession(emptySession);
 
 		// SECTION C: COMPILER & STACK TRACE EXTRACTION
 		// Test 7: Rust compiler error

@@ -27,12 +27,12 @@ export async function testAgentKernelCommand(): Promise<void> {
 			},
 		};
 
-		let currentConfig = loadKernelConfig(ws.tempDir);
+		let currentConfig = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		let lastInvalidatedContext: any = null;
 		const deps = {
 			getConfig: (_cwd: string) => currentConfig,
 			invalidateConfig: (_cwd: string, ctx?: any) => {
-				currentConfig = loadKernelConfig(ws.tempDir);
+				currentConfig = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 				lastInvalidatedContext = ctx;
 			},
 		};
@@ -63,28 +63,28 @@ export async function testAgentKernelCommand(): Promise<void> {
 		await registeredCommand.handler("set tools all", mockCtx);
 		const globalPath = getGlobalConfigPath();
 		assertPass("Global config file created", fs.existsSync(globalPath), { globalPath });
-		const reloadedConfig = loadKernelConfig(ws.tempDir);
+		const reloadedConfig = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		assertPass("Passive Shield tools updated to true", reloadedConfig.retrieval.enable_tools === true, { reloadedConfig });
 
 		// 4. Test CLI `set epistemic off`
 		await registeredCommand.handler("set epistemic off", mockCtx);
-		const epistemicOff = loadKernelConfig(ws.tempDir);
+		const epistemicOff = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		assertPass("Epistemic guard updated to false", epistemicOff.safety.enable_epistemic_guard === false, { epistemicOff });
 
 		// 5. Test CLI `set profile full`
 		await registeredCommand.handler("set profile full", mockCtx);
-		const profileFull = loadKernelConfig(ws.tempDir);
+		const profileFull = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		assertPass("Retrieval profile updated to 'full'", profileFull.retrieval.default_profile === "full", { profileFull });
 
 		// 6. Test CLI `set pi_docs off`
 		await registeredCommand.handler("set pi_docs off", mockCtx);
-		const piDocsOff = loadKernelConfig(ws.tempDir);
+		const piDocsOff = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		assertPass("Pi docs updated to false", piDocsOff.instructions.pi_docs === false, { piDocsOff });
 
 		// 7. Test CLI `reset`
 		await registeredCommand.handler("reset", mockCtx);
 		assertPass("Global config file removed after reset", !fs.existsSync(globalPath), { globalPath });
-		const resetConfig = loadKernelConfig(ws.tempDir);
+		const resetConfig = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		assertPass("Reset restored default profile 'lean'", resetConfig.retrieval.default_profile === "lean", { resetConfig });
 		assertPass("Reset restored default epistemic guard true", resetConfig.safety.enable_epistemic_guard === true, { resetConfig });
 		assertPass("Reset restored default pi_docs true", resetConfig.instructions.pi_docs === true, { resetConfig });
@@ -151,7 +151,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 
 		const applyConfigChanges = (cwd: string, ctx?: any) => {
 			const workspace = path.resolve(cwd);
-			currentConfig = loadKernelConfig(workspace);
+			currentConfig = loadKernelConfig(workspace, { projectTrusted: true });
 			const newProfile = currentConfig.retrieval.default_profile;
 			const index = searchIndexes.get(workspace);
 			if (index && index.getProfile() !== newProfile) {
@@ -201,14 +201,14 @@ export async function testAgentKernelCommand(): Promise<void> {
 		const globalSettingsPath = path.join(path.dirname(getGlobalConfigPath()), "search_settings.json");
 		const hadGlobalBefore = fs.existsSync(globalSettingsPath);
 		savePersistedProfile("full", ws.tempDir);
-		const localConfig = loadKernelConfig(ws.tempDir);
-		assertPass("Workspace local profile is full", localConfig.retrieval.default_profile === "full");
+		const localConfig = loadKernelConfig(ws.tempDir, { projectTrusted: true });
+		assertPass("Workspace local profile is full", localConfig.retrieval.default_profile === "full", { localConfig });
 		if (!hadGlobalBefore) {
 			assertPass("Workspace profile save did not leak global search_settings.json", !fs.existsSync(globalSettingsPath));
 		}
 
 		// 12. Fresh index initialization observes the persisted profile from disk
-		const freshProjectIndex = new HybridSearchIndex(ws.tempDir);
+		const freshProjectIndex = new HybridSearchIndex(ws.tempDir, undefined, { projectTrusted: true });
 		assertPass("Fresh index in project loads project profile override from disk", freshProjectIndex.getProfile() === "full");
 
 		// 13. Verify TUI modal defers execution until closed (cycling lean -> hybrid -> full does not trigger hybrid)

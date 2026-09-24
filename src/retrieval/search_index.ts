@@ -3,6 +3,9 @@ import * as path from "node:path";
 import * as os from "node:os";
 import * as crypto from "node:crypto";
 import {
+	MAX_INDEX_CHUNKS,
+	MAX_INDEX_FILE_BYTES,
+	MAX_INDEX_WORKSPACE_BYTES,
 	type CodeChunk,
 	chunkFile,
 	computeHash,
@@ -19,6 +22,8 @@ import {
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 import { TreeSitterEngine } from "./tree_sitter_engine";
+import { getSearchCacheDir } from "./search_cache";
+export { getSearchCacheDir } from "./search_cache";
 
 const INDEX_VERSION = 3;
 const EXTRACTOR_GENERATION = "tree-sitter-wasm-v2";
@@ -29,6 +34,140 @@ interface PersistedVectorCache {
 	vectorChunkHashes?: string[];
 	vectorHash: string;
 	fileName: string;
+}
+
+interface PersistedIndexSnapshot {
+	chunks: CodeChunk[];
+	fileHashes: Map<string, string>;
+	ignoreConfigHashes: Map<string, string>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function canonicalWorkspaceFile(cwd: string, relativePath: string): string {
+	if (
+		!relativePath ||
+		path.isAbsolute(relativePath) ||
+		relativePath.includes("\\") ||
+		relativePath === ".." ||
+		relativePath.startsWith("../") ||
+		relativePath.split("/").includes("..")
+	) {
+		throw new Error(`Unsafe persisted file path: ${relativePath}`);
+	}
+	const canonicalRoot = fs.realpathSync(path.resolve(cwd));
+	const absolutePath = path.resolve(canonicalRoot, relativePath);
+	const canonicalFile = fs.realpathSync(absolutePath);
+	const relative = path.relative(canonicalRoot, canonicalFile);
+	if (
+		relative === ".." ||
+		relative.startsWith(`..${path.sep}`) ||
+		path.isAbsolute(relative)
+	) {
+		throw new Error(`Persisted file escapes workspace: ${relativePath}`);
+	}
+	return canonicalFile;
+}
+
+export function validatePersistedIndex(
+	data: unknown,
+	cwd: string,
+): PersistedIndexSnapshot {
+	if (!isRecord(data)) throw new Error("Persisted index must be an object");
+	if (data.version !== INDEX_VERSION || data.extractorGeneration !== EXTRACTOR_GENERATION) {
+		throw new Error("Persisted index version mismatch");
+	}
+	if (!Array.isArray(data.chunks) || !isRecord(data.fileHashes)) {
+		throw new Error("Persisted index has invalid chunks or file hashes");
+	}
+
+	const fileHashes = new Map<string, string>();
+	const chunksByFile = new Map<string, CodeChunk[]>();
+	for (const [filePath, hash] of Object.entries(data.fileHashes)) {
+		if (typeof hash !== "string" || !/^[0-9a-f]{16}$/i.test(hash)) {
+			throw new Error(`Invalid persisted hash for ${filePath}`);
+		}
+		canonicalWorkspaceFile(cwd, filePath);
+		fileHashes.set(filePath, hash);
+	}
+
+	const ids = new Set<string>();
+	for (const value of data.chunks) {
+		if (!isRecord(value)) throw new Error("Persisted chunk must be an object");
+		const chunk = value as unknown as CodeChunk;
+		if (
+			typeof chunk.id !== "string" ||
+			!chunk.id ||
+			ids.has(chunk.id) ||
+			typeof chunk.filePath !== "string" ||
+			!fileHashes.has(chunk.filePath) ||
+			!Number.isSafeInteger(chunk.startLine) ||
+			!Number.isSafeInteger(chunk.endLine) ||
+			chunk.startLine < 1 ||
+			chunk.endLine < chunk.startLine ||
+			typeof chunk.content !== "string" ||
+			typeof chunk.hash !== "string" ||
+			chunk.hash !== computeHash(chunk.content)
+		) {
+			throw new Error(`Invalid persisted chunk: ${String(chunk?.id ?? "<unknown>")}`);
+		}
+		ids.add(chunk.id);
+		const list = chunksByFile.get(chunk.filePath) || [];
+		list.push(chunk);
+		chunksByFile.set(chunk.filePath, list);
+	}
+
+	const validatedChunks: CodeChunk[] = [];
+	for (const [filePath, expectedHash] of fileHashes) {
+		const absolutePath = canonicalWorkspaceFile(cwd, filePath);
+		const source = fs.readFileSync(absolutePath, "utf8");
+		if (computeHash(source) !== expectedHash) {
+			throw new Error(`Persisted source hash mismatch: ${filePath}`);
+		}
+		const sourceLines = source.split("\n");
+		const fileChunks = chunksByFile.get(filePath) || [];
+		if (fileChunks.length === 0) {
+			throw new Error(`Persisted file has no chunks: ${filePath}`);
+		}
+		for (const chunk of fileChunks) {
+			if (chunk.endLine > sourceLines.length) {
+				throw new Error(`Persisted chunk exceeds source bounds: ${chunk.id}`);
+			}
+			const sourceSlice = sourceLines
+				.slice(chunk.startLine - 1, chunk.endLine)
+				.join("\n");
+			if (sourceSlice !== chunk.content) {
+				throw new Error(`Persisted chunk content mismatch: ${chunk.id}`);
+			}
+			chunk.absolutePath = absolutePath;
+			validatedChunks.push(chunk);
+		}
+	}
+
+	if (validatedChunks.length !== data.chunks.length) {
+		throw new Error("Persisted index contains chunks for unknown files");
+	}
+
+	const ignoreConfigHashes = new Map<string, string>();
+	if (data.ignoreConfigHashes !== undefined) {
+		if (!isRecord(data.ignoreConfigHashes)) {
+			throw new Error("Persisted ignore hashes must be an object");
+		}
+		for (const [name, hash] of Object.entries(data.ignoreConfigHashes)) {
+			if (
+				(name !== ".gitignore" && name !== ".piignore") ||
+				typeof hash !== "string" ||
+				!/^[0-9a-f]{16}$/i.test(hash)
+			) {
+				throw new Error(`Invalid persisted ignore hash: ${name}`);
+			}
+			ignoreConfigHashes.set(name, hash);
+		}
+	}
+
+	return { chunks: validatedChunks, fileHashes, ignoreConfigHashes };
 }
 
 export interface SearchHit {
@@ -67,10 +206,17 @@ export class HybridSearchIndex {
 	private activeSync: Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> | null = null;
 	private liveCheckPromise: Promise<boolean> | null = null;
 	private persistedVectorCaches: PersistedVectorCache[] = [];
+	private skippedOversizedFiles = new Set<string>();
+	private projectTrusted: boolean;
 
-	constructor(cwd: string, profile?: SearchProfile) {
+	constructor(
+		cwd: string,
+		profile?: SearchProfile,
+		options: { projectTrusted?: boolean } = {},
+	) {
 		this.cwd = cwd;
-		this.config = getSearchConfig(profile, cwd);
+		this.projectTrusted = options.projectTrusted === true;
+		this.config = getSearchConfig(profile, cwd, this.projectTrusted);
 		this.embedder = new LocalEmbedder(this.config);
 		this.loadFromDisk();
 	}
@@ -86,7 +232,7 @@ export class HybridSearchIndex {
 	public setProfile(profile: SearchProfile): void {
 		const oldEffective = this.config.effectiveProfile;
 		const oldProfile = this.config.profile;
-		this.config = getSearchConfig(profile, this.cwd);
+		this.config = getSearchConfig(profile, this.cwd, this.projectTrusted);
 		this.embedder.updateConfig(this.config);
 
 		if (oldProfile !== this.config.profile || oldEffective !== this.config.effectiveProfile) {
@@ -140,7 +286,7 @@ export class HybridSearchIndex {
 	}
 
 	private getCacheDir(): string {
-		return path.join(this.cwd, ".pi", "cache", "search");
+		return getSearchCacheDir(this.cwd);
 	}
 
 	private getIndexFilePath(): string {
@@ -260,45 +406,25 @@ export class HybridSearchIndex {
 		try {
 			const raw = fs.readFileSync(indexPath, "utf-8");
 			const data = JSON.parse(raw);
-
-			if (
-				data.version !== INDEX_VERSION ||
-				data.extractorGeneration !== EXTRACTOR_GENERATION
-			) {
-				return false;
-			}
+			const validated = validatePersistedIndex(data, this.cwd);
 
 			this.chunks.clear();
 			this.bm25.clear();
 			this.fileHashes.clear();
+			this.ignoreConfigHashes.clear();
 			this.vectors.clear();
 			this.persistedVectorCaches = [];
 
-			for (const chunk of data.chunks as CodeChunk[]) {
-				// Normalize chunk.filePath alias if chunk was serialized with file
-				if (!chunk.filePath && (chunk as any).file) {
-					chunk.filePath = (chunk as any).file;
-				}
-				// Rebase absolutePath to the current workspace root if paths differ
-				if (chunk.filePath && this.cwd) {
-					chunk.absolutePath = path.resolve(this.cwd, chunk.filePath);
-				}
+			for (const chunk of validated.chunks) {
 				this.chunks.set(chunk.id, chunk);
 				this.bm25.addChunk(chunk);
 			}
 			this.bm25.recalculateStats();
-
-			for (const [f, h] of Object.entries(data.fileHashes || {})) {
-				this.fileHashes.set(f, h as string);
+			for (const [file, hash] of validated.fileHashes) {
+				this.fileHashes.set(file, hash);
 			}
-
-			this.ignoreConfigHashes.clear();
-			if (data.ignoreConfigHashes && typeof data.ignoreConfigHashes === "object") {
-				for (const [f, h] of Object.entries(data.ignoreConfigHashes)) {
-					if (typeof h === "string") {
-						this.ignoreConfigHashes.set(f, h);
-					}
-				}
+			for (const [file, hash] of validated.ignoreConfigHashes) {
+				this.ignoreConfigHashes.set(file, hash);
 			}
 
 			this.persistedVectorCaches = this.getPersistedVectorCaches(data);
@@ -309,7 +435,12 @@ export class HybridSearchIndex {
 				(cache) => cache.vectorDim === this.config.matryoshkaDim,
 			);
 			if (wantsVectors && activeCache) {
-				this.loadVectorCache(activeCache);
+				try {
+					this.loadVectorCache(activeCache);
+				} catch (error) {
+					this.vectors.clear();
+					kernelDebug(error);
+				}
 			}
 
 			const vectorsReady =
@@ -321,7 +452,8 @@ export class HybridSearchIndex {
 					));
 			this.isInitialized = vectorsReady;
 			return true;
-		} catch {
+		} catch (error) {
+			kernelDebug(error);
 			return false;
 		}
 	}
@@ -332,19 +464,6 @@ export class HybridSearchIndex {
 	public saveToDisk(): void {
 		try {
 			const cacheDir = this.getCacheDir();
-			if (!fs.existsSync(cacheDir)) {
-				fs.mkdirSync(cacheDir, { recursive: true });
-			}
-
-			// Ensure .gitignore exists in .pi/cache
-			const gitignorePath = path.join(this.cwd, ".pi", "cache", ".gitignore");
-			if (!fs.existsSync(gitignorePath)) {
-				try {
-					fs.writeFileSync(gitignorePath, "*\n!.gitignore\n", "utf-8");
-				} catch (e) {
-					kernelDebug(e);
-				}
-			}
 
 			const chunkList = Array.from(this.chunks.values());
 			const fileHashesObj: Record<string, string> = {};
@@ -564,10 +683,28 @@ export class HybridSearchIndex {
 
 	private getWorkspaceFileHashes(): Map<string, string> | null {
 		const hashes = new Map<string, string>();
-		for (const filePath of findChunkableFiles(this.cwd)) {
+		let workspaceBytes = 0;
+		const files = findChunkableFiles(this.cwd).sort();
+		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
 			try {
-				hashes.set(relPath, computeHash(fs.readFileSync(filePath, "utf8")));
+				const stat = fs.statSync(filePath);
+				if (!stat.isFile() || stat.size > MAX_INDEX_FILE_BYTES) {
+					this.skippedOversizedFiles.add(relPath);
+					continue;
+				}
+				if (workspaceBytes + stat.size > MAX_INDEX_WORKSPACE_BYTES) {
+					this.skippedOversizedFiles.add(relPath);
+					continue;
+				}
+				const content = fs.readFileSync(filePath, "utf8");
+				const actualBytes = Buffer.byteLength(content, "utf8");
+				if (actualBytes > MAX_INDEX_FILE_BYTES || workspaceBytes + actualBytes > MAX_INDEX_WORKSPACE_BYTES) {
+					this.skippedOversizedFiles.add(relPath);
+					continue;
+				}
+				workspaceBytes += actualBytes;
+				hashes.set(relPath, computeHash(content));
 			} catch (error) {
 				kernelDebug(error);
 				return null;
@@ -656,7 +793,8 @@ export class HybridSearchIndex {
 			onProgress?.("Scanning workspace files...");
 
 			// Ensure Tree-sitter parsers are warm for languages present in this workspace
-			const chunkableFiles = findChunkableFiles(this.cwd);
+			const chunkableFiles = findChunkableFiles(this.cwd).sort();
+			this.skippedOversizedFiles.clear();
 			const workspaceExts = new Set<string>();
 			for (const f of chunkableFiles) {
 				const ext = path.extname(f).toLowerCase();
@@ -671,14 +809,34 @@ export class HybridSearchIndex {
 				string,
 				{ hash: string; chunks: CodeChunk[] }
 			>();
+			let workspaceBytes = 0;
+			let workspaceChunks = 0;
 			for (const absPath of chunkableFiles) {
 				const relPath = path.relative(this.cwd, absPath).replace(/\\/g, "/");
 				try {
+					const stat = fs.statSync(absPath);
+					if (!stat.isFile() || stat.size > MAX_INDEX_FILE_BYTES) {
+						this.skippedOversizedFiles.add(relPath);
+						continue;
+					}
+					if (workspaceBytes + stat.size > MAX_INDEX_WORKSPACE_BYTES) {
+						this.skippedOversizedFiles.add(relPath);
+						continue;
+					}
 					const content = fs.readFileSync(absPath, "utf-8");
-					currentFiles.set(relPath, {
-						hash: computeHash(content),
-						chunks: chunkFile(this.cwd, absPath, content),
-					});
+					const actualBytes = Buffer.byteLength(content, "utf8");
+					if (actualBytes > MAX_INDEX_FILE_BYTES || workspaceBytes + actualBytes > MAX_INDEX_WORKSPACE_BYTES) {
+						this.skippedOversizedFiles.add(relPath);
+						continue;
+					}
+					const chunks = chunkFile(this.cwd, absPath, content);
+					if (workspaceChunks + chunks.length > MAX_INDEX_CHUNKS) {
+						this.skippedOversizedFiles.add(relPath);
+						continue;
+					}
+					workspaceBytes += actualBytes;
+					workspaceChunks += chunks.length;
+					currentFiles.set(relPath, { hash: computeHash(content), chunks });
 				} catch (error) {
 					kernelDebug(error);
 				}
@@ -839,6 +997,17 @@ export class HybridSearchIndex {
 		}
 	}
 
+	private removeIndexedFile(relPath: string): void {
+		this.bm25.removeFile(relPath);
+		this.fileHashes.delete(relPath);
+		for (const chunkId of Array.from(this.chunks.keys())) {
+			if (chunkId.startsWith(`${relPath}:`)) {
+				this.chunks.delete(chunkId);
+				this.vectors.delete(chunkId);
+			}
+		}
+	}
+
 	/**
 	 * Transactional incremental update of a single file in the index.
 	 * Chunks only this file, reuses existing vectors for unchanged chunks by content hash,
@@ -887,10 +1056,40 @@ export class HybridSearchIndex {
 				return;
 			}
 
-			// Read file content with TOCTOU protection
+			// Read file content with bounded allocation and TOCTOU protection
 			let content: string;
 			try {
+				const stat = fs.statSync(resolvedPath);
+				if (!stat.isFile() || stat.size > MAX_INDEX_FILE_BYTES) {
+					this.skippedOversizedFiles.add(relPath);
+					this.removeIndexedFile(relPath);
+					this.dirtyFiles.delete(relPath);
+					this.scheduleDebouncedSave();
+					return;
+				}
+				let workspaceBytes = 0;
+				for (const indexedPath of this.fileHashes.keys()) {
+					if (indexedPath === relPath) continue;
+					try {
+						const indexedStat = fs.statSync(path.join(this.cwd, indexedPath));
+						if (indexedStat.isFile()) workspaceBytes += indexedStat.size;
+					} catch {}
+				}
+				if (workspaceBytes + stat.size > MAX_INDEX_WORKSPACE_BYTES) {
+					this.skippedOversizedFiles.add(relPath);
+					this.removeIndexedFile(relPath);
+					this.dirtyFiles.delete(relPath);
+					this.scheduleDebouncedSave();
+					return;
+				}
 				content = fs.readFileSync(resolvedPath, "utf-8");
+				if (Buffer.byteLength(content, "utf8") > MAX_INDEX_FILE_BYTES) {
+					this.skippedOversizedFiles.add(relPath);
+					this.removeIndexedFile(relPath);
+					this.dirtyFiles.delete(relPath);
+					this.scheduleDebouncedSave();
+					return;
+				}
 			} catch (err: any) {
 				if (err?.code === "ENOENT") {
 					// File was removed concurrently between existsSync and readFileSync
@@ -929,6 +1128,15 @@ export class HybridSearchIndex {
 			}
 
 			const newChunks = chunkFile(this.cwd, resolvedPath, content);
+			const currentChunksForFile = Array.from(this.chunks.keys()).filter((id) => id.startsWith(`${relPath}:`)).length;
+			if (this.chunks.size - currentChunksForFile + newChunks.length > MAX_INDEX_CHUNKS) {
+				this.skippedOversizedFiles.add(relPath);
+				this.removeIndexedFile(relPath);
+				this.dirtyFiles.delete(relPath);
+				this.scheduleDebouncedSave();
+				return;
+			}
+			this.skippedOversizedFiles.delete(relPath);
 			const wantsVectors =
 				this.config.effectiveProfile === "hybrid" ||
 				this.config.effectiveProfile === "full";
@@ -1094,7 +1302,7 @@ export class HybridSearchIndex {
 				.toLowerCase()
 				.includes(options.filePattern.replace(/\\/g, "/").toLowerCase());
 		const activeConfig = options.profile
-			? getSearchConfig(options.profile)
+			? getSearchConfig(options.profile, this.cwd, this.projectTrusted)
 			: this.config;
 
 		// 1. BM25 Search (Instant AST-tokenized lexical retrieval)
@@ -1199,6 +1407,7 @@ export class HybridSearchIndex {
 		profile: SearchProfile;
 		effectiveProfile: "lean" | "hybrid" | "full" | "off";
 		fileCount: number;
+		skippedFiles: number;
 		chunkCount: number;
 		vectorCount: number;
 		isModelLoaded: boolean;
@@ -1209,6 +1418,7 @@ export class HybridSearchIndex {
 		pipelineDesc: string;
 		hardwareInfo: string;
 	} {
+		const modelRevision = this.config.modelRevision.slice(0, 12);
 		const isModelLoaded = this.embedder.isLoaded();
 		const isModelCached = this.embedder.isCachedOnDisk();
 		let modelStatus = "";
@@ -1222,20 +1432,20 @@ export class HybridSearchIndex {
 			pipelineDesc = "AST-tokenized BM25 Lexical Retrieval";
 		} else if (this.config.effectiveProfile === "hybrid") {
 			if (isModelLoaded) {
-				modelStatus = "Active in RAM (Nomic v1.5 Matryoshka 256-dim)";
+				modelStatus = `Active in RAM (Nomic v1.5 Matryoshka 256-dim, rev ${modelRevision})`;
 			} else if (isModelCached) {
-				modelStatus = "Cached on disk (Loads on-demand into RAM)";
+				modelStatus = `Cached on disk (revision ${modelRevision})`;
 			} else {
-				modelStatus = "Not downloaded (~135 MB)";
+				modelStatus = `Not downloaded (~135 MB, revision ${modelRevision})`;
 			}
 			pipelineDesc = "Hybrid BM25 + 256-dim Matryoshka Vector Search";
 		} else {
 			if (isModelLoaded) {
-				modelStatus = "Active in RAM (Nomic v1.5 768-dim)";
+				modelStatus = `Active in RAM (Nomic v1.5 768-dim, rev ${modelRevision})`;
 			} else if (isModelCached) {
-				modelStatus = "Cached on disk (Loads on-demand into RAM)";
+				modelStatus = `Cached on disk (revision ${modelRevision})`;
 			} else {
-				modelStatus = "Not downloaded (~135 MB)";
+				modelStatus = `Not downloaded (~135 MB, revision ${modelRevision})`;
 			}
 			pipelineDesc = "Full BM25 + 768-dim Semantic Vector Search";
 		}
@@ -1257,6 +1467,7 @@ export class HybridSearchIndex {
 			profile: this.config.profile,
 			effectiveProfile: this.config.effectiveProfile,
 			fileCount: this.fileHashes.size,
+			skippedFiles: this.skippedOversizedFiles.size,
 			chunkCount: this.chunks.size,
 			vectorCount: this.vectors.size,
 			isModelLoaded,

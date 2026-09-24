@@ -18,10 +18,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -35,8 +35,17 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Check package contents
-        run: npm pack --dry-run
+      - name: Build canonical release artifact
+        run: node .github/scripts/release-artifact.mjs
+
+      - name: Upload verified release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verified-package
+          path: release-package/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
 
   publish:
     needs: verify
@@ -49,36 +58,40 @@ jobs:
 
     steps:
       - name: Check out tagged commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           registry-url: "https://registry.npmjs.org"
 
-      - name: Publish package via Trusted Publisher
-        run: npm publish --provenance --access public
+      - name: Download verified release artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: verified-package
+          path: release-package
+
+      - name: Verify release artifact integrity
+        id: artifact
+        shell: bash
+        run: node .github/scripts/release-artifact.mjs verify
+
+      - name: Validate release tag and npm publication state
+        id: release-check
+        shell: bash
+        run: node .github/scripts/npm-version-guard.mjs
+
+      - name: Publish verified package via Trusted Publisher
+        if: steps.release-check.outputs.publish == 'true'
+        run: npm publish "release-package/${{ steps.artifact.outputs.filename }}" --provenance --access public
 
       - name: Create or verify GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            node -e '
-              const fs = require("fs");
-              const tag = process.env.GITHUB_REF_NAME.replace(/^v/, "");
-              const cl = fs.readFileSync("CHANGELOG.md", "utf8");
-              const startIdx = cl.search(new RegExp("## \\[" + tag.replace(/\./g, "\\.") + "\\]"));
-              if (startIdx === -1) {
-                fs.writeFileSync("RELEASE_NOTES.tmp", cl.slice(0, 2000));
-                process.exit(0);
-              }
-              const rest = cl.slice(startIdx);
-              const nextIdx = rest.slice(1).search(/## \[/);
-              const section = nextIdx !== -1 ? rest.slice(0, nextIdx + 1).trim() : rest.trim();
-              fs.writeFileSync("RELEASE_NOTES.tmp", section);
-            '
-            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes-file RELEASE_NOTES.tmp
-            rm -f RELEASE_NOTES.tmp
+            notes_file="$(node .github/scripts/release-notes.mjs)"
+            trap 'rm -rf "$(dirname "$notes_file")"' EXIT
+            gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes-file "$notes_file"
           fi

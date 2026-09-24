@@ -4,6 +4,7 @@ import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { kernelDebug } from "../safety/kernel_debug";
+import { writeFileSyncAtomic } from "../safety/atomic_write";
 import {
 	applySurgicalPatch,
 	applyMultiBlockPatch,
@@ -28,6 +29,24 @@ import {
 } from "../safety/epistemic_guard";
 import { loadKernelConfig } from "../config";
 import type { SessionDeps } from "./context";
+
+function mutationLockKey(filePath: string): string {
+	const resolved = path.resolve(filePath);
+	return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+export async function withFileMutationLocks<T>(
+	filePaths: string[],
+	operation: () => Promise<T>,
+): Promise<T> {
+	const { withFileMutationQueue } = await import("@earendil-works/pi-coding-agent");
+	const keys = [...new Set(filePaths.map(mutationLockKey))].sort();
+	const run = (index: number): Promise<T> =>
+		index >= keys.length
+			? operation()
+			: withFileMutationQueue(keys[index]!, () => run(index + 1));
+	return run(0);
+}
 
 interface PreparedFileEdit {
 	resolvedPath: string;
@@ -207,26 +226,31 @@ async function applyPreparedEdit(
 	prepared: PreparedFileEdit,
 	ctx: any,
 	deps: SessionDeps,
-): Promise<{ success: boolean; error?: string; verification?: any; strategy?: string; statusText?: string }> {
+): Promise<{ success: boolean; mutated: boolean; error?: string; verification?: any; strategy?: string; statusText?: string }> {
 	const { resolvedPath, relPath, item, isAnchorMode, hasSingleBlock, hasMultiBlock, anchorBlocks, anchorPreflight, targetRanges } = prepared;
+	const editingMode = deps.getConfig?.(ctx.cwd)?.editing?.mode ?? "smart_anchor";
+	const autoHeal = editingMode !== "standard";
 	let patchRes: ReturnType<typeof applySurgicalPatch>;
 	if (isAnchorMode) {
 		patchRes = applySmartAnchorEdits(resolvedPath, anchorBlocks);
 	} else if (hasMultiBlock) {
-		patchRes = applyMultiBlockPatch(resolvedPath, item.edits);
+		patchRes = applyMultiBlockPatch(resolvedPath, item.edits, { autoHeal });
 	} else if (hasSingleBlock) {
 		const singleOpt = {
 			startLine: item.start_line,
 			endLine: item.end_line,
 			lineHint: item.line_hint,
 		};
-		patchRes = applySurgicalPatch(resolvedPath, item.search, item.replace, singleOpt);
+		patchRes = applySurgicalPatch(resolvedPath, item.search, item.replace, {
+			...singleOpt,
+			autoHeal,
+		});
 	} else {
-		return { success: false, error: `[EDIT ERROR] Must provide either smart anchors or 'search' and 'replace' strings.` };
+		return { success: false, mutated: false, error: `[EDIT ERROR] Must provide either smart anchors or 'search' and 'replace' strings.` };
 	}
 
 	if (!patchRes.success) {
-		return { success: false, error: renderEditFailure(patchRes.error || "patch failed") };
+		return { success: false, mutated: false, error: renderEditFailure(patchRes.error || "patch failed") };
 	}
 
 	let diskContent: string;
@@ -267,7 +291,7 @@ async function applyPreparedEdit(
 		},
 	);
 
-	deps.invalidateSearchFile?.(ctx.cwd, resolvedPath);
+	await deps.invalidateSearchFile?.(ctx.cwd, resolvedPath);
 
 	const readyLsp = LspManager.getInstance().getReadyClientForFile(resolvedPath, ctx.cwd);
 	if (readyLsp && readyLsp.getState() === "ready") {
@@ -305,6 +329,7 @@ async function applyPreparedEdit(
 	const statusText = renderPostEditVerification(verification, undefined, relPath);
 	return {
 		success: verification.syntax.state !== "failed",
+		mutated: true,
 		verification,
 		strategy: patchRes.strategy,
 		statusText,
@@ -427,6 +452,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				const effectiveCtx = ctx || { cwd: effectiveCwd };
 				// Check for duplicate canonical paths
 				const seenPaths = new Set<string>();
+				const lockPaths: string[] = [];
 				for (const item of fileEdits) {
 					if (!item || typeof item !== "object" || !item.path) {
 						return { content: [{ type: "text", text: "[EDIT ERROR] Malformed file edit entry." }], isError: true };
@@ -440,8 +466,10 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						};
 					}
 					seenPaths.add(lookupKey);
+					lockPaths.push(canonical);
 				}
 
+				return withFileMutationLocks(lockPaths, async () => {
 				onUpdate?.({
 					content: [{ type: "text", text: `Preflighting ${fileEdits.length} file edits...` }],
 				});
@@ -472,8 +500,14 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					}
 				}
 
-				// Step 3: Apply mutations with rollback guard
-				onUpdate?.({
+			const sessionId = deps.getSessionId(ctx);
+			const originalEvidence = new Map(preparedList.map((prep) => [
+				prep.resolvedPath,
+				globalEpistemicGuard.getEvidence(prep.resolvedPath, sessionId, ctx.cwd),
+			]));
+
+			// Step 3: Apply mutations with rollback guard
+			onUpdate?.({
 					content: [{ type: "text", text: `Applying edits to ${preparedList.length} files...` }],
 				});
 
@@ -484,9 +518,9 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 				for (const prepared of preparedList) {
 					try {
-						const outcome = await applyPreparedEdit(prepared, ctx, deps);
-						outcomes.push(outcome);
-						mutatedPaths.push(prepared.resolvedPath);
+					const outcome = await applyPreparedEdit(prepared, ctx, deps);
+					outcomes.push(outcome);
+					if (outcome.mutated) mutatedPaths.push(prepared.resolvedPath);
 						if (!outcome.success) {
 							failureEncountered = true;
 							failureReason = outcome.error || outcome.statusText || "Verification failed";
@@ -500,32 +534,71 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				}
 
 				// Rollback if any write or verification failed
-				if (failureEncountered) {
-					for (const mutated of mutatedPaths) {
-						const backup = originalSnapshots.get(mutated);
-						if (backup !== undefined) {
-							try {
-								fs.writeFileSync(mutated, backup, "utf8");
-							} catch (rbErr) {
-								kernelDebug(rbErr);
-							}
+			if (failureEncountered) {
+				const rollbackFailures: string[] = [];
+				for (const mutated of mutatedPaths) {
+					const backup = originalSnapshots.get(mutated);
+					if (backup === undefined) continue;
+					try {
+						writeFileSyncAtomic(mutated, backup);
+						if (fs.readFileSync(mutated, "utf8") !== backup) {
+							throw new Error("restored content verification failed");
 						}
+					} catch (rbErr) {
+						rollbackFailures.push(`${path.basename(mutated)}: ${rbErr instanceof Error ? rbErr.message : String(rbErr)}`);
+						continue;
 					}
+
+					globalEpistemicGuard.restoreEvidence(
+						mutated,
+						sessionId,
+						originalEvidence.get(mutated) || null,
+						ctx.cwd,
+					);
+					try {
+						await deps.invalidateSearchFile?.(ctx.cwd, mutated);
+					} catch (indexErr) {
+						rollbackFailures.push(`${path.basename(mutated)} index: ${indexErr instanceof Error ? indexErr.message : String(indexErr)}`);
+					}
+					try {
+						const client = LspManager.getInstance().getReadyClientForFile(mutated, ctx.cwd);
+						if (client?.getState() === "ready") {
+							await client.changeDocument(mutated, backup);
+							await client.saveDocument(mutated, backup);
+						}
+					} catch (lspErr) {
+						rollbackFailures.push(`${path.basename(mutated)} LSP: ${lspErr instanceof Error ? lspErr.message : String(lspErr)}`);
+					}
+				}
+				if (rollbackFailures.length > 0) {
 					return {
-						content: [{ type: "text", text: `[EDIT FAILED - ROLLED BACK] Multi-file edit aborted and rolled back: ${failureReason}` }],
+						content: [{ type: "text", text: `[EDIT FAILED - PARTIAL ROLLBACK] Multi-file edit aborted; recovery errors: ${rollbackFailures.join("; ")}` }],
+						details: { rolledBack: false, recoveryErrors: rollbackFailures },
 						isError: true,
 					};
 				}
-
-				const affectedPaths = preparedList.map((p) => p.relPath);
 				return {
-					content: [{ type: "text", text: `Successfully applied edits to ${affectedPaths.length} files: ${affectedPaths.join(", ")}.` }],
-					details: { multiFile: true, count: affectedPaths.length, files: affectedPaths },
+					content: [{ type: "text", text: `[EDIT FAILED - ROLLED BACK] Multi-file edit aborted and all file/index/LSP/guard state restored: ${failureReason}` }],
+					details: { rolledBack: true },
+					isError: true,
 				};
 			}
 
-			// Single-file execution
-			const preflight = preflightFileEdit(params, ctx, deps, benchmarkMethod);
+				const affectedPaths = preparedList.map((p) => p.relPath);
+					return {
+						content: [{ type: "text", text: `Successfully applied edits to ${affectedPaths.length} files: ${affectedPaths.join(", ")}.` }],
+						details: { multiFile: true, count: affectedPaths.length, files: affectedPaths },
+					};
+				});
+			}
+
+			// Single-file execution. Queue the complete preflight through
+			// post-verification sequence against host write/edit operations.
+			const singleLockPath = typeof params?.path === "string"
+				? mutationLockKey(resolveUserPath(params.path, ctx.cwd))
+				: mutationLockKey(path.resolve(ctx.cwd, "__invalid_edit_target__"));
+			return withFileMutationLocks([singleLockPath], async () => {
+				const preflight = preflightFileEdit(params, ctx, deps, benchmarkMethod);
 			if (preflight.error || !preflight.prepared) {
 				return {
 					content: [{ type: "text", text: preflight.error || "[EDIT FAILED] Preflight check failed." }],
@@ -559,6 +632,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						(finding: any) => finding.severity === "error" || !finding.severity,
 					),
 			};
+			});
 		},
 		renderCall(args: any, theme: any, context: any) {
 			const fileEdits: string[] = [];

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { HybridSearchIndex } from "../../src/retrieval/search_index";
+import { HybridSearchIndex, getSearchCacheDir } from "../../src/retrieval/search_index";
 import { LocalEmbedder } from "../../src/retrieval/search_embedder";
 import { getSearchConfig } from "../../src/retrieval/search_config";
 import { formatDocumentSymbols } from "../../src/lsp/lsp_formatter";
@@ -80,7 +80,7 @@ async function runIntensiveTests() {
     const idx1 = new HybridSearchIndex(testWorkspaceDir, "lean");
     const res1 = await idx1.syncWorkspace(false);
     assert(res1.chunkCount > 0, "Initial sync workspace creates chunks in cache");
-    assert(fs.existsSync(path.join(testWorkspaceDir, ".pi", "cache", "search", "index.json")), "index.json written to disk");
+    assert(fs.existsSync(path.join(getSearchCacheDir(testWorkspaceDir), "index.json")), "index.json written to disk");
 
     // Startup scenario: instantiate new HybridSearchIndex on existing cached directory without force reindex
     const idx2 = new HybridSearchIndex(testWorkspaceDir, "lean");

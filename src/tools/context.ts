@@ -9,7 +9,7 @@ export interface SessionDeps {
  /** Load runtime settings for the active workspace. */
 	getConfig?: (cwd: string) => import("../config").KernelConfig;
 	/** Mark a successfully mutated file stale in the workspace index. */
-	invalidateSearchFile?: (cwd: string, filePath: string) => void;
+	invalidateSearchFile?: (cwd: string, filePath: string) => void | Promise<void>;
 }
 
 export interface SearchDeps extends SessionDeps {

@@ -3,6 +3,10 @@
 //
 // Select a suite with `npx tsx tests/run-all.ts <suite-key>`.
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 async function runSuiteModule(load: () => Promise<{ run?: () => void | Promise<void> }>): Promise<void> {
 	const mod = await load();
 	if (typeof mod.run !== "function") {
@@ -19,6 +23,142 @@ interface TestEntry {
 }
 
 const suites: TestEntry[] = [
+	{
+		name: "Isolated Output Spillovers",
+		key: "spillover-isolation",
+		loader: () => runSuiteModule(() => import("./output-clamping/spillover_isolation.test")),
+	},
+	{
+		name: "Editing Mode Contract",
+		key: "editing-mode",
+		loader: () => runSuiteModule(() => import("./editing/editing_mode.test")),
+	},
+	{
+		name: "Configuration Scope Precedence",
+		key: "config-scope",
+		loader: () => runSuiteModule(() => import("./toml-config/scope_precedence.test")),
+	},
+	{
+		name: "Atomic File Metadata Safety",
+		key: "atomic-metadata",
+		loader: () => runSuiteModule(() => import("./safety/atomic_metadata.test")),
+	},
+	{
+		name: "Bounded LSP Output",
+		key: "lsp-output-bounds",
+		loader: () => runSuiteModule(() => import("./lsp-formatters/limits.test")),
+	},
+	{
+		name: "Read and Index Resource Budgets",
+		key: "resource-budgets",
+		loader: () => runSuiteModule(() => import("./packaging/resource_limits.test")),
+	},
+	{
+		name: "Immutable Embedding Model Revision",
+		key: "model-revision",
+		loader: () => runSuiteModule(() => import("./retrieval/model_revision.test")),
+	},
+	{
+		name: "Production Dependency Policy",
+		key: "dependency-policy",
+		loader: () => runSuiteModule(() => import("./packaging/dependency_policy.test")),
+	},
+	{
+		name: "Extension Tool Collision Policy",
+		key: "tool-collision",
+		loader: () => runSuiteModule(() => import("./extension-lifecycle/tool_collision.test")),
+	},
+	{
+		name: "Explicit Session Repair Command",
+		key: "session-repair-command",
+		loader: () => runSuiteModule(() => import("./session-repair/command_test")),
+	},
+	{
+		name: "Multi-File Rollback State",
+		key: "multifile-rollback-state",
+		loader: () => runSuiteModule(() => import("./editing/multifile_rollback_state.test")),
+	},
+	{
+		name: "File Mutation Concurrency",
+		key: "mutation-concurrency",
+		loader: () => runSuiteModule(() => import("./editing/mutation_concurrency.test")),
+	},
+	{
+		name: "Smart Anchor Integrity",
+		key: "smart-anchor-integrity",
+		loader: () => runSuiteModule(() => import("./editing/smart_anchor_integrity.test")),
+	},
+	{
+		name: "Shell Paging Evidence",
+		key: "guard-paging-evidence",
+		loader: () => runSuiteModule(() => import("./epistemic-guard/paging_evidence.test")),
+	},
+	{
+		name: "Code Search Evidence Ranges",
+		key: "guard-search-evidence",
+		loader: () => runSuiteModule(() => import("./code-search-output/evidence_ranges.test")),
+	},
+	{
+		name: "Pinned LSP Installer Boundary",
+		key: "lsp-install-boundary",
+		loader: () => runSuiteModule(() => import("./lsp-manager/installer_boundary.test")),
+	},
+	{
+		name: "LSP Process Boundary",
+		key: "lsp-process-boundary",
+		loader: () => runSuiteModule(() => import("./lsp-uri-and-detection/process_boundary.test")),
+	},
+	{
+		name: "Trusted LSP Executable Resolution",
+		key: "lsp-resolution",
+		loader: () => runSuiteModule(() => import("./lsp-uri-and-detection/executable_resolution.test")),
+	},
+	{
+		name: "Kernel Configuration Validation",
+		key: "config-validation",
+		loader: () => runSuiteModule(() => import("./toml-config/config_validation.test")),
+	},
+	{
+		name: "Project Configuration Trust",
+		key: "config-trust",
+		loader: () => runSuiteModule(() => import("./security-hardening/project_config_trust.test")),
+	},
+	{
+		name: "Persisted Search Content Integrity",
+		key: "cache-integrity",
+		loader: () => runSuiteModule(() => import("./retrieval/cache_integrity.test")),
+	},
+	{
+		name: "Search Cache Path Containment",
+		key: "cache-containment",
+		loader: () => runSuiteModule(() => import("./retrieval/cache_containment.test")),
+	},
+	{
+		name: "System Prompt Boundary",
+		key: "prompt-boundary",
+		loader: () => runSuiteModule(() => import("./security-hardening/system_prompt_boundary.test")),
+	},
+	{
+		name: "Runtime Packaging Dependencies",
+		key: "packaging-runtime",
+		loader: () => runSuiteModule(() => import("./packaging/runtime_dependency_test")),
+	},
+	{
+		name: "Verified Release Artifact",
+		key: "ci-artifact",
+		loader: () => runSuiteModule(() => import("./ci/release_artifact_test")),
+	},
+
+	{
+		name: "Immutable GitHub Action Pins",
+		key: "ci-pinning",
+		loader: () => runSuiteModule(() => import("./ci/workflow_pinning_test")),
+	},
+	{
+		name: "Release Version Guard",
+		key: "release-guard",
+		loader: () => runSuiteModule(() => import("./release/version_guard_test")),
+	},
 	{
 		name: "Tree-Sitter WASM AST Engine",
 		key: "tree-sitter",
@@ -241,32 +381,44 @@ async function main(): Promise<void> {
 		throw new Error(`Unknown suite: ${requestedKey}`);
 	}
 
+	const previousPiDir = process.env.PI_DIR;
+	const testPiDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-agent-kernel-test-pi-"));
+	process.env.PI_DIR = testPiDir;
+
 	const startTime = Date.now();
 	let passed = 0;
 	let failed = 0;
 
-	for (const entry of selectedSuites) {
-		try {
-			// Suite modules expose an explicit run() entry point; importing alone does not run tests.
-			await entry.loader();
-			passed++;
-		} catch (err) {
-			console.error(`\n✗ Suite '${entry.name}' threw:`, err);
-			failed++;
+	try {
+		for (const entry of selectedSuites) {
+			try {
+				// Suite modules expose an explicit run() entry point; importing alone does not run tests.
+				await entry.loader();
+				passed++;
+			} catch (err) {
+				console.error(`\n✗ Suite '${entry.name}' threw:`, err);
+				failed++;
+			}
 		}
-	}
 
-	const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-	console.log("\n=================================================");
-	console.log(
-		`Suite complete: ${passed} passed, ${failed} failed (${elapsed}s)`,
-	);
-	console.log("=================================================");
-	process.exit(failed > 0 ? 1 : 0);
+		const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+		console.log("\n=================================================");
+		console.log(
+			`Suite complete: ${passed} passed, ${failed} failed (${elapsed}s)`,
+		);
+		console.log("=================================================");
+		process.exitCode = failed > 0 ? 1 : 0;
+	} finally {
+		if (previousPiDir === undefined) delete process.env.PI_DIR;
+		else process.env.PI_DIR = previousPiDir;
+		fs.rmSync(testPiDir, { recursive: true, force: true });
+	}
 }
 
-main().catch((err) => {
-	// Final guard: if the runner itself throws, exit non-zero.
-	console.error("Test execution failed:", err);
-	process.exit(1);
-});
+main()
+  .then(() => process.exit(process.exitCode ?? 0))
+  .catch((err) => {
+    // Final guard: if the runner itself throws, exit non-zero.
+    console.error("Test execution failed:", err);
+    process.exit(1);
+  });

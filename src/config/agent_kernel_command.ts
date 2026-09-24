@@ -16,6 +16,7 @@ import {
 	loadKernelConfig,
 	saveGlobalKernelConfig,
 	removeGlobalKernelConfigKey,
+	removeProjectKernelConfigKey,
 	saveProjectKernelConfig,
 	mergeDeep,
 	getGlobalConfigPath,
@@ -420,9 +421,9 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						isGlobal: checkIsGlobal("editing"),
 						descriptions: {
 							smart_anchor:
-								"Smart Anchors: Deterministic Tree-sitter WASM validation (<2ms), lexical delimiter balancing, and line-hint disambiguation.",
+								"Smart Anchors: syntax validation, lexical delimiter balancing, and line-hint disambiguation.",
 							standard:
-								"Standard editing: Standard exact string replacement without delimiter auto-healing or Tree-sitter syntax verification.",
+								"Standard editing: exact string replacement with delimiter auto-healing disabled; the common syntax safety gate remains enabled.",
 						},
 					},
 					{
@@ -575,6 +576,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						const globalUpdates: KernelConfigOverrides = {};
 						const projectUpdates: KernelConfigOverrides = {};
 						const revertedGlobals: Array<{ section: string; key: string }> = [];
+						const revertedProjects: Array<{ section: string; key: string }> = [];
 
 						for (const item of this.items) {
 							const initial = this.initialStates.get(item.id);
@@ -589,6 +591,10 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 
 								if (item.isGlobal) {
 									mergeDeep(globalUpdates, patch);
+									if (!initial.isGlobal) {
+										const meta = getSettingSectionAndKey(item.id);
+										if (meta) revertedProjects.push(meta);
+									}
 								} else {
 									if (initial.isGlobal) {
 										const meta = getSettingSectionAndKey(item.id);
@@ -600,19 +606,28 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						}
 
 						if (hasChanges) {
-							for (const { section, key } of revertedGlobals) {
-								removeGlobalKernelConfigKey(section, key);
-							}
-							if (Object.keys(globalUpdates).length > 0) {
-								saveGlobalKernelConfig(globalUpdates);
-							}
-							if (Object.keys(projectUpdates).length > 0) {
-								saveProjectKernelConfig(currentCwd, projectUpdates);
-							}
+							try {
+								if (Object.keys(globalUpdates).length > 0) {
+									saveGlobalKernelConfig(globalUpdates);
+								}
+								if (Object.keys(projectUpdates).length > 0) {
+									saveProjectKernelConfig(currentCwd, projectUpdates);
+								}
+								for (const { section, key } of revertedGlobals) {
+									removeGlobalKernelConfigKey(section, key);
+								}
+								for (const { section, key } of revertedProjects) {
+									removeProjectKernelConfigKey(currentCwd, section, key);
+								}
 
-							deps.invalidateConfig(currentCwd, ctx);
-							deps.clearCaches?.();
-							ctx.ui?.notify?.("Applied Agent Kernel configuration changes.", "info");
+								deps.invalidateConfig(currentCwd, ctx);
+								deps.clearCaches?.();
+								ctx.ui?.notify?.("Applied Agent Kernel configuration changes.", "info");
+							} catch (error) {
+								const message = error instanceof Error ? error.message : String(error);
+								ctx.ui?.notify?.(`Failed to apply Agent Kernel configuration: ${message}`, "error");
+								console.error(`[agent-kernel] Configuration apply failed: ${message}`);
+							}
 						}
 
 						this.onCancel();

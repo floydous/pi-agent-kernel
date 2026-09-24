@@ -108,22 +108,13 @@ export class LocalEmbedder {
 			for (const dir of candidateDirs) {
 				if (!fs.existsSync(dir)) continue;
 
-				// Check for ONNX files or snapshot folders
-				const onnxPath = path.join(dir, "onnx");
-				if (fs.existsSync(onnxPath)) {
-					const files = fs.readdirSync(onnxPath);
-					if (files.some((f) => f.endsWith(".onnx"))) return true;
-				}
-
-				const snapshots = path.join(dir, "snapshots");
-				if (fs.existsSync(snapshots)) {
-					const files = fs.readdirSync(snapshots);
-					if (files.length > 0) return true;
-				}
-
-				const rootFiles = fs.readdirSync(dir);
-				if (rootFiles.some((f) => f.endsWith(".onnx") || f === "config.json")) {
-					return true;
+				for (const revisionDir of [
+					path.join(dir, this.config.modelRevision),
+					path.join(dir, "snapshots", this.config.modelRevision),
+				]) {
+					if (fs.existsSync(revisionDir) && fs.readdirSync(revisionDir).length > 0) {
+						return true;
+					}
 				}
 			}
 		} catch (e) {
@@ -175,6 +166,7 @@ export class LocalEmbedder {
 				this.layerNormFn = layer_norm;
 
 				this.extractor = await pipeline("feature-extraction", this.config.modelId, {
+					revision: this.config.modelRevision,
 					dtype: this.config.dtype,
 					progress_callback: (p: any) => {
 						if (p.status === "progress" && p.total && p.loaded) {

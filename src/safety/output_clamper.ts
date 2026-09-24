@@ -1,13 +1,16 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import * as crypto from "node:crypto";
+import { getPiHomeDir } from "../config/kernel_config";
 import { kernelDebug } from "./kernel_debug";
 
 export interface ClampingOptions {
 	maxLineLength?: number; // Maximum width per line (default: 300)
 	maxLines?: number; // Maximum lines shown to model (default: 40)
 	maxTotalBytes?: number; // Maximum total bytes before spilling (default: 20 * 1024 = 20 KB)
+	spilloverDir?: string;
+	maxSpilloverFiles?: number;
+	maxSpilloverBytes?: number;
 }
 
 export interface ClampingResult {
@@ -18,6 +21,89 @@ export interface ClampingResult {
 	returnedBytes: number;
 	totalLines: number;
 	shownLines: number;
+}
+
+const SPILL_PREFIX = "pi_bash_spillover_";
+const DEFAULT_SPILL_FILES = 20;
+const DEFAULT_SPILL_BYTES = 50 * 1024 * 1024;
+
+export function getSpilloverRoot(cwd = process.cwd()): string {
+	const base = getPiHomeDir();
+	const workspaceId = crypto
+		.createHash("sha256")
+		.update(process.platform === "win32" ? path.resolve(cwd).toLowerCase() : path.resolve(cwd))
+		.digest("hex")
+		.slice(0, 24);
+	return path.join(base, "cache", "pi-agent-kernel", "spillover", workspaceId);
+}
+
+function ensureSpilloverDirectory(directory: string): string {
+	fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+	const stat = fs.lstatSync(directory);
+	if (!stat.isDirectory() || stat.isSymbolicLink()) {
+		throw new Error("Spillover directory must be a real directory");
+	}
+	return fs.realpathSync(directory);
+}
+
+function isOwnedRegularFile(filePath: string): boolean {
+	try {
+		const stat = fs.lstatSync(filePath);
+		if (!stat.isFile() || stat.isSymbolicLink()) return false;
+		const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+		return uid === undefined || stat.uid === uid;
+	} catch {
+		return false;
+	}
+}
+
+function pruneSpillovers(directory: string, maxFiles: number, maxBytes: number): void {
+	const files = fs
+		.readdirSync(directory)
+		.filter((name) => name.startsWith(SPILL_PREFIX))
+		.map((name) => {
+			const full = path.join(directory, name);
+			try {
+				const stat = fs.lstatSync(full);
+				return { full, size: stat.size, mtime: stat.mtimeMs, owned: isOwnedRegularFile(full) };
+			} catch {
+				return { full, size: 0, mtime: 0, owned: false };
+			}
+		})
+		.filter((item) => item.owned)
+		.sort((a, b) => a.mtime - b.mtime);
+	let totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+	let remainingFiles = files.length;
+	for (const file of files) {
+		if (remainingFiles <= maxFiles && totalBytes <= maxBytes) break;
+		try {
+			fs.unlinkSync(file.full);
+			totalBytes -= file.size;
+			remainingFiles--;
+		} catch {}
+	}
+}
+
+function writeSpillover(rawText: string, directory: string, maxFiles: number, maxBytes: number): string {
+	const realDirectory = ensureSpilloverDirectory(directory);
+	let candidate = "";
+	for (let attempt = 0; attempt < 5; attempt++) {
+		candidate = path.join(realDirectory, `${SPILL_PREFIX}${crypto.randomBytes(16).toString("hex")}.log`);
+		try {
+			const fd = fs.openSync(candidate, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL, 0o600);
+			try {
+				fs.writeFileSync(fd, rawText, "utf8");
+				fs.fsyncSync(fd);
+			} finally {
+				fs.closeSync(fd);
+			}
+			pruneSpillovers(realDirectory, maxFiles, maxBytes);
+			return candidate;
+		} catch (error: any) {
+			if (error?.code !== "EEXIST") throw error;
+		}
+	}
+	throw new Error("Unable to create an exclusive spillover file");
 }
 
 /**
@@ -118,41 +204,12 @@ export function clampCommandOutput(
 		};
 	}
 
-	// Save complete raw output to temporary spillover file (with bounded rotation by mtime to prevent unbounded tmp growth)
 	let spilloverPath: string | undefined;
 	try {
-		const tempDir = os.tmpdir();
-		// Prune older spillover logs (> 20 files, oldest first by mtime)
-		try {
-			const files = fs
-				.readdirSync(tempDir)
-				.filter((f) => f.startsWith("pi_bash_spillover_"))
-				.map((name) => {
-					const full = path.join(tempDir, name);
-					try {
-						const stat = fs.lstatSync(full);
-						return { name, full, isFile: stat.isFile() && !stat.isSymbolicLink(), mtime: stat.mtimeMs };
-					} catch {
-						return { name, full, isFile: false, mtime: 0 };
-					}
-				})
-				.filter((item) => item.isFile)
-				.sort((a, b) => a.mtime - b.mtime);
-
-			if (files.length > 20) {
-				const toDelete = files.slice(0, files.length - 20);
-				for (const item of toDelete) {
-					try {
-						fs.unlinkSync(item.full);
-					} catch {}
-				}
-			}
-		} catch {}
-
-		const hash = crypto.randomBytes(4).toString("hex");
-		const candidatePath = path.join(tempDir, `pi_bash_spillover_${hash}.log`);
-		fs.writeFileSync(candidatePath, rawText, { encoding: "utf8", mode: 0o600 });
-		spilloverPath = candidatePath;
+		const directory = options?.spilloverDir || getSpilloverRoot();
+		const maxFiles = options?.maxSpilloverFiles ?? DEFAULT_SPILL_FILES;
+		const maxBytes = options?.maxSpilloverBytes ?? DEFAULT_SPILL_BYTES;
+		spilloverPath = writeSpillover(rawText, directory, maxFiles, maxBytes);
 	} catch (e) {
 		kernelDebug(e);
 	}

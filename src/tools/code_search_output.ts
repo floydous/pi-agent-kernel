@@ -13,10 +13,17 @@ const PREVIEW_CHAR_LIMIT = 1_400;
 const AUTO_FULL_CHAR_LIMIT = 6_000;
 const AUTO_PREVIEW_HIT_LIMIT = 3;
 
+export interface VisibleCodeRange {
+	chunkId: string;
+	startLine: number;
+	endLine: number;
+}
+
 export interface FormattedCodeSearchResults {
 	text: string;
 	mode: Exclude<CodeSearchMode, "auto"> | "mixed";
 	truncated: boolean;
+	visibleRanges: VisibleCodeRange[];
 }
 
 function normalizePath(filePath: string): string {
@@ -77,7 +84,10 @@ function bestMatchingLine(lines: string[], queryTerms: string[]): number {
  * the search decision while avoiding a forced full-file read in the common
  * multi-result case.
  */
-function queryPreview(hit: SearchHit, query: string): string {
+function queryPreview(
+	hit: SearchHit,
+	query: string,
+): { text: string; visibleRange?: VisibleCodeRange } {
 	const lines = hit.chunk.content.split("\n");
 	const terms = Array.from(new Set(tokenizeCode(query)));
 	const bestLine = bestMatchingLine(lines, terms);
@@ -93,10 +103,18 @@ function queryPreview(hit: SearchHit, query: string): string {
 	const before = start > 0 ? `... lines ${hit.chunk.startLine}-${lineStart - 1} omitted ...\n` : "";
 	const after = end < lines.length ? `\n... lines ${lineEnd + 1}-${hit.chunk.endLine} omitted ...` : "";
 	const boundedExcerpt = `${before}${excerpt}${after}`;
-	const clipped = boundedExcerpt.length > PREVIEW_CHAR_LIMIT
+	const clipped = boundedExcerpt.length > PREVIEW_CHAR_LIMIT;
+	const previewBody = clipped
 		? `${boundedExcerpt.slice(0, PREVIEW_CHAR_LIMIT)}\n... preview clipped ...`
 		: boundedExcerpt;
-	return `${hitHeader(hit)}\n\`\`\`${languageFor(hit.chunk.filePath)}\n${clipped}\n\`\`\``;
+	return {
+		text: `${hitHeader(hit)}\n\`\`\`${languageFor(hit.chunk.filePath)}\n${previewBody}\n\`\`\``,
+		// A char-clipped body may omit most of its final line, so it cannot
+		// authorize a complete source line. Omit the range instead of guessing.
+		visibleRange: clipped
+			? undefined
+			: { chunkId: hit.chunk.id, startLine: lineStart, endLine: lineEnd },
+	};
 }
 
 function clipToBudget(text: string, budget: number): string {
@@ -105,28 +123,39 @@ function clipToBudget(text: string, budget: number): string {
 	return `${text.slice(0, budget - 27)}\n... output clipped ...`;
 }
 
-function applyBudget(entries: string[], budget: number): { text: string; truncated: boolean } {
+interface BudgetEntry {
+	text: string;
+	visibleRange?: VisibleCodeRange;
+}
+
+function applyBudget(
+	entries: BudgetEntry[],
+	budget: number,
+): { text: string; truncated: boolean; visibleRanges: VisibleCodeRange[] } {
 	const selected: string[] = [];
+	const visibleRanges: VisibleCodeRange[] = [];
 	let used = 0;
 	let omitted = 0;
 	let truncated = false;
 
 	for (let index = 0; index < entries.length; index++) {
+		const entry = entries[index]!;
 		const separator = selected.length > 0 ? "\n\n" : "";
-		const candidateLength = separator.length + entries[index].length;
+		const candidateLength = separator.length + entry.text.length;
 		if (used + candidateLength <= budget) {
-			selected.push(entries[index]);
+			selected.push(entry.text);
 			used += candidateLength;
+			if (entry.visibleRange) visibleRanges.push(entry.visibleRange);
 			continue;
 		}
 
 		if (selected.length === 0) {
-			const clipped = clipToBudget(entries[index], budget);
+			const clipped = clipToBudget(entry.text, budget);
 			selected.push(clipped);
 			used = clipped.length;
-			truncated = clipped.length < entries[index].length;
-			// The first entry is present (possibly clipped), so only entries after
-			// it are "additional" matches omitted from the response.
+			truncated = clipped.length < entry.text.length;
+			// A clipped entry cannot prove that its full declared source range
+			// was returned, so its evidence range is intentionally omitted.
 			omitted = entries.length - index - 1;
 		} else {
 			omitted = entries.length - index;
@@ -146,7 +175,7 @@ function applyBudget(entries: string[], budget: number): { text: string; truncat
 		}
 	}
 
-	return { text: selected.join("\n\n"), truncated };
+	return { text: selected.join("\n\n"), truncated, visibleRanges };
 }
 
 function resolveAutoMode(hits: SearchHit[]): Exclude<CodeSearchMode, "auto"> | "mixed" {
@@ -180,10 +209,12 @@ function decorateResult(
 
 	const available = Math.max(0, AUTO_OUTPUT_BUDGET - header.length - 2);
 	const boundedText = clipToBudget(result.text, available);
+	const finalClipped = boundedText.length < result.text.length;
 	return {
 		...result,
 		text: `${header}\n\n${boundedText}`,
-		truncated: result.truncated || boundedText.length < result.text.length,
+		truncated: result.truncated || finalClipped,
+		visibleRanges: finalClipped ? [] : result.visibleRanges,
 	};
 }
 
@@ -205,6 +236,11 @@ export function formatCodeSearchResults(
 				text: hits.map(fullHit).join("\n\n"),
 				mode: "full",
 				truncated: false,
+				visibleRanges: hits.map((hit) => ({
+					chunkId: hit.chunk.id,
+					startLine: hit.chunk.startLine,
+					endLine: hit.chunk.endLine,
+				})),
 			},
 			requestedMode,
 			hits.length,
@@ -212,7 +248,10 @@ export function formatCodeSearchResults(
 	}
 
 	if (autoMode === "summary") {
-		const bounded = applyBudget(hits.map(summaryHit), AUTO_OUTPUT_BUDGET);
+		const bounded = applyBudget(
+			hits.map((hit) => ({ text: summaryHit(hit) })),
+			AUTO_OUTPUT_BUDGET,
+		);
 		return decorateResult({ ...bounded, mode: "summary" }, requestedMode, hits.length);
 	}
 
@@ -231,7 +270,7 @@ export function formatCodeSearchResults(
 		.map((hit) => queryPreview(hit, query));
 	const remainingSummary = hits
 		.slice(AUTO_PREVIEW_HIT_LIMIT)
-		.map(summaryHit);
+		.map((hit) => ({ text: summaryHit(hit) }));
 	const bounded = applyBudget([...topPreview, ...remainingSummary], AUTO_OUTPUT_BUDGET);
 	return decorateResult({ ...bounded, mode: "mixed" }, requestedMode, hits.length);
 }

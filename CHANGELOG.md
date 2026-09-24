@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.1] - 2026-09-24
+
+### Security
+- Removed repository diff injection from the system prompt, trusted project configuration only after project trust, validated all configuration fields, and bounded read/index/LSP output paths.
+- Excluded workspace executables from LSP resolution, added shell-free child launches with a minimal environment, and pinned language-server installers and the embedding model revision.
+- Moved retrieval caches to a trusted per-workspace directory, validated persisted chunks against current source, and made spillovers exclusive and bounded.
+
+### Fixed
+- Made smart anchors fail closed on stale hashes, serialized file mutations, and made multi-file rollback restore disk, index, LSP, and guard state or report partial recovery.
+- Made session repair explicit and locked, preserved atomic-write metadata, and made tool registration collision-aware.
+- Added clean-artifact, adversarial, release-guard, and cross-platform regression coverage.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

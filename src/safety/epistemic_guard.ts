@@ -422,52 +422,68 @@ export function parsePagingAndDiffOutput(
 	cwd = process.cwd(),
 ): Map<string, number[]> {
 	const result = new Map<string, number[]>();
-	if (candidateFiles.length === 0) return result;
+	if (candidateFiles.length === 0 || !outputText) return result;
 
 	const targetPath = path.isAbsolute(candidateFiles[0])
 		? path.normalize(candidateFiles[0])
 		: path.resolve(cwd, candidateFiles[0]);
 
-	let totalLines = 0;
-	if (fs.existsSync(targetPath)) {
-		try {
-			totalLines = fs.readFileSync(targetPath, "utf8").split(/\r?\n/).length;
-		} catch {
-			totalLines = 0;
-		}
+	let sourceLines: string[];
+	try {
+		const sourceText = fs.readFileSync(targetPath, "utf8").replace(/\r\n/g, "\n");
+		sourceLines = sourceText.split("\n");
+		if (sourceText.endsWith("\n")) sourceLines.pop();
+	} catch {
+		return result;
 	}
 
-	// 1. head -n <N>
+	const outputLines = outputText.replace(/\r\n/g, "\n").split("\n");
+	if (outputLines.at(-1) === "") outputLines.pop();
+	if (outputLines.length === 0) return result;
+
+	const matchesRange = (start: number, end: number): boolean => {
+		if (
+			!Number.isSafeInteger(start) ||
+			!Number.isSafeInteger(end) ||
+			start < 1 ||
+			end < start ||
+			end > sourceLines.length
+		) {
+			return false;
+		}
+		const expected = sourceLines.slice(start - 1, end);
+		return (
+			expected.length === outputLines.length &&
+			expected.every((line, index) => line === outputLines[index])
+		);
+	};
+
 	const headMatch = command.match(/\bhead\b.*?-n\s*(\d+)/i);
 	if (headMatch) {
-		const count = Math.min(parseInt(headMatch[1], 10), totalLines || 1000);
-		const lines: number[] = [];
-		for (let i = 1; i <= count; i++) lines.push(i);
-		result.set(targetPath, lines);
+		const end = Math.min(parseInt(headMatch[1]!, 10), sourceLines.length);
+		if (end > 0 && matchesRange(1, end)) {
+			result.set(targetPath, Array.from({ length: end }, (_, index) => index + 1));
+		}
 		return result;
 	}
 
-	// 2. tail -n <N>
 	const tailMatch = command.match(/\btail\b.*?-n\s*(\d+)/i);
 	if (tailMatch) {
-		const count = parseInt(tailMatch[1], 10);
-		const start = Math.max(1, (totalLines || count) - count + 1);
-		const end = totalLines || count;
-		const lines: number[] = [];
-		for (let i = start; i <= end; i++) lines.push(i);
-		result.set(targetPath, lines);
+		const count = Math.min(parseInt(tailMatch[1]!, 10), sourceLines.length);
+		const start = sourceLines.length - count + 1;
+		if (count > 0 && matchesRange(start, sourceLines.length)) {
+			result.set(targetPath, Array.from({ length: count }, (_, index) => start + index));
+		}
 		return result;
 	}
 
-	// 3. sed -n '<start>,<end>p'
 	const sedMatch = command.match(/\bsed\b.*?-n\s*['"]?(\d+),(\d+)p['"]?/i);
 	if (sedMatch) {
-		const start = parseInt(sedMatch[1], 10);
-		const end = parseInt(sedMatch[2], 10);
-		const lines: number[] = [];
-		for (let i = start; i <= end; i++) lines.push(i);
-		result.set(targetPath, lines);
-		return result;
+		const start = parseInt(sedMatch[1]!, 10);
+		const end = parseInt(sedMatch[2]!, 10);
+		if (matchesRange(start, end)) {
+			result.set(targetPath, Array.from({ length: end - start + 1 }, (_, index) => start + index));
+		}
 	}
 
 	return result;
@@ -819,16 +835,22 @@ export class EpistemicGuard {
 				outputText,
 			);
 		}
-		// Also scan outputText for polyglot compiler/test traces across the workspace
-		const traces = parseGrepOutput(outputText, files, cwd);
-		for (const [filePath, lineNumbers] of traces.entries()) {
-			const ranges = linesToRanges(lineNumbers);
-			if (ranges.length > 0) {
-				this.recordFileRead(filePath, sessionId, cwd, undefined, {
-					coverage: { complete: false, ranges },
-					provenance: "bash",
-					query: command,
-				});
+		// Also scan outputText for polyglot compiler/test traces across the
+		// workspace. Paging/search output already has stricter attribution above;
+		// feeding it into the generic grep parser would let synthetic `1:line`
+		// text manufacture read evidence.
+		const isPagingOrSearchOutput = /\b(head|tail|sed|grep|rg)\b/i.test(command);
+		if (!isPagingOrSearchOutput) {
+			const traces = parseGrepOutput(outputText, files, cwd);
+			for (const [filePath, lineNumbers] of traces.entries()) {
+				const ranges = linesToRanges(lineNumbers);
+				if (ranges.length > 0) {
+					this.recordFileRead(filePath, sessionId, cwd, undefined, {
+						coverage: { complete: false, ranges },
+						provenance: "bash",
+						query: command,
+					});
+				}
 			}
 		}
 		return files;
@@ -929,6 +951,15 @@ export class EpistemicGuard {
 			return { allowed: true, tier: 1 };
 		}
 
+		// Search metadata is useful for navigation but never authorizes mutation,
+		// regardless of how substantial the proposed replacement text is.
+		if (evidence.kind !== "read") {
+			return {
+				allowed: false,
+				reason: `[BLOCKED: Search metadata does not authorize edits -> read({ path: "${relPath}" })]`,
+			};
+		}
+
 		// Tier 2: Substantive unique block authorization
 		// If range math has gaps (e.g. grep context, compiler traces, symbol extraction boundaries),
 		// authorize if every search block is substantive (>=2 lines and >=35 chars, or >=50 chars).
@@ -962,6 +993,34 @@ export class EpistemicGuard {
 		cwd = process.cwd(),
 	): boolean {
 		return this.getSessionEvidence(sessionId).has(this.normalize(filePath, cwd));
+	}
+
+	public restoreEvidence(
+		filePath: string,
+		sessionId: string,
+		evidence: ContextEvidence | null,
+		cwd = process.cwd(),
+	): void {
+		const normalized = this.normalize(filePath, cwd);
+		const sessionEvidence = this.inspectedFilesBySession.get(sessionId);
+		if (!sessionEvidence) return;
+		if (!evidence) {
+			sessionEvidence.delete(normalized);
+			return;
+		}
+		sessionEvidence.set(normalized, {
+			kind: evidence.kind,
+			fingerprint: evidence.snapshot,
+			coverage: {
+				complete: evidence.coverage.complete,
+				ranges: evidence.coverage.ranges.map((range) => ({ ...range })),
+				...(evidence.coverage.totalLines === undefined
+					? {}
+					: { totalLines: evidence.coverage.totalLines }),
+			},
+			provenance: evidence.provenance,
+			...(evidence.query === undefined ? {} : { query: evidence.query }),
+		});
 	}
 
 	/** Return a stable, non-content ledger view for diagnostics and tests. */

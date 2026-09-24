@@ -66,6 +66,19 @@ function severityLabel(severity?: LspDiagnosticSeverity): string {
   }
 }
 
+const MAX_DEFINITIONS = 200;
+const MAX_REFERENCES = 200;
+const MAX_REFERENCE_FILE_BYTES = 1024 * 1024;
+const MAX_SYMBOLS = 100;
+const MAX_SYMBOL_DEPTH = 10;
+const MAX_HOVER_CHARS = 32 * 1024;
+const MAX_DIAGNOSTIC_MESSAGE_CHARS = 2 * 1024;
+
+function clipText(value: unknown, limit: number): string {
+  const text = String(value ?? "");
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
 /**
  * Symbol kind name lookup
  */
@@ -85,15 +98,17 @@ export function formatDiagnostics(
     return "";
   }
 
-  const lines: string[] = [];
-
-  for (const d of diagnostics) {
+  const visible = diagnostics.slice(0, 200);
+  const lines = visible.map((d) => {
     const sev = severityLabel(d.severity);
     const line = d.range.start.line + 1; // Convert 0-indexed to 1-indexed
     const col = d.range.start.character + 1;
     const codeStr = d.code !== undefined ? ` [${d.code}]` : "";
     const srcStr = d.source ? ` (${d.source})` : "";
-    lines.push(`- [${line}:${col}] [${sev}]${codeStr} ${d.message}${srcStr}`);
+    return `- [${line}:${col}] [${sev}]${codeStr} ${clipText(d.message, MAX_DIAGNOSTIC_MESSAGE_CHARS)}${srcStr}`;
+  });
+  if (diagnostics.length > visible.length) {
+    lines.push(`[Truncated: ${visible.length}/${diagnostics.length} diagnostics]`);
   }
 
   return lines.join("\n");
@@ -131,7 +146,8 @@ export function formatDefinitions(
     return "Definition not found.";
   }
 
-  const lines = locations.map((loc) => {
+  const visible = locations.slice(0, MAX_DEFINITIONS);
+  const lines = visible.map((loc) => {
     const filePath = uriToPath(loc.uri);
     const rawDisplay = cwd ? path.relative(cwd, filePath) || filePath : filePath;
     const displayPath = rawDisplay.replace(/\\/g, "/");
@@ -139,6 +155,9 @@ export function formatDefinitions(
     const col = loc.range.start.character + 1;
     return `${displayPath}:${line}:${col}`;
   });
+  if (locations.length > visible.length) {
+    lines.push(`[Truncated: ${visible.length}/${locations.length} definitions]`);
+  }
 
   return lines.join("\n");
 }
@@ -156,11 +175,11 @@ export function windowAround(
   const s = Math.max(0, Math.min(startCol0, normLine.length));
   const e = Math.max(s, Math.min(endCol0, normLine.length));
   const symLen = Math.max(1, e - s);
-  const effectiveBudget = Math.max(budget, symLen);
+  const effectiveBudget = Math.min(4096, Math.max(budget, symLen));
   const pad = Math.max(0, effectiveBudget - symLen);
   const left = Math.max(0, s - Math.floor(pad / 2));
   const right = Math.min(normLine.length, e + Math.ceil(pad / 2));
-  const snippet = normLine.slice(left, right).trim();
+  const snippet = normLine.slice(left, right).trim().slice(0, 4096);
   const prefix = left > 0 ? "... " : "";
   const suffix = right < normLine.length ? " ..." : "";
   return `${prefix}${snippet}${suffix}`.trim();
@@ -187,9 +206,12 @@ export function formatReferences(
     }
     try {
       if (fs.existsSync(filePath)) {
-        const lines = fs.readFileSync(filePath, "utf8").split("\n");
-        fileLinesCache.set(filePath, lines);
-        return lines;
+        const stat = fs.statSync(filePath);
+        if (stat.isFile() && stat.size <= MAX_REFERENCE_FILE_BYTES) {
+          const lines = fs.readFileSync(filePath, "utf8").split("\n");
+          fileLinesCache.set(filePath, lines);
+          return lines;
+        }
       }
     } catch {
       // Fall through to null for inaccessible/virtual files
@@ -198,7 +220,8 @@ export function formatReferences(
     return null;
   };
 
-  const lines = references.map((loc) => {
+  const visible = references.slice(0, MAX_REFERENCES);
+  const lines = visible.map((loc) => {
     const filePath = uriToPath(loc.uri);
     const rawDisplay = cwd ? path.relative(cwd, filePath) || filePath : filePath;
     const displayPath = rawDisplay.replace(/\\/g, "/");
@@ -221,7 +244,9 @@ export function formatReferences(
     const snippet = windowAround(rawLine, startCol0, endCol0, 50);
     return snippet ? `${baseLoc}: ${snippet}` : baseLoc;
   });
-
+  if (references.length > visible.length) {
+    lines.push(`[Truncated: ${visible.length}/${references.length} references]`);
+  }
   return lines.join("\n");
 }
 
@@ -245,7 +270,10 @@ export function formatHover(hover: LspHover | null | undefined): string {
   const rawText = extractText(hover.contents).trim();
   // Strip transient LSP loading state markers (e.g. tsserver / vtsls prefixing "(loading...) ")
   const cleanText = rawText.replace(/\(loading\.\.\.\)\s*/g, "").trim();
-  return cleanText || "No hover information available.";
+  if (!cleanText) return "No hover information available at this position.";
+  return cleanText.length > MAX_HOVER_CHARS
+    ? `${cleanText.slice(0, MAX_HOVER_CHARS)}\n[Hover truncated]`
+    : cleanText;
 }
 
 /**
@@ -259,30 +287,37 @@ export function formatDocumentSymbols(
   }
 
   const lines: string[] = [];
+  let emitted = 0;
+  let truncated = false;
 
   const renderSymbol = (s: any, depth = 0) => {
+    if (emitted >= MAX_SYMBOLS || depth > MAX_SYMBOL_DEPTH) {
+      truncated = true;
+      return;
+    }
     const indent = "  ".repeat(depth);
     const kind = symbolKindLabel(s.kind);
     const range = s.range || s.location?.range;
     const line = range ? range.start.line + 1 : 1;
-    const detail = s.detail ? ` (${s.detail})` : "";
-    lines.push(`${indent}${line}: [${kind}] ${s.name}${detail}`);
+    const detail = s.detail ? ` (${clipText(s.detail, 500)})` : "";
+    lines.push(`${indent}${line}: [${kind}] ${clipText(s.name, 200)}${detail}`);
+    emitted++;
 
     if (s.children && Array.isArray(s.children)) {
-      for (const child of s.children) {
-        renderSymbol(child, depth + 1);
-      }
+      for (const child of s.children) renderSymbol(child, depth + 1);
     }
   };
 
   for (const s of symbols) {
+    if (emitted >= MAX_SYMBOLS) {
+      truncated = true;
+      break;
+    }
     renderSymbol(s, 0);
   }
 
-  // Bounded output to prevent blowing context window on monolithic files
-  if (lines.length > 100) {
-    return lines.slice(0, 100).join("\n") + `\n\n[Truncated: 100/${lines.length} symbols shown]`;
+  if (truncated) {
+    lines.push(`[Truncated: ${emitted}/${symbols.length} symbols shown]`);
   }
-
   return lines.join("\n");
 }

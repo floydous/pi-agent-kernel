@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { HybridSearchIndex } from "../../src/retrieval/search_index";
+import { HybridSearchIndex, getSearchCacheDir } from "../../src/retrieval/search_index";
 import { getPiHomeDir } from "../../src/config";
 import { createTestWorkspace, PY_CODE, assertPass, logPass } from "../_setup";
 
@@ -27,7 +27,7 @@ export async function testVectorCacheSurvivesProfileSwitch(): Promise<void> {
 		(leanIndex as any).vectors = vectors;
 		(leanIndex as any).saveToDisk();
 
-		const cacheDir = path.join(ws.tempDir, ".pi", "cache", "search");
+		const cacheDir = getSearchCacheDir(ws.tempDir);
 		const indexPath = path.join(cacheDir, "index.json");
 		const initialCache = JSON.parse(fs.readFileSync(indexPath, "utf8"));
 		assertPass(

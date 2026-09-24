@@ -1,7 +1,8 @@
+import crossSpawnSync from "cross-spawn";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import * as https from "node:https";
-import { exec, execSync } from "node:child_process";
+import { buildLspEnvironment } from "./lsp_client";
 import {
   PI_LSP_BIN_DIR,
   LSP_SERVERS,
@@ -10,15 +11,7 @@ import {
 } from "./lsp_registry";
 import { kernelDebug } from "../safety/kernel_debug";
 
-/**
- * Ensure ~/.pi/lsp/bin directory exists
- */
-export function ensureLspBinDir(): string {
-  if (!fs.existsSync(PI_LSP_BIN_DIR)) {
-    fs.mkdirSync(PI_LSP_BIN_DIR, { recursive: true });
-  }
-  return PI_LSP_BIN_DIR;
-}
+const DEFAULT_INSTALL_TIMEOUT_MS = 120_000;
 
 export interface InstallResult {
   success: boolean;
@@ -26,9 +19,255 @@ export interface InstallResult {
   binPath?: string;
 }
 
+export interface InstallerSpec {
+  command: string;
+  args: string[];
+  verifyBin: string;
+  label: string;
+  timeoutMs?: number;
+}
+
+export interface InstallerCommandResult {
+  status: number | null;
+  stdout?: string;
+  stderr?: string;
+  error?: Error;
+}
+
+export type InstallerCommandResolver = (
+  command: string,
+) => string | null;
+export type InstallerCommandRunner = (
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    env: Record<string, string>;
+    shell: false;
+    windowsHide: true;
+    timeout: number;
+    encoding: "utf8";
+    stdio: "pipe";
+  },
+) => InstallerCommandResult;
+
+export function ensureLspBinDir(): string {
+  if (!fs.existsSync(PI_LSP_BIN_DIR)) {
+    fs.mkdirSync(PI_LSP_BIN_DIR, { recursive: true });
+  }
+  return PI_LSP_BIN_DIR;
+}
+
+const NPM_INSTALL = (
+  packages: string[],
+  verifyBin: string,
+  label: string,
+): InstallerSpec => ({
+  command: "npm",
+  args: ["install", "-g", ...packages],
+  verifyBin,
+  label,
+});
+
+const CARGO_INSTALL = (
+  crate: string,
+  version: string,
+  verifyBin: string,
+  label: string,
+  extraArgs: string[] = [],
+): InstallerSpec => ({
+  command: "cargo",
+  args: ["install", "--locked", crate, "--version", version, ...extraArgs],
+  verifyBin,
+  label,
+});
+
+export function getInstallerSpecs(): Record<string, InstallerSpec[]> {
+  return {
+    typescript: [
+      NPM_INSTALL(
+        ["@vtsls/language-server@0.3.0", "typescript@7.0.2"],
+        "vtsls",
+        "vtsls 0.3.0 and TypeScript 7.0.2",
+      ),
+    ],
+    python: [
+      {
+        command: "uv",
+        args: ["tool", "install", "ty==0.0.83"],
+        verifyBin: "ty",
+        label: "Astral ty 0.0.83",
+      },
+      NPM_INSTALL(["pyright@1.1.414"], "pyright-langserver", "Pyright 1.1.414"),
+    ],
+    go: [
+      {
+        command: "go",
+        args: ["install", "golang.org/x/tools/gopls@v0.23.0"],
+        verifyBin: "gopls",
+        label: "gopls v0.23.0",
+      },
+    ],
+    toml: [
+      CARGO_INSTALL(
+        "taplo-cli",
+        "0.10.0",
+        "taplo",
+        "Taplo CLI 0.10.0",
+        ["--features", "lsp"],
+      ),
+    ],
+    shell: [
+      NPM_INSTALL(
+        ["bash-language-server@5.8.1"],
+        "bash-language-server",
+        "bash-language-server 5.8.1",
+      ),
+    ],
+    html: [
+      NPM_INSTALL(
+        ["vscode-langservers-extracted@4.10.0"],
+        "vscode-html-language-server",
+        "vscode-langservers-extracted 4.10.0",
+      ),
+    ],
+    json: [
+      NPM_INSTALL(
+        ["@biomejs/biome@2.5.14"],
+        "biome",
+        "Biome 2.5.14",
+      ),
+      NPM_INSTALL(
+        ["vscode-langservers-extracted@4.10.0"],
+        "vscode-json-language-server",
+        "vscode-langservers-extracted 4.10.0",
+      ),
+    ],
+    yaml: [
+      NPM_INSTALL(
+        ["yaml-language-server@1.24.0"],
+        "yaml-language-server",
+        "yaml-language-server 1.24.0",
+      ),
+    ],
+    docker: [
+      NPM_INSTALL(
+        ["dockerfile-language-server-nodejs@0.15.0"],
+        "docker-langserver",
+        "dockerfile-language-server-nodejs 0.15.0",
+      ),
+    ],
+    php: [
+      NPM_INSTALL(
+        ["intelephense@1.18.5"],
+        "intelephense",
+        "Intelephense 1.18.5",
+      ),
+    ],
+    typst: [
+      CARGO_INSTALL("tinymist", "0.15.2", "tinymist", "Tinymist 0.15.2"),
+    ],
+    csharp: [
+      {
+        command: "dotnet",
+        args: ["tool", "install", "-g", "csharp-ls", "--version", "0.28.0"],
+        verifyBin: "csharp-ls",
+        label: "csharp-ls 0.28.0",
+      },
+    ],
+    ruby: [
+      {
+        command: "gem",
+        args: ["install", "ruby-lsp", "--version", "0.26.11", "--no-document"],
+        verifyBin: "ruby-lsp",
+        label: "ruby-lsp 0.26.11",
+      },
+    ],
+    sql: [
+      {
+        command: "go",
+        args: ["install", "github.com/sqls-server/sqls@v0.2.48"],
+        verifyBin: "sqls",
+        label: "sqls v0.2.48",
+      },
+    ],
+    latex: [
+      CARGO_INSTALL("texlab", "4.3.2", "texlab", "Texlab 4.3.2"),
+    ],
+    protobuf: [
+      CARGO_INSTALL("protols", "0.14.1", "protols", "Protols 0.14.1"),
+    ],
+  };
+}
+
+function defaultResolver(command: string): string | null {
+  return findExecutable(command, [], [process.cwd()]);
+}
+
+function defaultRunner(
+  command: string,
+  args: string[],
+  options: Parameters<InstallerCommandRunner>[2],
+): InstallerCommandResult {
+  return crossSpawnSync(command, args, options);
+}
+
+export function executeInstallerSpec(
+  spec: InstallerSpec,
+  dependencies: {
+    resolve?: InstallerCommandResolver;
+    run?: InstallerCommandRunner;
+    verify?: (binName: string) => InstallResult;
+  } = {},
+): InstallResult {
+  const resolve = dependencies.resolve || defaultResolver;
+  const run = dependencies.run || defaultRunner;
+  const verify = dependencies.verify || ((binName: string) =>
+    verifyInstalledBinary(binName));
+
+  let executable: string | null;
+  try {
+    executable = resolve(spec.command);
+  } catch (error) {
+    return {
+      success: false,
+      message: `Unable to resolve trusted ${spec.command} executable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+  if (!executable) {
+    return {
+      success: false,
+      message: `Required package manager '${spec.command}' was not found in a trusted executable directory.`,
+    };
+  }
+
+  try {
+    const result = run(executable, spec.args, {
+      cwd: os.homedir(),
+      env: buildLspEnvironment(),
+      shell: false,
+      windowsHide: true,
+      timeout: spec.timeoutMs || DEFAULT_INSTALL_TIMEOUT_MS,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      const detail = String(result.stderr || result.stdout || "").trim();
+      throw new Error(detail || `${spec.command} exited with status ${result.status}`);
+    }
+    return verify(spec.verifyBin);
+  } catch (error) {
+    return {
+      success: false,
+      message: `Failed to install ${spec.label}: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
 function verifyInstalledBinary(binName: string): InstallResult {
   clearExecutableCache();
-  const bin = findExecutable(binName);
+  const bin = findExecutable(binName, [], [process.cwd()]);
   if (bin) {
     return {
       success: true,
@@ -38,13 +277,18 @@ function verifyInstalledBinary(binName: string): InstallResult {
   }
   return {
     success: false,
-    message: `Installer completed, but binary '${binName}' was not found in PATH or LSP bin directory.`,
+    message: `Installer completed, but trusted binary '${binName}' was not found.`,
   };
 }
 
-/**
- * Install language server via npm, uv, cargo, or binary release
- */
+const MANUAL_INSTALLS: Record<string, string> = {
+  rust: "Install rust-analyzer through a reviewed rustup toolchain, then rerun /lsp install rust.",
+  markdown: "Install Marksman 2026-02-08 with your system package manager, then rerun /lsp install markdown.",
+  cpp: "Install reviewed LLVM/clangd 23.1.2, then rerun /lsp install cpp.",
+  zig: "Install reviewed ZLS 0.16.0, then rerun /lsp install zig.",
+  lua: "Install reviewed Lua Language Server 3.19.1, then rerun /lsp install lua.",
+};
+
 export async function installLanguageServer(
   languageOrKey: string,
   onProgress?: (msg: string) => void,
@@ -52,484 +296,25 @@ export async function installLanguageServer(
   const norm = languageOrKey.toLowerCase().trim();
   ensureLspBinDir();
 
-  onProgress?.(`Resolving server installer for '${norm}'...`);
+  const manual = MANUAL_INSTALLS[norm];
+  if (manual) return { success: false, message: manual };
 
-  // TypeScript / JavaScript: Install @vtsls/language-server + typescript
-  if (
-    norm === "typescript" ||
-    norm === "ts" ||
-    norm === "javascript" ||
-    norm === "js"
-  ) {
-    onProgress?.("Installing @vtsls/language-server & typescript via npm...");
-    try {
-      execSync(`npm install -g @vtsls/language-server typescript`, {
-        stdio: "pipe",
-        timeout: 120_000,
-      });
-      return verifyInstalledBinary("vtsls");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install vtsls: ${e.message}`,
-      };
-    }
-  }
-
-  // Python: Install Astral ty or pyright
-  if (norm === "python" || norm === "py") {
-    // Try uv first if available
-    const uvBin = findExecutable("uv");
-    if (uvBin) {
-      onProgress?.("Installing Astral 'ty' via uv...");
-      try {
-        execSync(`uv tool install ty`, { stdio: "pipe" });
-        clearExecutableCache();
-        const bin = findExecutable("ty");
-        if (bin) {
-          return {
-            success: true,
-            message: `Successfully installed Astral ty (${bin})`,
-            binPath: bin,
-          };
-        }
-      } catch (e) {
-        kernelDebug(e);
-      }
-    }
-
-    // Fall back to pyright via npm
-    onProgress?.("Installing pyright via npm...");
-    try {
-      execSync(`npm install -g pyright`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("pyright-langserver");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install python LSP: ${e.message}`,
-      };
-    }
-  }
-
-  // Rust: rust-analyzer via rustup
-  if (norm === "rust" || norm === "rs") {
-    onProgress?.("Installing rust-analyzer via rustup...");
-    try {
-      execSync(`rustup component add rust-analyzer`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("rust-analyzer");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install rust-analyzer: ${e.message}`,
-      };
-    }
-  }
-
-  // Go: gopls
-  if (norm === "go" || norm === "golang") {
-    onProgress?.("Installing gopls via go install...");
-    try {
-      execSync(`go install golang.org/x/tools/gopls@latest`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("gopls");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install gopls: ${e.message}`,
-      };
-    }
-  }
-
-  // TOML: taplo
-  if (norm === "toml" || norm === "taplo") {
-    onProgress?.("Installing taplo-cli via cargo...");
-    try {
-      execSync(`cargo install taplo-cli --locked --features lsp`, {
-        stdio: "pipe",
-        timeout: 120_000,
-      });
-      return verifyInstalledBinary("taplo");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install taplo: ${e.message}`,
-      };
-    }
-  }
-
-  // Shell / Bash: bash-language-server via npm
-  if (norm === "shell" || norm === "bash" || norm === "sh") {
-    onProgress?.("Installing bash-language-server via npm...");
-    try {
-      execSync(`npm install -g bash-language-server`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("bash-language-server");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install bash-language-server: ${e.message}`,
-      };
-    }
-  }
-
-  // HTML: superhtml or vscode-html-language-server
-  if (norm === "html" || norm === "htm") {
-    onProgress?.("Installing superhtml via package manager...");
-    const isWindows = process.platform === "win32";
-    try {
-      if (isWindows) {
-        execSync(
-          `winget install kristoff-it.superhtml --accept-source-agreements --accept-package-agreements --silent`,
-          { stdio: "pipe" },
-        );
-      } else if (process.platform === "darwin") {
-        execSync(`brew install superhtml`, { stdio: "pipe" });
-      }
-    } catch (e) {
-      kernelDebug(e);
-    }
-
-    clearExecutableCache();
-    let bin = findExecutable("superhtml");
-    if (bin) {
-      return {
-        success: true,
-        message: `Successfully installed superhtml (${bin})`,
-        binPath: bin,
-      };
-    }
-
-    // Fallback to vscode-langservers-extracted via npm
-    onProgress?.("Installing vscode-langservers-extracted via npm...");
-    try {
-      execSync(`npm install -g vscode-langservers-extracted`, {
-        stdio: "pipe",
-      });
-      clearExecutableCache();
-      bin = findExecutable("vscode-html-language-server");
-      return {
-        success: true,
-        message: `Successfully installed vscode-html-language-server (${bin || "vscode-html-language-server"})`,
-        binPath: bin || undefined,
-      };
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install HTML LSP: ${e.message}`,
-      };
-    }
-  }
-
-  // JSON: Biome (Rust ultra-fast) or vscode-json-language-server
-  if (norm === "json" || norm === "jsonc") {
-    onProgress?.("Installing Biome (Rust) via npm...");
-    try {
-      execSync(`npm install -g @biomejs/biome`, { stdio: "pipe" });
-      clearExecutableCache();
-      const bin = findExecutable("biome");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully installed Biome (${bin})`,
-          binPath: bin,
-        };
-      }
-    } catch (e) {
-      kernelDebug(e);
-    }
-
-    onProgress?.("Installing vscode-langservers-extracted via npm...");
-    try {
-      execSync(`npm install -g vscode-langservers-extracted`, {
-        stdio: "pipe",
-        timeout: 120_000,
-      });
-      return verifyInstalledBinary("vscode-json-language-server");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install JSON LSP: ${e.message}`,
-      };
-    }
-  }
-
-  // YAML: yaml-language-server via npm
-  if (norm === "yaml" || norm === "yml") {
-    onProgress?.("Installing yaml-language-server via npm...");
-    try {
-      execSync(`npm install -g yaml-language-server`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("yaml-language-server");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install yaml-language-server: ${e.message}`,
-      };
-    }
-  }
-
-  // Dockerfile: dockerfile-language-server-nodejs via npm
-  if (norm === "docker" || norm === "dockerfile") {
-    onProgress?.("Installing dockerfile-language-server-nodejs via npm...");
-    try {
-      execSync(`npm install -g dockerfile-language-server-nodejs`, {
-        stdio: "pipe",
-        timeout: 120_000,
-      });
-      return verifyInstalledBinary("docker-langserver");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install dockerfile-language-server: ${e.message}`,
-      };
-    }
-  }
-
-  // PHP: intelephense via npm
-  if (norm === "php") {
-    onProgress?.("Installing intelephense via npm...");
-    try {
-      execSync(`npm install -g intelephense`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("intelephense");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install intelephense: ${e.message}`,
-      };
-    }
-  }
-
-  // Markdown: marksman
-  if (norm === "markdown" || norm === "md") {
-    onProgress?.("Installing marksman...");
-    const isWindows = process.platform === "win32";
-    const binDir = ensureLspBinDir();
-
-    // 1. Try winget / brew / package manager first
-    try {
-      if (isWindows) {
-        execSync(
-          `winget install Artempyanykh.Marksman --accept-source-agreements --accept-package-agreements --silent`,
-          { stdio: "pipe" },
-        );
-      } else if (process.platform === "darwin") {
-        execSync(`brew install marksman`, { stdio: "pipe" });
-      }
-    } catch (e) {
-      kernelDebug(e);
-    }
-
-    clearExecutableCache();
-    let bin = findExecutable("marksman");
-    if (bin) {
-      return {
-        success: true,
-        message: `Successfully installed marksman (${bin})`,
-        binPath: bin,
-      };
-    }
-
+  const specs = getInstallerSpecs()[norm];
+  if (!specs || specs.length === 0) {
+    const hint = LSP_SERVERS[norm]?.installHint;
     return {
       success: false,
-      message:
-        "Please install marksman using your system package manager (e.g. winget, brew, or cargo install marksman).",
+      message: `No pinned automated installer is available${hint ? `. Manual option: ${hint}` : "."}`,
     };
   }
 
-  // C / C++: clangd
-  if (norm === "cpp" || norm === "c" || norm === "clangd") {
-    onProgress?.("Installing clangd...");
-    const isWindows = process.platform === "win32";
-    try {
-      if (isWindows) {
-        execSync(
-          `winget install LLVM.clangd --accept-source-agreements --accept-package-agreements --silent`,
-          { stdio: "pipe" },
-        );
-      } else if (process.platform === "darwin") {
-        execSync(`brew install llvm`, { stdio: "pipe" });
-      }
-      clearExecutableCache();
-      const bin = findExecutable("clangd");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully installed clangd (${bin})`,
-          binPath: bin,
-        };
-      }
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install clangd: ${e.message}`,
-      };
-    }
+  let lastFailure = "No installer attempted";
+  for (const spec of specs) {
+    onProgress?.(`Installing ${spec.label} with trusted ${spec.command}...`);
+    const result = executeInstallerSpec(spec);
+    if (result.success) return result;
+    lastFailure = result.message;
+    kernelDebug(result.message);
   }
-
-  // Zig: zls
-  if (norm === "zig" || norm === "zls") {
-    onProgress?.("Installing zls...");
-    const isWindows = process.platform === "win32";
-    try {
-      if (isWindows) {
-        execSync(
-          `winget install zigtools.zls --accept-source-agreements --accept-package-agreements --silent`,
-          { stdio: "pipe" },
-        );
-      } else if (process.platform === "darwin") {
-        execSync(`brew install zls`, { stdio: "pipe" });
-      }
-      clearExecutableCache();
-      const bin = findExecutable("zls");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully installed zls (${bin})`,
-          binPath: bin,
-        };
-      }
-    } catch (e: any) {
-      return { success: false, message: `Failed to install zls: ${e.message}` };
-    }
-  }
-
-  // Lua: lua-language-server
-  if (norm === "lua") {
-    onProgress?.("Installing lua-language-server...");
-    const isWindows = process.platform === "win32";
-    try {
-      if (isWindows) {
-        execSync(
-          `winget install LuaLS.lua-language-server --accept-source-agreements --accept-package-agreements --silent`,
-          { stdio: "pipe" },
-        );
-      } else if (process.platform === "darwin") {
-        execSync(`brew install lua-language-server`, { stdio: "pipe" });
-      }
-      clearExecutableCache();
-      const bin = findExecutable("lua-language-server");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully installed lua-language-server (${bin})`,
-          binPath: bin,
-        };
-      }
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install lua-language-server: ${e.message}`,
-      };
-    }
-  }
-
-  // Typst: tinymist
-  if (norm === "typst" || norm === "tinymist") {
-    onProgress?.("Installing tinymist...");
-    const isWindows = process.platform === "win32";
-    try {
-      if (isWindows) {
-        execSync(
-          `winget install Myriad-Dreamin.Tinymist --accept-source-agreements --accept-package-agreements --silent`,
-          { stdio: "pipe" },
-        );
-      } else if (process.platform === "darwin") {
-        execSync(`brew install tinymist`, { stdio: "pipe" });
-      } else {
-        execSync(`cargo install --locked tinymist`, { stdio: "pipe" });
-      }
-      clearExecutableCache();
-      const bin = findExecutable("tinymist");
-      if (bin) {
-        return {
-          success: true,
-          message: `Successfully installed tinymist (${bin})`,
-          binPath: bin,
-        };
-      }
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install tinymist: ${e.message}`,
-      };
-    }
-  }
-
-  // C#: csharp-ls via dotnet
-  if (norm === "csharp" || norm === "cs") {
-    onProgress?.("Installing csharp-ls via dotnet tool...");
-    try {
-      execSync(`dotnet tool install -g csharp-ls`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("csharp-ls");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install csharp-ls: ${e.message}`,
-      };
-    }
-  }
-
-  // Ruby: ruby-lsp via gem
-  if (norm === "ruby" || norm === "rb") {
-    onProgress?.("Installing ruby-lsp via gem...");
-    try {
-      execSync(`gem install ruby-lsp`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("ruby-lsp");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install ruby-lsp: ${e.message}`,
-      };
-    }
-  }
-
-  // SQL: sqls via go
-  if (norm === "sql" || norm === "sqls") {
-    onProgress?.("Installing sqls via go install...");
-    try {
-      execSync(`go install github.com/sqls-server/sqls@latest`, {
-        stdio: "pipe",
-        timeout: 120_000,
-      });
-      return verifyInstalledBinary("sqls");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install sqls: ${e.message}`,
-      };
-    }
-  }
-
-  // LaTeX: texlab via cargo
-  if (norm === "latex" || norm === "tex" || norm === "texlab") {
-    onProgress?.("Installing texlab via cargo...");
-    try {
-      execSync(`cargo install --locked texlab`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("texlab");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install texlab: ${e.message}`,
-      };
-    }
-  }
-
-  // Protobuf: protols via cargo
-  if (norm === "protobuf" || norm === "proto" || norm === "protols") {
-    onProgress?.("Installing protols via cargo...");
-    try {
-      execSync(`cargo install --locked protols`, { stdio: "pipe", timeout: 120_000 });
-      return verifyInstalledBinary("protols");
-    } catch (e: any) {
-      return {
-        success: false,
-        message: `Failed to install protols: ${e.message}`,
-      };
-    }
-  }
-
-  const hint =
-    LSP_SERVERS[norm]?.installHint ||
-    "No automated installer available for this language.";
-  return {
-    success: false,
-    message: `Manual installation required for '${norm}'. Recommended: ${hint}`,
-  };
+  return { success: false, message: lastFailure };
 }

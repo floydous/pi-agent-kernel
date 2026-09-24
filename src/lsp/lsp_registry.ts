@@ -7,26 +7,21 @@ import { getPiHomeDir, loadKernelConfig, saveGlobalKernelConfig } from "../confi
 import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 
-export function getExtensionLspBinDir(): string {
-  // Confined to extensions/agent-kernel/bin/lsp by default
-  const candidate1 = path.join(__dirname, "..", "..", "bin", "lsp");
-  const candidate2 = path.join(process.cwd(), "bin", "lsp");
-  const candidate = fs.existsSync(candidate1) ? candidate1 : fs.existsSync(candidate2) ? candidate2 : candidate1;
-
-  // Test write permission; if read-only (e.g. system-wide npm global install), fall back to ~/.pi/lsp/bin
+function usableDirectory(candidate: string): string | null {
   try {
-    fs.mkdirSync(candidate, { recursive: true });
-    const probe = path.join(candidate, ".write_test");
-    fs.writeFileSync(probe, "");
-    fs.unlinkSync(probe);
-    return candidate;
+    if (fs.lstatSync(candidate).isSymbolicLink()) return null;
+    if (!fs.statSync(candidate).isDirectory()) return null;
+    fs.accessSync(candidate, fs.constants.W_OK);
+    return fs.realpathSync(candidate);
   } catch {
-    const userFallback = path.join(getPiHomeDir(), "lsp", "bin");
-    try {
-      fs.mkdirSync(userFallback, { recursive: true });
-    } catch {}
-    return userFallback;
+    return null;
   }
+}
+
+export function getExtensionLspBinDir(): string {
+  const packageDir = path.join(__dirname, "..", "..", "bin", "lsp");
+  const userDir = path.join(getPiHomeDir(), "lsp", "bin");
+  return usableDirectory(packageDir) || usableDirectory(userDir) || path.resolve(userDir);
 }
 
 export const PI_LSP_BIN_DIR = getExtensionLspBinDir();
@@ -106,7 +101,7 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "oxc_language_server", args: [] },
       { bin: "biome", args: ["lsp-proxy"] },
     ],
-    installHint: "npm install -g @vtsls/language-server typescript",
+    installHint: "Run /lsp install typescript (pins vtsls 0.3.0 and TypeScript 7.0.2)",
   },
   python: {
     languageId: "python",
@@ -127,21 +122,21 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "pylyzer", args: ["--server"] },
       { bin: "pylsp", args: [] },
     ],
-    installHint: "uv tool install ty OR npm i -g pyright",
+    installHint: "Run /lsp install python (pins ty 0.0.83 with Pyright 1.1.414 fallback)",
   },
   rust: {
     languageId: "rust",
     extensions: [".rs"],
     markers: ["Cargo.toml", "Cargo.lock"],
     commands: [{ bin: "rust-analyzer", args: [] }],
-    installHint: "rustup component add rust-analyzer",
+    installHint: "Install rust-analyzer through a reviewed rustup toolchain, then run /lsp install rust",
   },
   go: {
     languageId: "go",
     extensions: [".go"],
     markers: ["go.mod", "go.work"],
     commands: [{ bin: "gopls", args: [] }],
-    installHint: "go install golang.org/x/tools/gopls@latest",
+    installHint: "Run /lsp install go (pins gopls v0.23.0)",
   },
   cpp: {
     languageId: "cpp",
@@ -149,14 +144,14 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
     markers: ["compile_commands.json", "CMakeLists.txt", ".clangd"],
     commands: [{ bin: "clangd", args: ["--background-index", "--clang-tidy"] }],
     installHint:
-      "Install LLVM / Clang (brew install llvm / winget install LLVM.LLVM)",
+      "Install reviewed LLVM/clangd 23.1.2, then run /lsp install cpp",
   },
   zig: {
     languageId: "zig",
     extensions: [".zig"],
     markers: ["build.zig"],
     commands: [{ bin: "zls", args: [] }],
-    installHint: "Download ZLS binary or install via zig package manager",
+    installHint: "Install reviewed ZLS 0.16.0, then run /lsp install zig",
   },
   elixir: {
     languageId: "elixir",
@@ -178,7 +173,7 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "csharp-ls", args: [] },
       { bin: "OmniSharp", args: ["-lsp"] },
     ],
-    installHint: "dotnet tool install -g csharp-ls",
+    installHint: "Run /lsp install csharp (pins csharp-ls 0.28.0)",
   },
   ruby: {
     languageId: "ruby",
@@ -188,14 +183,14 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "ruby-lsp", args: ["--stdio"] },
       { bin: "solargraph", args: ["stdio"] },
     ],
-    installHint: "gem install ruby-lsp",
+    installHint: "Run /lsp install ruby (pins ruby-lsp 0.26.11)",
   },
   lua: {
     languageId: "lua",
     extensions: [".lua"],
     markers: [".luarc.json", ".luacheckrc"],
     commands: [{ bin: "lua-language-server", args: [] }],
-    installHint: "Install lua-language-server (brew / winget / release binary)",
+    installHint: "Install reviewed Lua Language Server 3.19.1, then run /lsp install lua",
   },
   java: {
     languageId: "java",
@@ -232,28 +227,28 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "intelephense", args: ["--stdio"] },
       { bin: "phpactor", args: ["language-server"] },
     ],
-    installHint: "npm install -g intelephense",
+    installHint: "Run /lsp install php (pins Intelephense 1.18.5)",
   },
   shell: {
     languageId: "shellscript",
     extensions: [".sh", ".bash", ".zsh"],
     markers: [".shellcheckrc"],
     commands: [{ bin: "bash-language-server", args: ["start"] }],
-    installHint: "npm install -g bash-language-server",
+    installHint: "Run /lsp install shell (pins bash-language-server 5.8.1)",
   },
   typst: {
     languageId: "typst",
     extensions: [".typ"],
     markers: [],
     commands: [{ bin: "tinymist", args: [] }],
-    installHint: "cargo install --locked tinymist",
+    installHint: "Run /lsp install typst (pins Tinymist 0.15.2)",
   },
   latex: {
     languageId: "latex",
     extensions: [".tex", ".latex", ".bib"],
     markers: [".latexmkrc", "latexmkrc"],
     commands: [{ bin: "texlab", args: [] }],
-    installHint: "cargo install texlab",
+    installHint: "Run /lsp install latex (pins Texlab 4.3.2)",
   },
   markdown: {
     languageId: "markdown",
@@ -264,7 +259,7 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "markdown-oxide", args: [] },
     ],
     installHint:
-      "winget install Artempyanykh.Marksman OR cargo install markdown-oxide",
+      "Install reviewed Marksman 2026-02-08, then run /lsp install markdown",
   },
   protobuf: {
     languageId: "proto",
@@ -274,7 +269,7 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "protols", args: [] },
       { bin: "buf", args: ["beta", "lsp"] },
     ],
-    installHint: "cargo install protols OR install buf",
+    installHint: "Run /lsp install protobuf (pins Protols 0.14.1)",
   },
   sql: {
     languageId: "sql",
@@ -286,7 +281,7 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "sql-language-server", args: ["up", "--method", "stdio"] },
     ],
     installHint:
-      "cargo install sqruff OR go install github.com/sqls-server/sqls@latest",
+      "Run /lsp install sql (pins sqls v0.2.48)",
   },
   nix: {
     languageId: "nix",
@@ -307,7 +302,7 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "vscode-html-language-server", args: ["--stdio"] },
     ],
     installHint:
-      "Download superhtml (Zig) or npm install -g vscode-langservers-extracted",
+      "Run /lsp install html (pins vscode-langservers-extracted 4.10.0)",
   },
   json: {
     languageId: "json",
@@ -318,28 +313,28 @@ export const LSP_SERVERS: Record<string, LspServerConfig> = {
       { bin: "vscode-json-language-server", args: ["--stdio"] },
     ],
     installHint:
-      "npm install -g @biomejs/biome OR vscode-langservers-extracted",
+      "Run /lsp install json (pins Biome 2.5.14 with vscode fallback)",
   },
   yaml: {
     languageId: "yaml",
     extensions: [".yaml", ".yml"],
     markers: [],
     commands: [{ bin: "yaml-language-server", args: ["--stdio"] }],
-    installHint: "npm install -g yaml-language-server",
+    installHint: "Run /lsp install yaml (pins yaml-language-server 1.24.0)",
   },
   toml: {
     languageId: "toml",
     extensions: [".toml"],
     markers: ["Cargo.toml", "pyproject.toml"],
     commands: [{ bin: "taplo", args: ["lsp", "stdio"] }],
-    installHint: "cargo install taplo-cli --locked --features lsp",
+    installHint: "Run /lsp install toml (pins Taplo CLI 0.10.0)",
   },
   docker: {
     languageId: "dockerfile",
     extensions: ["Dockerfile", ".dockerfile"],
     markers: ["Dockerfile", "compose.yaml", "docker-compose.yml"],
     commands: [{ bin: "docker-langserver", args: ["--stdio"] }],
-    installHint: "npm install -g dockerfile-language-server-nodejs",
+    installHint: "Run /lsp install docker (pins dockerfile-language-server-nodejs 0.15.0)",
   },
   terraform: {
     languageId: "terraform",
@@ -378,12 +373,45 @@ function isBinaryUsable(fullPath: string, binName: string): boolean {
 /**
  * Check if an executable exists in system PATH or ~/.pi/lsp/bin
  */
+function canonicalDirectory(directory: string): string | null {
+  try {
+    return fs.realpathSync(path.resolve(directory));
+  } catch {
+    return null;
+  }
+}
+
+function pathContains(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === "" || (
+    relative !== ".." &&
+    !relative.startsWith(`..${path.sep}`) &&
+    !path.isAbsolute(relative)
+  );
+}
+
+function isForbiddenDirectory(directory: string, forbiddenRoots: string[]): boolean {
+  const canonical = canonicalDirectory(directory);
+  if (!canonical) return true;
+  return forbiddenRoots.some((root) => {
+    const forbidden = canonicalDirectory(root);
+    return forbidden ? pathContains(forbidden, canonical) : false;
+  });
+}
+
 export function findExecutable(
   binName: string,
   extraDirs: string[] = [],
+  forbiddenRoots: string[] = [],
 ): string | null {
-  if (executableCache.has(binName)) {
-    return executableCache.get(binName) || null;
+  const cacheKey = JSON.stringify([
+    binName,
+    extraDirs.map((dir) => path.resolve(dir)),
+    forbiddenRoots.map((dir) => path.resolve(dir)),
+    process.platform,
+  ]);
+  if (executableCache.has(cacheKey)) {
+    return executableCache.get(cacheKey) || null;
   }
 
   const isWindows = process.platform === "win32";
@@ -436,7 +464,7 @@ export function findExecutable(
 
   // 1. Direct path check in extraDirs and ~/.pi/lsp/bin
   for (const dir of searchDirs) {
-    if (!dir || !fs.existsSync(dir)) continue;
+    if (!dir || !fs.existsSync(dir) || isForbiddenDirectory(dir, forbiddenRoots)) continue;
     const candidates = isWindows
       ? [`${binName}.cmd`, `${binName}.exe`, `${binName}.bat`, binName]
       : [binName];
@@ -448,7 +476,7 @@ export function findExecutable(
           if (!isBinaryUsable(fullPath, binName)) {
             continue;
           }
-          executableCache.set(binName, fullPath);
+          executableCache.set(cacheKey, fullPath);
           return fullPath;
         }
       } catch (e) {
@@ -467,7 +495,7 @@ export function findExecutable(
     .filter(Boolean);
 
   for (const dir of pathDirs) {
-    if (!dir || !fs.existsSync(dir)) continue;
+    if (!dir || !fs.existsSync(dir) || isForbiddenDirectory(dir, forbiddenRoots)) continue;
     const candidates = isWindows
       ? [
           ...pathext.map((ext) => `${binName}${ext}`),
@@ -487,7 +515,7 @@ export function findExecutable(
             if (!isBinaryUsable(fullPath, binName)) {
               continue;
             }
-            executableCache.set(binName, fullPath);
+            executableCache.set(cacheKey, fullPath);
             return fullPath;
           }
         }
@@ -497,7 +525,7 @@ export function findExecutable(
     }
   }
 
-  executableCache.set(binName, null);
+  executableCache.set(cacheKey, null);
   return null;
 }
 
@@ -514,6 +542,7 @@ export function clearExecutableCache(): void {
 export function resolveLspServer(
   languageOrExt: string,
   extraDirs: string[] = [],
+  forbiddenRoots: string[] = [],
 ): {
   binPath: string;
   command: string;
@@ -555,7 +584,7 @@ export function resolveLspServer(
 
   // Try each configured command in priority order
   for (const cmd of config.commands) {
-    const binPath = findExecutable(cmd.bin, extraDirs);
+    const binPath = findExecutable(cmd.bin, extraDirs, forbiddenRoots);
     if (binPath) {
       return {
         binPath,

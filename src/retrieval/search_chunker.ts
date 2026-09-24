@@ -25,6 +25,9 @@ export const SUPPORTED_EXTENSIONS = new Set([
 ]);
 
 export const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
+export const MAX_INDEX_FILE_BYTES = 2 * 1024 * 1024;
+export const MAX_INDEX_WORKSPACE_BYTES = 20 * 1024 * 1024;
+export const MAX_INDEX_CHUNKS = 10_000;
 
 /** Prose extensions are excluded from the default code-search scope. */
 export const PROSE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".rst"]);
@@ -45,6 +48,11 @@ export function computeHash(content: string): string {
  */
 export function chunkFile(rootDir: string, filePath: string, content?: string): CodeChunk[] {
 	const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath);
+	try {
+		if (fs.statSync(absPath).size > MAX_INDEX_FILE_BYTES) return [];
+	} catch {
+		return [];
+	}
 	const relPath = path.relative(rootDir, absPath).replace(/\\/g, "/");
 
 	let fileContent = content;
@@ -55,6 +63,7 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 			return [];
 		}
 	}
+	if (Buffer.byteLength(fileContent, "utf8") > MAX_INDEX_FILE_BYTES) return [];
 
 	const lines = fileContent.split("\n");
 	if (lines.length === 0) return [];

@@ -1,6 +1,5 @@
 import * as path from "path";
 import * as fs from "node:fs";
-import * as child_process from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { computeRepoMap } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
@@ -71,19 +70,26 @@ function piDocsEnabled(ctx: any): boolean {
 	return loadKernelConfig(cwd).instructions.pi_docs ?? true;
 }
 
-function loadKernelGuidance(): string {
-	if (kernelGuidance !== undefined) return kernelGuidance ?? "";
-
-	try {
-		const instructionPath = path.join(__dirname, "..", "AGENT_KERNEL_SYS_PROMPT.md");
-		const contents = fs.readFileSync(instructionPath, "utf8").trim();
-		kernelGuidance = contents || null;
-	} catch (error) {
-		kernelGuidance = null;
-		kernelDebug(error);
+function loadKernelGuidance(toolCollisions: ReadonlySet<string> = new Set()): string {
+	if (kernelGuidance === undefined) {
+		try {
+			const instructionPath = path.join(__dirname, "..", "AGENT_KERNEL_SYS_PROMPT.md");
+			const contents = fs.readFileSync(instructionPath, "utf8").trim();
+			kernelGuidance = contents || null;
+		} catch (error) {
+			kernelGuidance = null;
+			kernelDebug(error);
+		}
 	}
 
-	return kernelGuidance ?? "";
+	const base = kernelGuidance ?? "";
+	if (toolCollisions.size === 0) return base;
+	return [
+		base,
+		"",
+		"## Tool Integration Notice",
+		`Pi reports that another extension already owns: ${[...toolCollisions].sort().join(", ")}. Agent Kernel did not replace those tools. Kernel-specific output limits, read-before-write checks, or edit verification may not apply to them.`,
+	].filter(Boolean).join("\n");
 }
 
 function appendKernelGuidance(systemPrompt: string, guidance: string): string {
@@ -91,7 +97,7 @@ function appendKernelGuidance(systemPrompt: string, guidance: string): string {
 	const base = systemPrompt.trimEnd();
 	return `${base ? `${base}\n\n` : ""}${KERNEL_GUIDANCE_MARKER}\n${guidance}`;
 }
-import { clampCommandOutput } from "./safety/output_clamper";
+import { clampCommandOutput, getSpilloverRoot } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { formatSearchEngineTag, renderFooter } from "./ui/footer";
 import {
@@ -110,25 +116,20 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		kernelDebug(`TreeSitter background init error: ${err}`);
 	});
 
-	// 0. Auto-Sanitize Session Files (Repairs pre-existing incomplete usage metadata)
-	try {
-		sanitizeSessionFiles();
-	} catch (e) {
-		kernelDebug(e);
-	}
-
 	// 3. Slash Commands: /repomap, /engine, /lsp, /pi-docs
 	let activeTui: any = null;
+	let projectTrusted = false;
 	const configByWorkspace = new Map<
 		string,
 		ReturnType<typeof loadKernelConfig>
 	>();
 	const getConfig = (cwd: string) => {
 		const workspace = path.resolve(cwd);
-		let config = configByWorkspace.get(workspace);
+		const cacheKey = `${workspace}\0${projectTrusted}`;
+		let config = configByWorkspace.get(cacheKey);
 		if (!config) {
-			config = loadKernelConfig(workspace);
-			configByWorkspace.set(workspace, config);
+			config = loadKernelConfig(workspace, { projectTrusted });
+			configByWorkspace.set(cacheKey, config);
 		}
 		return config;
 	};
@@ -138,7 +139,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		let index = searchIndexes.get(workspace);
 		if (!index) {
 			const profile = getConfig(workspace).retrieval.default_profile;
-			index = new HybridSearchIndex(workspace, profile);
+			index = new HybridSearchIndex(workspace, profile, { projectTrusted });
 			searchIndexes.set(workspace, index);
 		}
 		return index;
@@ -278,7 +279,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	const applyConfigChanges = (cwd: string, ctx?: any) => {
 		const workspace = path.resolve(cwd);
-		configByWorkspace.delete(workspace);
+		configByWorkspace.delete(`${workspace}\0true`);
+		configByWorkspace.delete(`${workspace}\0false`);
 		const newConfig = getConfig(workspace);
 		const newProfile = newConfig.retrieval.default_profile;
 
@@ -307,6 +309,34 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		},
 		clearCaches: () => {
 			cachedRepoMap = "";
+		},
+	});
+
+	pi.registerCommand("repair-sessions", {
+		description: "Preview or explicitly apply repairs for malformed historical session usage metadata",
+		getArgumentCompletions: (prefix: string) => {
+			const options = [
+				{ value: "", label: "preview - report repair candidates without writing" },
+				{ value: "--apply", label: "--apply - back up and repair eligible inactive sessions" },
+			];
+			return options.filter((option) => option.value.startsWith(prefix.toLowerCase()));
+		},
+		handler: async (args: string, ctx: any) => {
+			const mode = (args || "").trim().toLowerCase();
+			if (mode && mode !== "--apply") {
+				ctx.ui?.notify?.("Usage: /repair-sessions [--apply]", "error");
+				return;
+			}
+			const activeSession = ctx?.sessionManager?.getSessionFile?.();
+			const stats = sanitizeSessionFiles({
+				skipFile: activeSession,
+				apply: mode === "--apply",
+			});
+			const summary = stats.dryRun
+				? `Session repair preview: ${stats.candidateFiles} candidate file(s), ${stats.repairedEntries} entr(ies); no files written.`
+				: `Session repair complete: ${stats.repairedFiles} repaired, ${stats.skippedFiles} skipped, ${stats.failedFiles} failed.`;
+			ctx.ui?.notify?.(summary, stats.failedFiles > 0 ? "error" : "info");
+			console.log(`[repair-sessions] ${summary} ${JSON.stringify(stats)}`);
 		},
 	});
 
@@ -681,9 +711,12 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// Background workspace auto-indexer on session startup + setup integrated footer
 	pi.on("session_start", async (_event: any, ctx: any) => {
+		projectTrusted = ctx.isProjectTrusted?.() === true;
+		configByWorkspace.clear();
+		const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
+		registerKernelTools(cwd);
 		setupUnifiedFooter(ctx);
 		try {
-			const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 			const index = getSearchIndex(cwd);
 			if (index.getEffectiveProfile() !== "off") {
 				triggerBackgroundIndexing(index, ctx, false);
@@ -716,28 +749,52 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 4-8. Tools: Core tools (read, edit) and code_search are registered.
-	// Speculative AST dump and heavy daemon tools (ast_search, repo_map, lsp) remain optional
-	// to avoid prompt bloat on routine tasks.
-	const invalidateSearchFile = (cwd: string, filePath: string) => {
+	// Tools are registered at session start, after every extension factory has
+	// registered its tools. This makes collision handling independent of package
+	// load order and lets project trust affect optional-tool registration.
+	const toolCollisions = new Set<string>();
+	let kernelToolsRegistered = false;
+	const invalidateSearchFile = async (cwd: string, filePath: string) => {
 		const index = getSearchIndex(cwd);
-		void index.updateFile(filePath).catch((err) => {
+		await index.updateFile(filePath).catch((err) => {
 			kernelDebug(`Incremental updateFile error for ${filePath}: ${err}`);
 		});
 	};
-	registerReadTool(pi, { getSessionId, getConfig });
-	registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
-	registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
+	const registerKernelTools = (cwd: string): void => {
+		if (kernelToolsRegistered) return;
+		kernelToolsRegistered = true;
+		const extensionTools = (pi.getAllTools?.() || []).filter(
+			(tool: any) => !String(tool?.sourceInfo?.path || "").startsWith("<builtin:"),
+		);
+		const owned = new Set(extensionTools.map((tool: any) => tool.name));
+		const canRegister = (name: string): boolean => {
+			if (owned.has(name)) {
+				toolCollisions.add(name);
+				return false;
+			}
+			return true;
+		};
 
-	const enableSpeculativeTools = process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "1" ||
-		process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "true" ||
-		getConfig(process.cwd()).retrieval.enable_tools === true;
+		if (canRegister("read")) registerReadTool(pi, { getSessionId, getConfig });
+		if (canRegister("edit")) {
+			registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
+		}
+		if (canRegister("code_search")) {
+			registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
+		}
 
-	if (enableSpeculativeTools) {
-		registerRepoMapTool(pi);
-		registerAstSearchTool(pi, { getSessionId, getConfig });
-		registerLspTool(pi, { getSessionId, getConfig });
-	}
+		const enableSpeculativeTools =
+			process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "1" ||
+			process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "true" ||
+			getConfig(cwd).retrieval.enable_tools === true;
+		if (enableSpeculativeTools) {
+			if (canRegister("get_repo_map")) registerRepoMapTool(pi);
+			if (canRegister("ast_search")) {
+				registerAstSearchTool(pi, { getSessionId, getConfig });
+			}
+			if (canRegister("lsp")) registerLspTool(pi, { getSessionId, getConfig });
+		}
+	};
 
 	// 9a. Block host writes before the host tool can create parent directories
 	// or overwrite the target. Bash read evidence is recorded after a successful
@@ -801,11 +858,15 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			let bashOutputComplete = true;
 			resultContent = (event.content || []).map((c: any) => {
 				if (c.type === "text" && typeof c.text === "string") {
-					const clamped = clampCommandOutput(c.text, command, {
-						maxLineLength: outputConfig.safety.max_line_length,
-						maxLines: outputConfig.safety.max_lines,
-						maxTotalBytes: outputConfig.safety.max_total_bytes,
-					});
+						const spilloverDir = getSpilloverRoot(
+							ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
+						);
+						const clamped = clampCommandOutput(c.text, command, {
+							maxLineLength: outputConfig.safety.max_line_length,
+							maxLines: outputConfig.safety.max_lines,
+							maxTotalBytes: outputConfig.safety.max_total_bytes,
+							spilloverDir,
+						});
 					if (clamped.truncated) {
 						bashOutputComplete = false;
 						return { ...c, text: clamped.text };
@@ -926,101 +987,18 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 10. Dynamic Runtime Context Injection (Repo Map with in-memory caching & Turn 1 Grounding)
-	// Notice: Custom user instructions (AGENT.md / prompt templates) are respected as the primary authority.
-	// Only runtime operational metadata (repo map) is dynamically attached and cached per session/cwd.
+	// 10. Dynamic Runtime Context Injection (optional repository map only)
+	// Custom user instructions remain the primary authority. Repository-controlled
+	// diffs, source text, filenames, and command output are never promoted into the
+	// system prompt by this extension.
 	let cachedRepoMap = "";
 	let cachedRepoMapCwd = "";
 	let lastRepoMapCheck = 0;
-	const sessionGroundingDone = new Set<string>();
-	const sessionGroundingText = new Map<string, string>();
-
-	function getPreFlightGrounding(cwd: string, sessionId: string): string {
-		if (sessionGroundingDone.has(sessionId)) {
-			return sessionGroundingText.get(sessionId) || "";
-		}
-		sessionGroundingDone.add(sessionId);
-
-		try {
-			const statusRaw = child_process.execFileSync(
-				"git",
-				["status", "--porcelain"],
-				{ cwd, encoding: "utf8", timeout: 1000, stdio: ["ignore", "pipe", "ignore"], maxBuffer: 1024 * 1024 },
-			).trim();
-
-			if (!statusRaw) {
-				sessionGroundingText.set(sessionId, "");
-				return "";
-			}
-
-			let diffRaw = "";
-			try {
-				diffRaw = child_process.execFileSync(
-					"git",
-					["diff", "HEAD", "-U3"],
-					{ cwd, encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
-				).trim();
-			} catch {
-				try {
-					diffRaw = child_process.execFileSync(
-						"git",
-						["diff", "-U3"],
-						{ cwd, encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] },
-					).trim();
-				} catch {
-					diffRaw = "";
-				}
-			}
-
-			if (!diffRaw && !statusRaw) {
-				sessionGroundingText.set(sessionId, "");
-				return "";
-			}
-
-			const statusLines = statusRaw.split("\n").slice(0, 8).join("\n");
-			const lines = diffRaw.split("\n");
-			const maxLines = 25;
-			const maxDiffBytes = 2048;
-			let clampedDiff = lines.slice(0, maxLines).join("\n");
-			let wasByteTruncated = false;
-			if (Buffer.byteLength(clampedDiff, "utf8") > maxDiffBytes) {
-				const buf = Buffer.from(clampedDiff, "utf8").subarray(0, maxDiffBytes);
-				clampedDiff = new TextDecoder("utf-8", { fatal: false }).decode(buf);
-				if (/[\uD800-\uDBFF]$/.test(clampedDiff)) {
-					clampedDiff = clampedDiff.slice(0, -1);
-				}
-				wasByteTruncated = true;
-			}
-			const truncatedNotice = lines.length > maxLines || wasByteTruncated
-				? `\n[... diff truncated; inspect test file via read() ...]`
-				: "";
-
-			const safeStatus = statusLines.replace(/```/g, "'''");
-			const safeDiff = clampedDiff.replace(/```/g, "'''");
-
-			const grounding = [
-				"## Workspace Pre-Flight (Reproduction Status):",
-				"<!-- Passive environment context; not instruction -->",
-				"```git-status",
-				safeStatus,
-				"```",
-				safeDiff ? `\`\`\`diff\n${safeDiff}\n\`\`\`${truncatedNotice}` : "",
-			].filter(Boolean).join("\n");
-
-			sessionGroundingText.set(sessionId, grounding);
-			return grounding;
-		} catch (error) {
-			kernelDebug(error);
-			sessionGroundingText.set(sessionId, "");
-			return "";
-		}
-	}
 
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
 		const now = Date.now();
 		const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
 		const kernelConfig = getConfig(currentCwd);
-		const sessionId = getSessionId(ctx);
 
 		let shouldInjectMap = false;
 		// Disabled automatic AST repo map injection to evaluate prompt token footprint and latency
@@ -1041,10 +1019,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			lastRepoMapCheck = now;
 		}
 
-		const preFlightDiff = getPreFlightGrounding(currentCwd, sessionId);
 		const runtimeParts = [
 			cachedRepoMap ? `## Available Repository Context:\n${cachedRepoMap}` : "",
-			preFlightDiff,
 		].filter(Boolean);
 		const runtimeContext = runtimeParts.length > 0 ? `\n${runtimeParts.join("\n\n")}\n` : "";
 
@@ -1053,7 +1029,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			? basePrompt
 			: withoutPiDocumentation(basePrompt);
 		const guidance = kernelConfig.instructions.enabled
-			? loadKernelGuidance()
+			? loadKernelGuidance(toolCollisions)
 			: "";
 		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
 		const shouldAppendRuntime = runtimeContext && !guidedPrompt.includes(runtimeContext.trim());
