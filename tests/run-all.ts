@@ -75,6 +75,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./hybrid-search")),
 	},
 	{
+		name: "BM25 Reliability",
+		key: "bm25-reliability",
+		loader: () => runSuiteModule(() => import("./retrieval/bm25_reliability.test")),
+	},
+	{
 		name: "Adaptive Code Search Output",
 		key: "code-search-output",
 		loader: () => runSuiteModule(() => import("./code-search-output")),
