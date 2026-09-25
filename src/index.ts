@@ -779,7 +779,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		if (canRegister("edit")) {
 			registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
 		}
-		if (canRegister("code_search")) {
+		if (canRegister("code_search") && getConfig(cwd).retrieval.default_profile !== "off") {
 			registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 		}
 
