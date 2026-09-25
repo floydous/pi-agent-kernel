@@ -31,6 +31,8 @@ conservative initial boundary measured on the bounded feedback fixture and must 
 recalibrated against a larger labeled corpus before changing it. Output limits
 remain enforced so retrieval cannot flood agent context.
 
+The `code_search` index is intentionally code-only: Markdown and other text files remain readable but are not chunked or embedded for retrieval.
+
 AST and code-search path filters match normalized relative path substrings
 (including directory fragments, filenames, and extensions). `includeBody` returns
 a bounded preview of up to 25 lines; when the preview is truncated, the AST

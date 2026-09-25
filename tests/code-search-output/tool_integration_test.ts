@@ -44,7 +44,6 @@ export async function testToolIntegration(): Promise<void> {
 	let registeredTool: any;
 	const updates: any[] = [];
 	const hit = makeHit("src/run.rs", "fn run() {\n  return;\n}");
-	const scopeValues: string[] = [];
 
 	const fakePi: any = {
 		registerTool(tool: any) {
@@ -54,10 +53,7 @@ export async function testToolIntegration(): Promise<void> {
 	const fakeDeps: any = {
 		getSessionId: () => "code-search-output-test",
 		getSearchIndex: () => ({
-			search: async (_query: string, options: any) => {
-				scopeValues.push(options.scope);
-				return [hit];
-			},
+			search: async (_query: string, _options: any) => [hit],
 		}),
 	};
 
@@ -73,9 +69,7 @@ export async function testToolIntegration(): Promise<void> {
 	const text = result.content.find((item: any) => item.type === "text")?.text ?? "";
 	assert(text.includes("return;"));
 	assert.equal(result.details.requestedMode, "full");
-	assert.equal(result.details.scope, "code");
 	assert(updates.length > 0);
-	assert.deepEqual(scopeValues, ["code"]);
 
 	const invalid = await registeredTool.execute(
 		"tool-call-2",
@@ -87,7 +81,7 @@ export async function testToolIntegration(): Promise<void> {
 	assert.equal(invalid.isError, true);
 	assert.match(invalid.content[0].text, /Invalid mode/);
 
-	logPass("code_search tool mode and scope integration verified!");
+	logPass("code_search tool mode and code-only options verified!");
 }
 
 export async function run(): Promise<void> {

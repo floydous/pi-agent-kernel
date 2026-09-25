@@ -21,20 +21,13 @@ export interface CodeChunk {
 }
 
 export const SUPPORTED_EXTENSIONS = new Set([
-	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql", ".md", ".mdx", ".txt", ".rst"
+	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql"
 ]);
 
 export const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
 export const MAX_INDEX_FILE_BYTES = 2 * 1024 * 1024;
 export const MAX_INDEX_WORKSPACE_BYTES = 20 * 1024 * 1024;
 export const MAX_INDEX_CHUNKS = 10_000;
-
-/** Prose extensions are excluded from the default code-search scope. */
-export const PROSE_EXTENSIONS = new Set([".md", ".mdx", ".txt", ".rst"]);
-
-export function isProseFilePath(filePath: string): boolean {
-	return PROSE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
-}
 
 /**
  * Compute SHA-256 hash of a string.
@@ -48,6 +41,8 @@ export function computeHash(content: string): string {
  */
 export function chunkFile(rootDir: string, filePath: string, content?: string): CodeChunk[] {
 	const absPath = path.isAbsolute(filePath) ? filePath : path.resolve(rootDir, filePath);
+	const ext = path.extname(absPath).toLowerCase();
+	if (!SUPPORTED_EXTENSIONS.has(ext)) return [];
 	try {
 		if (fs.statSync(absPath).size > MAX_INDEX_FILE_BYTES) return [];
 	} catch {
@@ -68,7 +63,6 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 	const lines = fileContent.split("\n");
 	if (lines.length === 0) return [];
 
-	const ext = path.extname(absPath).toLowerCase();
 	const chunks: CodeChunk[] = [];
 
 	// 1. Extract AST symbols using extractFileTags

@@ -196,23 +196,20 @@ function decorateResult(
 	requestedMode: CodeSearchMode,
 	hitCount: number,
 ): FormattedCodeSearchResults {
-	const header = `[code_search mode=${requestedMode}->${result.mode}; matches=${hitCount}]`;
-	// Explicit full mode is the compatibility escape hatch: preserve the
-	// pre-change body exactly so callers that parse the legacy output do not
-	// need to change. Auto-full still gets the diagnostic header below.
 	if (result.mode === "full" && requestedMode === "full") {
 		return result;
 	}
-	if (result.mode === "full") {
-		return { ...result, text: `${header}\n\n${result.text}` };
-	}
 
-	const available = Math.max(0, AUTO_OUTPUT_BUDGET - header.length - 2);
+	const notice = result.mode === "mixed"
+		? `${hitCount} matches returned; first ${Math.min(AUTO_PREVIEW_HIT_LIMIT, hitCount)} shown as previews, remaining ${hitCount - Math.min(AUTO_PREVIEW_HIT_LIMIT, hitCount)} summarized.`
+		: "";
+	const prefix = notice ? `${notice}\n\n` : "";
+	const available = Math.max(0, AUTO_OUTPUT_BUDGET - prefix.length);
 	const boundedText = clipToBudget(result.text, available);
 	const finalClipped = boundedText.length < result.text.length;
 	return {
 		...result,
-		text: `${header}\n\n${boundedText}`,
+		text: `${prefix}${boundedText}`,
 		truncated: result.truncated || finalClipped,
 		visibleRanges: finalClipped ? [] : result.visibleRanges,
 	};

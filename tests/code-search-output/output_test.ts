@@ -37,6 +37,7 @@ export function testOutputFormatting(): void {
 	].join("\n");
 	const one = formatCodeSearchResults([hit(0, body)], "retry error", "auto");
 	assertPass("One small result stays full in auto mode", one.mode === "full" && one.text.includes("return unrelated"), one);
+	assert(!one.text.includes("[code_search"));
 
 	const several = formatCodeSearchResults(
 		[hit(0, body), hit(1, body), hit(2, body)],
@@ -46,6 +47,7 @@ export function testOutputFormatting(): void {
 	assertPass("Several results use bounded previews", several.mode === "preview" && several.text.includes("retry error"), several);
 	assert(several.text.length <= 8_000);
 	assert(!several.text.includes("mode: \"full\""));
+	assert(!several.text.startsWith("[code_search"));
 
 	const many = formatCodeSearchResults(
 		Array.from({ length: 8 }, (_, index) => hit(index, body)),
@@ -55,12 +57,16 @@ export function testOutputFormatting(): void {
 	const tail = many.text.slice(many.text.indexOf("src/file3.rs"));
 	assertPass("Many results preserve previews and summarize the tail", many.mode === "mixed" && tail.includes("src/file7.rs") && !tail.includes("```"), many);
 	assert(many.text.length <= 8_000);
+	assert(many.text.startsWith("8 matches returned; first 3 shown as previews, remaining 5 summarized."));
+	assert(!many.text.includes("mode=auto->mixed"));
 
 	const summary = formatCodeSearchResults([hit(0, body), hit(1, body)], "retry", "summary");
 	assertPass("Explicit summary omits code bodies", summary.mode === "summary" && !summary.text.includes("return unrelated"), summary);
+	assert(!summary.text.includes("[code_search"));
 
 	const full = formatCodeSearchResults([hit(0, body)], "retry", "full");
 	assertPass("Explicit full preserves code bodies", full.mode === "full" && full.text.startsWith("src/file0.rs:") && full.text.includes("return unrelated"), full);
+	assert(!full.text.includes("[code_search"));
 
 	const longBody = Array.from({ length: 100 }, (_, index) => index === 50 ? "retry error target" : "unrelated line").join("\n");
 	const boundedPreview = formatCodeSearchResults(
@@ -76,6 +82,9 @@ export function testOutputFormatting(): void {
 		boundedPreview,
 	);
 
+	const empty = formatCodeSearchResults([], "retry", "auto");
+	assertPass("Empty auto output has no diagnostic header", !empty.text.includes("[code_search"), empty);
+
 	const clippingBody = Array.from(
 		{ length: 100 },
 		(_, index) => index === 50 ? "retry error target" : "unrelated line ".repeat(20),
@@ -89,6 +98,19 @@ export function testOutputFormatting(): void {
 		"Budget clipping reports omitted matches without claiming an exact body",
 		clipped.truncated && clipped.text.includes("additional match") && clipped.text.length <= 8_000,
 		clipped,
+	);
+
+	const autoClipped = formatCodeSearchResults(
+		Array.from({ length: 100 }, (_, index) => hit(index, clippingBody)),
+		"retry error",
+		"auto",
+	);
+	assertPass(
+		"Automatic mixed clipping keeps the semantic notice within budget",
+		autoClipped.truncated &&
+			autoClipped.text.startsWith("100 matches returned; first 3 shown as previews, remaining 97 summarized.") &&
+			autoClipped.text.length <= 8_000,
+		autoClipped,
 	);
 
 	logPass("Adaptive code-search output formatting verified!");

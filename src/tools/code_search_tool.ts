@@ -61,18 +61,6 @@ export function registerCodeSearchTool(
 				};
 			}
 
-			const scope = params.scope ?? "code";
-			if (!["code", "all", "prose"].includes(scope)) {
-				return {
-					content: [{
-						type: "text",
-						text: `[ERROR] Invalid scope "${String(scope)}". Use code, all, or prose.`,
-					}],
-					details: { count: 0 },
-					isError: true,
-				};
-			}
-
 			onUpdate?.({
 				content: [{ type: "text", text: `Searching code for "${query}"...` }],
 			});
@@ -87,7 +75,6 @@ export function registerCodeSearchTool(
 				limit,
 				filePattern: params.file_pattern,
 				rrfK: params.rrf_k,
-				scope,
 			});
 
 			const indexStatus = typeof index.getStatus === "function" ? index.getStatus() : undefined;
@@ -161,7 +148,6 @@ export function registerCodeSearchTool(
 					count: hits.length,
 					mode: formatted.mode,
 					requestedMode,
-					scope,
 					truncated: formatted.truncated,
 					visibleRanges: formatted.visibleRanges,
 					hits: hits.map((h) => ({

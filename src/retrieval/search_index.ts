@@ -10,7 +10,7 @@ import {
 	chunkFile,
 	computeHash,
 	findChunkableFiles,
-	isProseFilePath,
+	SUPPORTED_EXTENSIONS,
 } from "./search_chunker";
 import { BM25Engine } from "./search_bm25";
 import { LocalEmbedder } from "./search_embedder";
@@ -25,7 +25,8 @@ import { TreeSitterEngine } from "./tree_sitter_engine";
 import { getSearchCacheDir } from "./search_cache";
 export { getSearchCacheDir } from "./search_cache";
 
-const INDEX_VERSION = 3;
+const INDEX_VERSION = 4;
+const LEGACY_INDEX_VERSION = 3;
 const EXTRACTOR_GENERATION = "tree-sitter-wasm-v2";
 
 interface PersistedVectorCache {
@@ -76,7 +77,13 @@ export function validatePersistedIndex(
 	cwd: string,
 ): PersistedIndexSnapshot {
 	if (!isRecord(data)) throw new Error("Persisted index must be an object");
-	if (data.version !== INDEX_VERSION || data.extractorGeneration !== EXTRACTOR_GENERATION) {
+	if (
+		data.version !== INDEX_VERSION &&
+		data.version !== LEGACY_INDEX_VERSION
+	) {
+		throw new Error("Persisted index version mismatch");
+	}
+	if (data.extractorGeneration !== EXTRACTOR_GENERATION) {
 		throw new Error("Persisted index version mismatch");
 	}
 	if (!Array.isArray(data.chunks) || !isRecord(data.fileHashes)) {
@@ -1033,6 +1040,14 @@ export class HybridSearchIndex {
 			return;
 		}
 
+		if (!SUPPORTED_EXTENSIONS.has(path.extname(resolvedPath).toLowerCase())) {
+			this.removeIndexedFile(relPath);
+			this.dirtyFiles.delete(relPath);
+			this.bm25.recalculateStats();
+			this.scheduleDebouncedSave();
+			return;
+		}
+
 		const currentGen = (this.fileGenerations.get(relPath) ?? 0) + 1;
 		this.fileGenerations.set(relPath, currentGen);
 
@@ -1263,8 +1278,6 @@ export class HybridSearchIndex {
 			profile?: SearchProfile;
 			/** Bounded RRF smoothing constant; defaults to 60. */
 			rrfK?: number;
-			/** Search scope. Code is the default; all/prose are explicit opt-ins. */
-			scope?: "code" | "all" | "prose";
 		} = {},
 	): Promise<SearchHit[]> {
 		if (this.config.effectiveProfile === "off") {
@@ -1289,12 +1302,6 @@ export class HybridSearchIndex {
 
 		const limit = options.limit || 5;
 		const k = Math.max(1, Math.min(Math.floor(options.rrfK ?? 60), 200));
-		const scope = options.scope ?? "code";
-		const isProsePath = isProseFilePath;
-		const matchesScope = (chunk: CodeChunk): boolean => {
-			const isProse = isProsePath(chunk.filePath);
-			return scope === "all" || (scope === "prose" ? isProse : !isProse);
-		};
 		const matchesFilePattern = (chunk: CodeChunk): boolean =>
 			!options.filePattern ||
 			chunk.filePath
@@ -1308,7 +1315,7 @@ export class HybridSearchIndex {
 		// 1. BM25 Search (Instant AST-tokenized lexical retrieval)
 		const bm25Results = this.bm25.search(query, 100, (chunkId) => {
 			const chunk = this.chunks.get(chunkId);
-			return !!chunk && matchesScope(chunk) && matchesFilePattern(chunk);
+			return !!chunk && matchesFilePattern(chunk);
 		});
 		const bm25RankMap = new Map<
 			string,
@@ -1342,7 +1349,7 @@ export class HybridSearchIndex {
 				const vecScores: { chunkId: string; score: number }[] = [];
 				for (const [chunkId, vec] of this.vectors.entries()) {
 					const chunk = this.chunks.get(chunkId);
-					if (!chunk || !matchesScope(chunk) || !matchesFilePattern(chunk)) continue;
+					if (!chunk || !matchesFilePattern(chunk)) continue;
 					const score = LocalEmbedder.cosineSimilarity(queryVec, vec);
 					vecScores.push({ chunkId, score });
 				}
