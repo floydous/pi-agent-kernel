@@ -75,7 +75,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 	safety: {
 		enable_epistemic_guard: true,
 		max_line_length: 300,
-		max_lines: 40,
+		max_lines: 100,
 		max_total_bytes: 20 * 1024,
 		exec_timeout_ms: 5000,
 	},

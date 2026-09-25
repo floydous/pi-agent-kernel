@@ -7,7 +7,7 @@ import { kernelDebug } from "./kernel_debug";
 
 export interface ClampingOptions {
 	maxLineLength?: number; // Maximum width per line (default: 300)
-	maxLines?: number; // Maximum lines shown to model (default: 40)
+	maxLines?: number; // Maximum lines shown to model (default: 100)
 	maxTotalBytes?: number; // Maximum total bytes before spilling (default: 20 * 1024 = 20 KB)
 	spilloverDir?: string;
 	maxSpilloverFiles?: number;
@@ -198,7 +198,7 @@ export function clampCommandOutput(
 	options?: ClampingOptions,
 ): ClampingResult {
 	const maxLineLength = options?.maxLineLength ?? 300;
-	const maxLines = options?.maxLines ?? 40;
+	const maxLines = options?.maxLines ?? 100;
 	const maxTotalBytes = options?.maxTotalBytes ?? 20 * 1024;
 	if (!Number.isSafeInteger(maxTotalBytes) || maxTotalBytes < 0) {
 		throw new RangeError("maxTotalBytes must be a nonnegative safe integer");
