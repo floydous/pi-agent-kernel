@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as os from "node:os";
 import * as crypto from "node:crypto";
 import { getPiHomeDir } from "../config/kernel_config";
 import { kernelDebug } from "./kernel_debug";
@@ -137,6 +138,51 @@ export function isDiscoveryCommand(command: string): boolean {
 	return false;
 }
 
+const HOST_TRUNCATION_REGEX =
+	/(?:\r?\n){2}\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]+\))?|last [^)]+\))\.\s*Full output:\s*([^\]]+)\]\s*$/;
+
+const KERNEL_TRUNCATION_REGEX =
+	/(?:\r?\n){2}\[Truncated[^\r\n\]]*?(?:\.\s*(?:Full|Spillover):\s*([^\]\r\n]+?)(?:\s*\(use offset\/limit[^)]*\)|\s*\(received fragment only\))?)?\]\s*$/;
+
+function validateHostSpilloverPath(candidatePath: string): string | undefined {
+	try {
+		const trimmed = candidatePath.trim().replace(/^["']|["']$/g, "");
+		// Reject UNC paths and protocol paths
+		if (trimmed.startsWith("\\\\") || trimmed.startsWith("//")) return undefined;
+
+		const resolved = path.resolve(trimmed);
+		if (!fs.existsSync(resolved)) return undefined;
+
+		// Must not be a symbolic link and must be a regular file
+		const lstat = fs.lstatSync(resolved);
+		if (lstat.isSymbolicLink() || !lstat.isFile()) return undefined;
+
+		// Filename must strictly match Pi core's accumulator naming convention: pi-(bash|powershell|output)-<hex>.log
+		const base = path.basename(resolved);
+		if (!/^pi-(?:bash|powershell|output)-[a-f0-9]+\.log$/i.test(base)) {
+			return undefined;
+		}
+
+		// Must be directly contained in the OS temp directory (canonicalized real path)
+		const realResolved = fs.realpathSync(resolved);
+		const realTempDir = fs.realpathSync(os.tmpdir());
+		const parentDir = path.dirname(realResolved);
+
+		const isSameDir = process.platform === "win32"
+			? parentDir.toLowerCase() === realTempDir.toLowerCase()
+			: parentDir === realTempDir;
+
+		if (!isSameDir) {
+			return undefined;
+		}
+
+		return resolved;
+	} catch (e: any) {
+		kernelDebug(e);
+		return undefined;
+	}
+}
+
 /**
  * Clamps output lines horizontally and vertically to prevent context bloat
  * from single-line minified files, lockfiles, or massive multi-file matches.
@@ -158,16 +204,62 @@ export function clampCommandOutput(
 		throw new RangeError("maxTotalBytes must be a nonnegative safe integer");
 	}
 
-	const originalBytes = Buffer.byteLength(rawText, "utf8");
+	// Detect prior truncation footer at the end of rawText:
+	// either from host harness (Pi core) or an earlier Agent Kernel pass
+	let textToProcess = rawText;
+	let hostTruncated = false;
+	let priorKernelTruncated = false;
+	let hostSpilloverPath: string | undefined;
+	let priorSpilloverPath: string | undefined;
 
-	// If the entire output is small and within bounds, return as-is
+	const kernelMatch = rawText.match(KERNEL_TRUNCATION_REGEX);
+	if (kernelMatch && kernelMatch.index !== undefined) {
+		priorKernelTruncated = true;
+		textToProcess = rawText.slice(0, kernelMatch.index);
+		const candidate = kernelMatch[1]?.trim();
+		if (candidate) {
+			const cleanCandidate = candidate.replace(/\s*\(use offset\/limit.*\)$/i, "").trim();
+			hostSpilloverPath = validateHostSpilloverPath(cleanCandidate);
+			if (!hostSpilloverPath && fs.existsSync(cleanCandidate)) {
+				try {
+					const lstat = fs.lstatSync(cleanCandidate);
+					if (!lstat.isSymbolicLink() && lstat.isFile()) {
+						priorSpilloverPath = path.resolve(cleanCandidate);
+					}
+				} catch {}
+			}
+		}
+	} else {
+		const hostMatch = rawText.match(HOST_TRUNCATION_REGEX);
+		if (hostMatch && hostMatch.index !== undefined) {
+			hostTruncated = true;
+			textToProcess = rawText.slice(0, hostMatch.index);
+			const candidate = hostMatch[1].trim();
+			hostSpilloverPath = validateHostSpilloverPath(candidate);
+		}
+	}
+
+	let originalBytes = Buffer.byteLength(rawText, "utf8");
+	if (hostSpilloverPath) {
+		try {
+			originalBytes = fs.statSync(hostSpilloverPath).size;
+		} catch {}
+	} else if (priorSpilloverPath) {
+		try {
+			originalBytes = fs.statSync(priorSpilloverPath).size;
+		} catch {}
+	}
+
+	// If the entire output is small, within bounds, and host did not truncate, return as-is
 	if (
+		!hostTruncated &&
+		!priorKernelTruncated &&
 		originalBytes <= maxTotalBytes &&
-		!rawText.includes("\n") &&
-		rawText.length <= maxLineLength
+		!textToProcess.includes("\n") &&
+		textToProcess.length <= maxLineLength
 	) {
 		return {
-			text: rawText,
+			text: textToProcess,
 			truncated: false,
 			originalBytes,
 			returnedBytes: originalBytes,
@@ -176,12 +268,12 @@ export function clampCommandOutput(
 		};
 	}
 
-	const rawLines = rawText.split(/\r?\n/);
+	const rawLines = textToProcess.split(/\r?\n/);
 	const totalLines = rawLines.length;
-	let needsTruncation = false;
+	let needsTruncation = hostTruncated || priorKernelTruncated;
 
-	// Check if any line violates maxLineLength or total lines violate maxLines
-	if (totalLines > maxLines || originalBytes > maxTotalBytes) {
+	// Check if any line violates maxLineLength or total lines violate maxLines or bytes violate maxTotalBytes
+	if (totalLines > maxLines || Buffer.byteLength(textToProcess, "utf8") > maxTotalBytes) {
 		needsTruncation = true;
 	}
 
@@ -195,7 +287,7 @@ export function clampCommandOutput(
 	// If no truncation is necessary, return clean output
 	if (!needsTruncation) {
 		return {
-			text: rawText,
+			text: textToProcess,
 			truncated: false,
 			originalBytes,
 			returnedBytes: originalBytes,
@@ -204,14 +296,16 @@ export function clampCommandOutput(
 		};
 	}
 
-	let spilloverPath: string | undefined;
-	try {
-		const directory = options?.spilloverDir || getSpilloverRoot();
-		const maxFiles = options?.maxSpilloverFiles ?? DEFAULT_SPILL_FILES;
-		const maxBytes = options?.maxSpilloverBytes ?? DEFAULT_SPILL_BYTES;
-		spilloverPath = writeSpillover(rawText, directory, maxFiles, maxBytes);
-	} catch (e) {
-		kernelDebug(e);
+	let spilloverPath = hostSpilloverPath || priorSpilloverPath;
+	if (!spilloverPath) {
+		try {
+			const directory = options?.spilloverDir || getSpilloverRoot();
+			const maxFiles = options?.maxSpilloverFiles ?? DEFAULT_SPILL_FILES;
+			const maxBytes = options?.maxSpilloverBytes ?? DEFAULT_SPILL_BYTES;
+			spilloverPath = writeSpillover(textToProcess, directory, maxFiles, maxBytes);
+		} catch (e) {
+			kernelDebug(e);
+		}
 	}
 
 	// Horizontal Line-Width Clamping & Vertical Head+Tail Capping
@@ -265,13 +359,30 @@ export function clampCommandOutput(
 
 	let resultText = clampedLines.join("\n");
 
+	const makeFooter = (linesShown: number): string => {
+		if (hostTruncated || (priorKernelTruncated && hostSpilloverPath)) {
+			if (hostSpilloverPath) {
+				if (linesShown < totalLines) {
+					return `\n\n[Truncated: ${linesShown} lines shown (host truncated). Full: ${hostSpilloverPath} (use offset/limit with read if needed)]`;
+				}
+				return `\n\n[Truncated by host harness. Full: ${hostSpilloverPath} (use offset/limit with read if needed)]`;
+			}
+			if (spilloverPath) {
+				return `\n\n[Truncated by host harness. Spillover: ${spilloverPath} (received fragment only)]`;
+			}
+			return `\n\n[Truncated by host harness]`;
+		}
+		let f = `\n\n[Truncated: ${linesShown}/${totalLines} lines.`;
+		if (spilloverPath) {
+			f += ` Full: ${spilloverPath} (use offset/limit with read if needed)]`;
+		} else {
+			f += `]`;
+		}
+		return f;
+	};
+
 	// Append concise footer with spillover pointer
-	let footer = `\n\n[Truncated: ${shownLines}/${totalLines} lines.`;
-	if (spilloverPath) {
-		footer += ` Full: ${spilloverPath}]`;
-	} else {
-		footer += `]`;
-	}
+	let footer = makeFooter(shownLines);
 
 	if (Buffer.byteLength(resultText + footer, "utf8") > maxTotalBytes) {
 		const marker = clampedLines.findIndex((line) => /^\n\[\.\.\. /.test(line));
@@ -288,13 +399,7 @@ export function clampCommandOutput(
 			1,
 		);
 		if (!removed.startsWith("\n[... ")) shownLines--;
-		footer =
-			"\n\n[Truncated: " +
-			shownLines +
-			"/" +
-			totalLines +
-			" lines." +
-			(spilloverPath ? " Full: " + spilloverPath + "]" : "]");
+		footer = makeFooter(shownLines);
 	}
 	resultText = clampedLines.join("\n") + footer;
 	if (Buffer.byteLength(resultText, "utf8") > maxTotalBytes) {

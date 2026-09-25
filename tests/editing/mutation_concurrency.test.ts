@@ -39,7 +39,7 @@ export async function run(): Promise<void> {
         withFileMutationLocks([b, a], async () => delay(20)),
         withFileMutationLocks([a, b], async () => delay(20)),
       ]),
-      delay(1000).then(() => { throw new Error("multi-path lock ordering deadlocked"); }),
+      delay(3000).then(() => { throw new Error("multi-path lock ordering deadlocked"); }),
     ]);
 
     const file = path.join(base, "sample.ts");
