@@ -47,7 +47,8 @@ function getSessionId(ctx: any): string {
 const PI_DOCS_START =
 	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
 const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
-const KERNEL_GUIDANCE_MARKER = "## Agent Kernel Guidance";
+export const KERNEL_GUIDANCE_MARKER = "## Agent Kernel Guidance";
+const KERNEL_TOOL_BLOCKS = ["CODE_SEARCH", "READ", "EDIT", "BASH"] as const;
 let kernelGuidance: string | null | undefined;
 const piDocsEnabledBySession = new Map<string, boolean>();
 
@@ -70,7 +71,18 @@ function piDocsEnabled(ctx: any): boolean {
 	return loadKernelConfig(cwd).instructions.pi_docs ?? true;
 }
 
-function loadKernelGuidance(toolCollisions: ReadonlySet<string> = new Set()): string {
+export function renderKernelGuidance(guidance: string, availableTools: ReadonlySet<string>): string {
+	return KERNEL_TOOL_BLOCKS.reduce((rendered, block) => {
+		const toolName = block.toLowerCase();
+		const pattern = new RegExp(`<!-- KERNEL:${block} -->\\n([\\s\\S]*?)\\n<!-- /KERNEL:${block} -->\\n?`, "g");
+		return rendered.replace(pattern, (_match, body: string) => availableTools.has(toolName) ? `${body}\n` : "");
+	}, guidance);
+}
+
+function loadKernelGuidance(
+	toolCollisions: ReadonlySet<string>,
+	availableTools: ReadonlySet<string>,
+): string {
 	if (kernelGuidance === undefined) {
 		try {
 			const instructionPath = path.join(__dirname, "..", "AGENT_KERNEL_SYS_PROMPT.md");
@@ -83,9 +95,10 @@ function loadKernelGuidance(toolCollisions: ReadonlySet<string> = new Set()): st
 	}
 
 	const base = kernelGuidance ?? "";
-	if (toolCollisions.size === 0) return base;
+	const rendered = renderKernelGuidance(base, availableTools);
+	if (toolCollisions.size === 0) return rendered;
 	return [
-		base,
+		rendered,
 		"",
 		"## Tool Integration Notice",
 		`Pi reports that another extension already owns: ${[...toolCollisions].sort().join(", ")}. Agent Kernel did not replace those tools. Kernel-specific output limits, read-before-write checks, or edit verification may not apply to them.`,
@@ -753,6 +766,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// registered its tools. This makes collision handling independent of package
 	// load order and lets project trust affect optional-tool registration.
 	const toolCollisions = new Set<string>();
+	const kernelRegisteredTools = new Set<string>();
 	let kernelToolsRegistered = false;
 	const invalidateSearchFile = async (cwd: string, filePath: string) => {
 		const index = getSearchIndex(cwd);
@@ -767,6 +781,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			(tool: any) => !String(tool?.sourceInfo?.path || "").startsWith("<builtin:"),
 		);
 		const owned = new Set(extensionTools.map((tool: any) => tool.name));
+		if (owned.has("bash")) toolCollisions.add("bash");
 		const canRegister = (name: string): boolean => {
 			if (owned.has(name)) {
 				toolCollisions.add(name);
@@ -775,12 +790,17 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			return true;
 		};
 
-		if (canRegister("read")) registerReadTool(pi, { getSessionId, getConfig });
+		if (canRegister("read")) {
+			registerReadTool(pi, { getSessionId, getConfig });
+			kernelRegisteredTools.add("read");
+		}
 		if (canRegister("edit")) {
 			registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
+			kernelRegisteredTools.add("edit");
 		}
 		if (canRegister("code_search") && getConfig(cwd).retrieval.default_profile !== "off") {
 			registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
+			kernelRegisteredTools.add("code_search");
 		}
 
 		const enableSpeculativeTools =
@@ -1028,8 +1048,15 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const systemPrompt = piDocsEnabled(ctx)
 			? basePrompt
 			: withoutPiDocumentation(basePrompt);
+		const activeToolNames = new Set(pi.getActiveTools?.() || []);
+		const promptToolNames = new Set<string>();
+		for (const name of ["read", "edit", "code_search", "bash"]) {
+			if (activeToolNames.has(name) && !toolCollisions.has(name) && (name === "bash" || kernelRegisteredTools.has(name))) {
+				promptToolNames.add(name);
+			}
+		}
 		const guidance = kernelConfig.instructions.enabled
-			? loadKernelGuidance(toolCollisions)
+			? loadKernelGuidance(toolCollisions, promptToolNames)
 			: "";
 		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
 		const shouldAppendRuntime = runtimeContext && !guidedPrompt.includes(runtimeContext.trim());
