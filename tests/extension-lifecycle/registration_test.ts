@@ -56,40 +56,40 @@ export async function testExtensionRegistration(): Promise<void> {
 
     // Gating is asserted on a synthetic fixture with unique sentinel text per block, so these
     // checks test the rendering mechanism and never pin the wording of the shipped prompt asset.
+    // Only code_search is gated: it is the one tool whose availability depends on the retrieval
+    // profile. The other Kernel tools are always registered, so they need no block.
     const sentinel = [
-      "## Prefer Kernel Tools",
+      "## Tool Selection",
       "<!-- KERNEL:CODE_SEARCH -->\nSENTINEL_CODE_SEARCH\n<!-- /KERNEL:CODE_SEARCH -->",
-      "<!-- KERNEL:READ -->\nSENTINEL_READ\n<!-- /KERNEL:READ -->",
-      "<!-- KERNEL:EDIT -->\nSENTINEL_EDIT\n<!-- /KERNEL:EDIT -->",
-      "<!-- KERNEL:BASH -->\nSENTINEL_BASH\n<!-- /KERNEL:BASH -->",
       "SENTINEL_ALWAYS",
     ].join("\n");
     // The marker regex must tolerate BOTH line endings. A git checkout with core.autocrlf
-    // produces CRLF, and a pattern requiring a bare LF never matches, which silently disables
-    // gating entirely. Assert both forms explicitly so this cannot regress.
+    // produces CRLF; a pattern requiring a bare \n silently never matches, which disables gating
+    // entirely and ships the raw <!-- KERNEL:... --> comments. Assert on both forms explicitly.
     for (const [eol, label] of [["\n", "LF"], ["\r\n", "CRLF"]] as const) {
       const eolSentinel = [
         "## Tool Selection",
         `<!-- KERNEL:CODE_SEARCH -->${eol}SENTINEL_CODE_SEARCH${eol}<!-- /KERNEL:CODE_SEARCH -->${eol}`,
         "SENTINEL_ALWAYS",
       ].join("");
-      const eolOff = renderKernelGuidance(eolSentinel, new Set(["read", "edit", "bash"]));
+      const off = renderKernelGuidance(eolSentinel, new Set(["read", "edit", "bash"]));
       assertPass(`gating drops the code_search block on ${label} input`,
-        !eolOff.includes("SENTINEL_CODE_SEARCH") && !eolOff.includes("<!-- KERNEL:") && eolOff.includes("SENTINEL_ALWAYS"),
-        { eol: label, eolOff });
-      const eolOn = renderKernelGuidance(eolSentinel, new Set(["read", "edit", "bash", "code_search"]));
+        !off.includes("SENTINEL_CODE_SEARCH") && !off.includes("<!-- KERNEL:") && off.includes("SENTINEL_ALWAYS"),
+        { eol: label, off });
+      const on = renderKernelGuidance(eolSentinel, new Set(["read", "edit", "bash", "code_search"]));
       assertPass(`gating keeps the code_search block on ${label} input`,
-        eolOn.includes("SENTINEL_CODE_SEARCH") && !eolOn.includes("<!-- KERNEL:"),
-        { eol: label, eolOn });
+        on.includes("SENTINEL_CODE_SEARCH") && !on.includes("<!-- KERNEL:"),
+        { eol: label, on });
     }
+
     const sentinelOff = renderKernelGuidance(sentinel, new Set(["read", "edit", "bash"]));
-    assertPass("gating drops a block whose tool is inactive and keeps the rest",
-      !sentinelOff.includes("SENTINEL_CODE_SEARCH") && sentinelOff.includes("SENTINEL_READ") &&
-      sentinelOff.includes("SENTINEL_EDIT") && sentinelOff.includes("SENTINEL_BASH") &&
+    assertPass("gating drops the code_search block when code_search is inactive",
+      !sentinelOff.includes("SENTINEL_CODE_SEARCH") &&
+      !sentinelOff.includes("<!-- KERNEL:") &&
       sentinelOff.includes("SENTINEL_ALWAYS"),
       { sentinelOff });
     const sentinelOn = renderKernelGuidance(sentinel, new Set(["read", "edit", "bash", "code_search"]));
-    assertPass("gating includes a block whose tool is active",
+    assertPass("gating keeps the code_search block when code_search is active",
       sentinelOn.includes("SENTINEL_CODE_SEARCH") && !sentinelOn.includes("<!-- KERNEL:"),
       { sentinelOn });
 
@@ -174,7 +174,9 @@ export async function testExtensionRegistration(): Promise<void> {
         sessionCtx,
       );
       const offPrompt = String(offResult?.systemPrompt || "");
-      const offAdvertised = KERNEL_TOOLS.filter((t) => new RegExp(`\`${t}\``).test(offPrompt));
+      // This session has edit and bash active; only tools OUTSIDE that set may be absent.
+      const offActive = ["edit", "bash"];
+      const offAdvertised = KERNEL_TOOLS.filter((t) => !offActive.includes(t) && new RegExp(`\`${t}\``).test(offPrompt));
       assertPass("off profile advertises no gated Kernel tool and preserves the user base policy",
         offAdvertised.length === 0 && !offPrompt.includes("<!-- KERNEL:") &&
         !offPrompt.includes("get_repo_map") && !offPrompt.includes("repo_map") &&
@@ -195,7 +197,7 @@ export async function testExtensionRegistration(): Promise<void> {
       registerTool(tool: any) { collisionTools.push(tool); },
       registerCommand() {},
       getAllTools() {
-        return [{ name: "read", sourceInfo: { path: "/mock/other-extension.ts" } }];
+        return [{ name: "code_search", sourceInfo: { path: "/mock/other-extension.ts" } }];
       },
       getActiveTools() { return ["read", "edit", "code_search", "bash"]; },
       on(event: string, handler: Function) {
@@ -211,13 +213,15 @@ export async function testExtensionRegistration(): Promise<void> {
       sessionCtx,
     );
     const collisionPrompt = String(collisionResult?.systemPrompt || "");
-    const collisionAdvertised = KERNEL_TOOLS.filter((t) => new RegExp(`\`${t}\``).test(collisionPrompt));
-    assertPass("colliding tools do not receive Kernel capability guidance",
-      !collisionPrompt.includes("`read`") &&
-      collisionAdvertised.every((t) => t !== "read") &&
+    // \r?\n: a CRLF checkout must extract the same block body as an LF one.
+    const csBlock = promptAsset.match(/<!-- KERNEL:CODE_SEARCH -->\r?\n([\s\S]*?)\r?\n<!-- \/KERNEL:CODE_SEARCH -->/)?.[1] ?? "";
+    assertPass("a colliding code_search drops its guidance and raises the integration notice",
+      csBlock.length > 0 &&
+      !collisionPrompt.includes(csBlock.trim()) &&
+      !collisionPrompt.includes("<!-- KERNEL:") &&
       collisionPrompt.includes("Tool Integration Notice") &&
       collisionPrompt.includes(KERNEL_GUIDANCE_MARKER),
-      { collisionAdvertised, collisionPrompt });
+      { csBlock, collisionPrompt });
 
     logPass("Deferred registration, guidance, and startup indexing verified!");
   } finally {

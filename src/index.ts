@@ -48,7 +48,7 @@ const PI_DOCS_START =
 	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
 const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
 export const KERNEL_GUIDANCE_MARKER = "## Agent Kernel Guidance";
-const KERNEL_TOOL_BLOCKS = ["CODE_SEARCH", "READ", "EDIT", "BASH"] as const;
+const KERNEL_TOOL_BLOCKS = ["CODE_SEARCH"] as const;
 let kernelGuidance: string | null | undefined;
 const piDocsEnabledBySession = new Map<string, boolean>();
 
