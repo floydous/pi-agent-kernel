@@ -64,6 +64,24 @@ export async function testExtensionRegistration(): Promise<void> {
       "<!-- KERNEL:BASH -->\nSENTINEL_BASH\n<!-- /KERNEL:BASH -->",
       "SENTINEL_ALWAYS",
     ].join("\n");
+    // The marker regex must tolerate BOTH line endings. A git checkout with core.autocrlf
+    // produces CRLF, and a pattern requiring a bare LF never matches, which silently disables
+    // gating entirely. Assert both forms explicitly so this cannot regress.
+    for (const [eol, label] of [["\n", "LF"], ["\r\n", "CRLF"]] as const) {
+      const eolSentinel = [
+        "## Tool Selection",
+        `<!-- KERNEL:CODE_SEARCH -->${eol}SENTINEL_CODE_SEARCH${eol}<!-- /KERNEL:CODE_SEARCH -->${eol}`,
+        "SENTINEL_ALWAYS",
+      ].join("");
+      const eolOff = renderKernelGuidance(eolSentinel, new Set(["read", "edit", "bash"]));
+      assertPass(`gating drops the code_search block on ${label} input`,
+        !eolOff.includes("SENTINEL_CODE_SEARCH") && !eolOff.includes("<!-- KERNEL:") && eolOff.includes("SENTINEL_ALWAYS"),
+        { eol: label, eolOff });
+      const eolOn = renderKernelGuidance(eolSentinel, new Set(["read", "edit", "bash", "code_search"]));
+      assertPass(`gating keeps the code_search block on ${label} input`,
+        eolOn.includes("SENTINEL_CODE_SEARCH") && !eolOn.includes("<!-- KERNEL:"),
+        { eol: label, eolOn });
+    }
     const sentinelOff = renderKernelGuidance(sentinel, new Set(["read", "edit", "bash"]));
     assertPass("gating drops a block whose tool is inactive and keeps the rest",
       !sentinelOff.includes("SENTINEL_CODE_SEARCH") && sentinelOff.includes("SENTINEL_READ") &&

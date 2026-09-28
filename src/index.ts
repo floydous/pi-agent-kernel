@@ -74,7 +74,11 @@ function piDocsEnabled(ctx: any): boolean {
 export function renderKernelGuidance(guidance: string, availableTools: ReadonlySet<string>): string {
 	return KERNEL_TOOL_BLOCKS.reduce((rendered, block) => {
 		const toolName = block.toLowerCase();
-		const pattern = new RegExp(`<!-- KERNEL:${block} -->\\n([\\s\\S]*?)\\n<!-- /KERNEL:${block} -->\\n?`, "g");
+		// Tolerate CRLF: a git checkout with core.autocrlf produces CRLF line endings, and a
+		// pattern requiring a bare LF never matches. That failure is silent: it disables gating
+		// entirely, shipping the raw <!-- KERNEL:... --> comments and advertising tools that
+		// are not registered.
+		const pattern = new RegExp(`<!-- KERNEL:${block} -->\\r?\n([\\s\\S]*?)\\r?\n<!-- /KERNEL:${block} -->\\r?\n?`, "g");
 		return rendered.replace(pattern, (_match, body: string) => availableTools.has(toolName) ? `${body}\n` : "");
 	}, guidance);
 }
