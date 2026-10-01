@@ -74,8 +74,9 @@ function repairSessionFile(filePath: string, apply: boolean): FileRepairResult {
 
 	const original = fs.readFileSync(filePath, "utf8");
 	let entriesRepaired = 0;
-	const repairedLines = original.split("\n").map((line) => {
-		if (!line.trim()) return line;
+	const repairedLines = original.split(/(\r?\n)/).map((line, index) => {
+		// Keep captured separators verbatim so repaired records retain each original EOL.
+		if (index % 2 === 1 || !line.trim()) return line;
 		try {
 			const entry = JSON.parse(line);
 			let modified = false;
@@ -109,7 +110,7 @@ function repairSessionFile(filePath: string, apply: boolean): FileRepairResult {
 	}
 
 	const originalHash = sha256(original);
-	const repairedContent = repairedLines.join("\n");
+	const repairedContent = repairedLines.join("");
 	return withRepairLock(filePath, () => {
 		const current = fs.readFileSync(filePath, "utf8");
 		if (sha256(current) !== originalHash) {

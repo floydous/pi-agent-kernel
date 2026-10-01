@@ -802,7 +802,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			registerEditTool(pi, { getSessionId, getConfig, invalidateSearchFile });
 			kernelRegisteredTools.add("edit");
 		}
-		if (canRegister("code_search") && getConfig(cwd).retrieval.default_profile !== "off") {
+		// Register independently of the first session's profile: one extension instance may
+		// serve multiple workspaces. Availability is gated per workspace in execution and prompts.
+		if (canRegister("code_search")) {
 			registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 			kernelRegisteredTools.add("code_search");
 		}
@@ -1055,7 +1057,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const activeToolNames = new Set(pi.getActiveTools?.() || []);
 		const promptToolNames = new Set<string>();
 		for (const name of ["read", "edit", "code_search", "bash"]) {
-			if (activeToolNames.has(name) && !toolCollisions.has(name) && (name === "bash" || kernelRegisteredTools.has(name))) {
+			const enabledForWorkspace = name !== "code_search" || kernelConfig.retrieval.default_profile !== "off";
+			if (enabledForWorkspace && activeToolNames.has(name) && !toolCollisions.has(name) && (name === "bash" || kernelRegisteredTools.has(name))) {
 				promptToolNames.add(name);
 			}
 		}

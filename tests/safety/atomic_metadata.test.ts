@@ -34,7 +34,7 @@ export async function run(): Promise<void> {
       symlinkCreated = false;
     }
     if (symlinkCreated) {
-      assert.throws(() => writeFileSyncAtomic(symlink, "replacement"), /symbolic link|symlink/i);
+      assert.throws(() => writeFileSyncAtomic(symlink, "replacement"), /symbolic[- ]link|symlink/i);
       assert.equal(fs.readFileSync(symlinkTarget, "utf8"), "target", "symlink target must not be replaced");
     }
 

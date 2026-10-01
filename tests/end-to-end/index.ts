@@ -106,42 +106,30 @@ function renderTemplate(id: number): string {
 
 	// Test 4: Bounded Spillover Log Pruning in output_clamper
 	console.log("\n[4. Verifying Output Clamper Spillover File Pruning]");
-	const tempDir = os.tmpdir();
-	// Create 25 dummy spillover files
-	const createdFiles: string[] = [];
-	for (let i = 0; i < 25; i++) {
-		const p = path.join(tempDir, `pi_bash_spillover_test_${i}_${Date.now()}.log`);
-		fs.writeFileSync(p, "dummy content");
-		createdFiles.push(p);
-	}
-
-	// Trigger clampCommandOutput which prunes when pi_bash_spillover_ files > 20
-	const bigOutput = "a".repeat(35000);
-	const clamped = clampCommandOutput(bigOutput, "test-cmd", { maxTotalBytes: 1000 });
-	assert.strictEqual(clamped.truncated, true, "Large output must be truncated");
-	assert.ok(clamped.spilloverPath, "Spillover path must be generated");
-
-	// When pre-count > 20, clamp prunes unlinked files down to 20 then writes 1 new file.
-	// Filter for files owned by current user that were eligible for deletion.
-	const myRemaining = fs.readdirSync(tempDir).filter((f) => {
-		if (!f.startsWith("pi_bash_spillover_")) return false;
-		try {
-			const st = fs.statSync(path.join(tempDir, f));
-			return st.uid === process.getuid();
-		} catch {
-			return false;
+	const spilloverDir = fs.mkdtempSync(path.join(os.tmpdir(), "end-to-end-spillover-"));
+	try {
+		// Create 25 eligible files in the exact directory the product will prune.
+		for (let i = 0; i < 25; i++) {
+			const fixture = path.join(spilloverDir, `pi_bash_spillover_test_${i}.log`);
+			fs.writeFileSync(fixture, "dummy content");
+			fs.utimesSync(fixture, new Date(0), new Date(0));
 		}
-	});
-	assert.ok(myRemaining.length <= 21, `Spillover log files must be pruned to max 21 (actual: ${myRemaining.length})`);
 
-	// Clean up test spillover files
-	for (const f of createdFiles) {
-		try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+		const clamped = clampCommandOutput("a".repeat(35000), "test-cmd", {
+			maxTotalBytes: 1000,
+			spilloverDir,
+		});
+		assert.strictEqual(clamped.truncated, true, "Large output must be truncated");
+		assert.ok(clamped.spilloverPath, "Spillover path must be generated");
+		assert.equal(path.dirname(clamped.spilloverPath), fs.realpathSync(spilloverDir));
+
+		const remaining = fs.readdirSync(spilloverDir).filter((name) => name.startsWith("pi_bash_spillover_"));
+		assert.ok(remaining.length <= 21, `Spillover log files must be pruned to max 21 (actual: ${remaining.length})`);
+		assert.ok(remaining.includes(path.basename(clamped.spilloverPath)), "New spillover remains available after pruning");
+		console.log("✓ Spillover file generation and mtime-sorted bounded rotation verified!");
+	} finally {
+		fs.rmSync(spilloverDir, { recursive: true, force: true });
 	}
-	if (clamped.spilloverPath && fs.existsSync(clamped.spilloverPath)) {
-		try { fs.unlinkSync(clamped.spilloverPath); } catch {}
-	}
-	console.log("✓ Spillover file generation and mtime-sorted bounded rotation verified!");
 
 	// Test 5: Repo-Map Generation & Caching Behavior
 	console.log("\n[5. Verifying Repo-Map AST Generation]");

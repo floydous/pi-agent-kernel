@@ -36,6 +36,16 @@ export function testSessionRepair(): void {
     assertPass("A byte-preserving backup is created", backups.length === 1 && fs.readFileSync(path.join(testSessionDir, backups[0]!), "utf8") === original, { backups });
     assertPass("Repair lock is removed", !fs.existsSync(`${sessionFile}.agent-kernel-repair.lock`));
 
+    const crlfFile = path.join(testSessionDir, "crlf_session.jsonl");
+    const crlfOriginal = corruptEntries.join("\r\n") + "\r\n";
+    fs.writeFileSync(crlfFile, crlfOriginal, "utf8");
+    const crlfRepair = sanitizeSessionFiles({ agentDir: testAgentDir, apply: true });
+    const repairedCrlf = fs.readFileSync(crlfFile, "utf8");
+    assertPass("CRLF session repair preserves all line separators",
+      crlfRepair.repairedEntries === 2 && (repairedCrlf.match(/\r\n/g) || []).length === 3 &&
+      !repairedCrlf.replace(/\r\n/g, "").includes("\n"),
+      { crlfRepair, repairedCrlf });
+
     const idempotent = sanitizeSessionFiles({ agentDir: testAgentDir, apply: true });
     assertPass("Second apply is idempotent", idempotent.candidateFiles === 0 && idempotent.repairedFiles === 0, { idempotent });
 

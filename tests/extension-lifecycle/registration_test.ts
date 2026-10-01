@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import kernelExt, { renderKernelGuidance, KERNEL_GUIDANCE_MARKER } from "../../src/index";
@@ -189,6 +190,57 @@ export async function testExtensionRegistration(): Promise<void> {
       if (previousOffPiDir === undefined) delete process.env.PI_DIR;
       else process.env.PI_DIR = previousOffPiDir;
       fs.rmSync(offPiDir, { recursive: true, force: true });
+    }
+
+    const offWorkspace = path.join(ws.tempDir, "multi-off");
+    const leanWorkspace = path.join(ws.tempDir, "multi-lean");
+    for (const [workspace, profile] of [[offWorkspace, "off"], [leanWorkspace, "lean"]] as const) {
+      fs.mkdirSync(path.join(workspace, ".pi"), { recursive: true });
+      fs.writeFileSync(path.join(workspace, ".pi", "config.toml"), `[retrieval]\ndefault_profile = "${profile}"\n`, "utf8");
+    }
+    const searchBlock = promptAsset.match(/<!-- KERNEL:CODE_SEARCH -->\r?\n([\s\S]*?)\r?\n<!-- \/KERNEL:CODE_SEARCH -->/)?.[1]?.trim() || "";
+    assert(searchBlock.length > 0, "code_search guidance block must exist");
+    for (const order of [[offWorkspace, leanWorkspace], [leanWorkspace, offWorkspace]]) {
+      const orderTools: any[] = [];
+      const orderHandlers: Record<string, Function[]> = {};
+      const orderPi: any = {
+        registerTool(tool: any) { orderTools.push(tool); },
+        registerCommand() {},
+        getAllTools() { return []; },
+        getActiveTools() { return [...orderTools.map((tool) => tool.name), "bash"]; },
+        on(event: string, handler: Function) {
+          orderHandlers[event] = orderHandlers[event] || [];
+          orderHandlers[event].push(handler);
+          return () => {};
+        },
+      };
+      await kernelExt(orderPi);
+      const contexts = order.map((cwd, index) => ({
+        ...sessionCtx,
+        cwd,
+        isProjectTrusted: () => true,
+        sessionManager: { getCwd: () => cwd, getSessionId: () => `profile-order-${index}` },
+      }));
+      for (const ctx of contexts) await orderHandlers.session_start?.[0]?.({}, ctx);
+      const searchTools = orderTools.filter((tool) => tool.name === "code_search");
+      assert.equal(searchTools.length, 1, "code_search registration must not depend on first workspace profile");
+      const prompts = [];
+      for (const ctx of contexts) {
+        prompts.push(await orderHandlers.before_agent_start?.[0]?.(
+          { systemPrompt: "Base system prompt", systemPromptOptions: { contextFiles: [] } },
+          ctx,
+        ));
+      }
+      assert.deepEqual(
+        prompts.map((result: any) => String(result?.systemPrompt || "").includes(searchBlock)),
+        order.map((cwd) => cwd === leanWorkspace),
+        "code_search guidance must follow each workspace's profile regardless of start order",
+      );
+      const disabledResult = await searchTools[0].execute(
+        "off-profile-check", { query: "must not search" }, undefined, undefined, contexts[order.indexOf(offWorkspace)],
+      );
+      assert.equal(disabledResult.isError, true, "registered search tool must remain disabled in off-profile workspaces");
+      assert.match(disabledResult.content[0].text, /disabled for this workspace/);
     }
 
     const collisionTools: any[] = [];

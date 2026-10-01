@@ -48,6 +48,13 @@ export function registerCodeSearchTool(
 					isError: true,
 				};
 			}
+			if (deps.getConfig?.(ctx.cwd).retrieval.default_profile === "off") {
+				return {
+					content: [{ type: "text", text: "[ERROR] Code search is disabled for this workspace." }],
+					details: { count: 0 },
+					isError: true,
+				};
+			}
 
 			const requestedMode = params.mode ?? "auto";
 			if (!(CODE_SEARCH_MODES as readonly string[]).includes(requestedMode)) {

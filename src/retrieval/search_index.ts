@@ -27,6 +27,8 @@ export { getSearchCacheDir } from "./search_cache";
 
 const INDEX_VERSION = 4;
 const LEGACY_INDEX_VERSION = 3;
+const MAX_PERSISTED_INDEX_BYTES = 128 * 1024 * 1024;
+const MAX_PERSISTED_VECTOR_BYTES = MAX_INDEX_CHUNKS * 768 * 4;
 const EXTRACTOR_GENERATION = "tree-sitter-wasm-v2";
 
 interface PersistedVectorCache {
@@ -40,26 +42,63 @@ interface PersistedVectorCache {
 interface PersistedIndexSnapshot {
 	chunks: CodeChunk[];
 	fileHashes: Map<string, string>;
+	chunkHashes: Map<string, string>;
+	chunkFiles: Map<string, string>;
 	ignoreConfigHashes: Map<string, string>;
+	staleFiles: Set<string>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-function canonicalWorkspaceFile(cwd: string, relativePath: string): string {
+function readDescriptorBounded(descriptor: number, maxBytes: number): Buffer {
+	const parts: Buffer[] = [];
+	let total = 0;
+	while (total <= maxBytes) {
+		const part = Buffer.allocUnsafe(Math.min(64 * 1024, maxBytes + 1 - total));
+		const bytesRead = fs.readSync(descriptor, part, 0, part.length, null);
+		if (bytesRead === 0) break;
+		total += bytesRead;
+		if (total > maxBytes) throw new Error("File exceeds size limit");
+		parts.push(part.subarray(0, bytesRead));
+	}
+	return Buffer.concat(parts, total);
+}
+
+function sameFileSnapshot(before: fs.Stats, after: fs.Stats): boolean {
+	return before.dev === after.dev && before.ino === after.ino && before.size === after.size && before.mtimeMs === after.mtimeMs;
+}
+
+function isValidChunkKind(kind: string): boolean {
+	return kind === "file" || ["function", "class", "interface", "type", "enum", "variable", "constant", "method", "alias", "test"].includes(kind);
+}
+
+function assertSafeWorkspaceRelativePath(relativePath: string): void {
 	if (
 		!relativePath ||
+		relativePath.includes("\0") ||
+		relativePath.includes(":") ||
 		path.isAbsolute(relativePath) ||
 		relativePath.includes("\\") ||
-		relativePath === ".." ||
-		relativePath.startsWith("../") ||
-		relativePath.split("/").includes("..")
+		relativePath.split("/").some((part) => !part || part === "." || part === "..")
 	) {
 		throw new Error(`Unsafe persisted file path: ${relativePath}`);
 	}
+}
+
+function canonicalWorkspaceFile(cwd: string, relativePath: string): string {
+	assertSafeWorkspaceRelativePath(relativePath);
 	const canonicalRoot = fs.realpathSync(path.resolve(cwd));
 	const absolutePath = path.resolve(canonicalRoot, relativePath);
+	let current = canonicalRoot;
+	for (const part of relativePath.split("/")) {
+		current = path.join(current, part);
+		const stat = fs.lstatSync(current);
+		if (stat.isSymbolicLink()) {
+			throw new Error(`Persisted workspace path contains a symbolic link: ${relativePath}`);
+		}
+	}
 	const canonicalFile = fs.realpathSync(absolutePath);
 	const relative = path.relative(canonicalRoot, canonicalFile);
 	if (
@@ -75,6 +114,7 @@ function canonicalWorkspaceFile(cwd: string, relativePath: string): string {
 export function validatePersistedIndex(
 	data: unknown,
 	cwd: string,
+	readSource = readDescriptorBounded,
 ): PersistedIndexSnapshot {
 	if (!isRecord(data)) throw new Error("Persisted index must be an object");
 	if (
@@ -86,8 +126,13 @@ export function validatePersistedIndex(
 	if (data.extractorGeneration !== EXTRACTOR_GENERATION) {
 		throw new Error("Persisted index version mismatch");
 	}
-	if (!Array.isArray(data.chunks) || !isRecord(data.fileHashes)) {
-		throw new Error("Persisted index has invalid chunks or file hashes");
+	if (
+		!Array.isArray(data.chunks) ||
+		data.chunks.length > MAX_INDEX_CHUNKS ||
+		!isRecord(data.fileHashes) ||
+		Object.keys(data.fileHashes).length > MAX_INDEX_CHUNKS
+	) {
+		throw new Error("Persisted index has invalid or oversized chunks/file hashes");
 	}
 
 	const fileHashes = new Map<string, string>();
@@ -96,11 +141,13 @@ export function validatePersistedIndex(
 		if (typeof hash !== "string" || !/^[0-9a-f]{16}$/i.test(hash)) {
 			throw new Error(`Invalid persisted hash for ${filePath}`);
 		}
-		canonicalWorkspaceFile(cwd, filePath);
+		assertSafeWorkspaceRelativePath(filePath);
 		fileHashes.set(filePath, hash);
 	}
 
 	const ids = new Set<string>();
+	const chunkHashes = new Map<string, string>();
+	const chunkFiles = new Map<string, string>();
 	for (const value of data.chunks) {
 		if (!isRecord(value)) throw new Error("Persisted chunk must be an object");
 		const chunk = value as unknown as CodeChunk;
@@ -112,32 +159,119 @@ export function validatePersistedIndex(
 			!fileHashes.has(chunk.filePath) ||
 			!Number.isSafeInteger(chunk.startLine) ||
 			!Number.isSafeInteger(chunk.endLine) ||
+			chunk.startLine > MAX_INDEX_FILE_BYTES ||
+			chunk.endLine > MAX_INDEX_FILE_BYTES ||
+			!chunk.symbolName ||
 			chunk.startLine < 1 ||
 			chunk.endLine < chunk.startLine ||
 			typeof chunk.content !== "string" ||
+			typeof chunk.symbolName !== "string" ||
+			!chunk.symbolName ||
+			!isValidChunkKind(chunk.kind) ||
+			typeof chunk.signature !== "string" ||
+			typeof chunk.breadcrumb !== "string" ||
+			typeof chunk.textForEmbedding !== "string" ||
+			Buffer.byteLength(chunk.content, "utf8") > MAX_INDEX_FILE_BYTES ||
+			Buffer.byteLength(chunk.textForEmbedding, "utf8") > MAX_INDEX_FILE_BYTES ||
+			chunk.id !== (chunk.kind === "file"
+				? `${chunk.filePath}:${chunk.startLine}-${chunk.endLine}`
+				: `${chunk.filePath}:${chunk.startLine}-${chunk.endLine}#${chunk.symbolName}`) ||
 			typeof chunk.hash !== "string" ||
 			chunk.hash !== computeHash(chunk.content)
 		) {
 			throw new Error(`Invalid persisted chunk: ${String(chunk?.id ?? "<unknown>")}`);
 		}
 		ids.add(chunk.id);
+		chunkHashes.set(chunk.id, chunk.hash);
+		chunkFiles.set(chunk.id, chunk.filePath);
 		const list = chunksByFile.get(chunk.filePath) || [];
 		list.push(chunk);
 		chunksByFile.set(chunk.filePath, list);
 	}
 
 	const validatedChunks: CodeChunk[] = [];
+	const staleFiles = new Set<string>();
+	let validatedWorkspaceBytes = 0;
 	for (const [filePath, expectedHash] of fileHashes) {
-		const absolutePath = canonicalWorkspaceFile(cwd, filePath);
-		const source = fs.readFileSync(absolutePath, "utf8");
-		if (computeHash(source) !== expectedHash) {
-			throw new Error(`Persisted source hash mismatch: ${filePath}`);
-		}
-		const sourceLines = source.split("\n");
 		const fileChunks = chunksByFile.get(filePath) || [];
 		if (fileChunks.length === 0) {
 			throw new Error(`Persisted file has no chunks: ${filePath}`);
 		}
+		const fileChunkBytes = fileChunks.reduce((total, chunk) => total + Buffer.byteLength(chunk.content, "utf8"), 0);
+		if (fileChunkBytes > MAX_INDEX_FILE_BYTES || fileChunkBytes > MAX_INDEX_WORKSPACE_BYTES) {
+			throw new Error(`Persisted chunks exceed file size limits: ${filePath}`);
+		}
+
+		let source: string;
+		const workspaceRoot = fs.realpathSync(path.resolve(cwd));
+		const unresolvedPath = path.resolve(workspaceRoot, filePath);
+		const relativeToWorkspace = path.relative(workspaceRoot, unresolvedPath);
+		if (
+			relativeToWorkspace === ".." ||
+			relativeToWorkspace.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(relativeToWorkspace)
+		) {
+			throw new Error(`Unsafe persisted workspace path: ${filePath}`);
+		}
+		let absolutePath: string;
+		try {
+			absolutePath = canonicalWorkspaceFile(cwd, filePath);
+		} catch (error: any) {
+			if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+				// Keep the old hash so syncWorkspace can recognize and remove this deleted file.
+				staleFiles.add(filePath);
+				continue;
+			}
+			throw error;
+		}
+		const relativeCanonical = path.relative(workspaceRoot, absolutePath);
+		if (
+			relativeCanonical === ".." ||
+			relativeCanonical.startsWith(`..${path.sep}`) ||
+			path.isAbsolute(relativeCanonical)
+		) {
+			throw new Error(`Persisted file escapes workspace: ${filePath}`);
+		}
+		let sourceStat: fs.Stats;
+		let descriptor: number | undefined;
+		try {
+			descriptor = fs.openSync(absolutePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+			sourceStat = fs.fstatSync(descriptor);
+			if (!sourceStat.isFile() || sourceStat.size > MAX_INDEX_FILE_BYTES) {
+				staleFiles.add(filePath);
+				continue;
+			}
+			source = readSource(descriptor, MAX_INDEX_FILE_BYTES).toString("utf8");
+			const afterRead = fs.fstatSync(descriptor);
+			if (!sameFileSnapshot(sourceStat, afterRead) || !sameFileSnapshot(sourceStat, fs.statSync(absolutePath))) {
+				throw new Error(`Persisted workspace source changed during validation: ${filePath}`);
+			}
+			const resolvedAfterRead = fs.realpathSync(absolutePath);
+			const relativeAfterRead = path.relative(workspaceRoot, resolvedAfterRead);
+			if (relativeAfterRead === ".." || relativeAfterRead.startsWith(`..${path.sep}`) || path.isAbsolute(relativeAfterRead)) {
+				throw new Error(`Persisted file escaped workspace during validation: ${filePath}`);
+			}
+		} catch (error: any) {
+			if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+				staleFiles.add(filePath);
+				continue;
+			}
+			throw error;
+		} finally {
+			if (descriptor !== undefined) fs.closeSync(descriptor);
+		}
+
+		validatedWorkspaceBytes += Buffer.byteLength(source, "utf8");
+		if (validatedWorkspaceBytes > MAX_INDEX_WORKSPACE_BYTES) {
+			throw new Error("Persisted workspace exceeds index size limit");
+		}
+		if (computeHash(source) !== expectedHash) {
+			// Changed files are re-chunked by syncWorkspace; unaffected files remain reusable.
+			staleFiles.add(filePath);
+			continue;
+		}
+
+		const sourceLines = source.split("\n");
 		for (const chunk of fileChunks) {
 			if (chunk.endLine > sourceLines.length) {
 				throw new Error(`Persisted chunk exceeds source bounds: ${chunk.id}`);
@@ -151,10 +285,6 @@ export function validatePersistedIndex(
 			chunk.absolutePath = absolutePath;
 			validatedChunks.push(chunk);
 		}
-	}
-
-	if (validatedChunks.length !== data.chunks.length) {
-		throw new Error("Persisted index contains chunks for unknown files");
 	}
 
 	const ignoreConfigHashes = new Map<string, string>();
@@ -174,7 +304,7 @@ export function validatePersistedIndex(
 		}
 	}
 
-	return { chunks: validatedChunks, fileHashes, ignoreConfigHashes };
+	return { chunks: validatedChunks, fileHashes, chunkHashes, chunkFiles, ignoreConfigHashes, staleFiles };
 }
 
 export interface SearchHit {
@@ -314,19 +444,32 @@ export class HybridSearchIndex {
 				(cache: any): cache is PersistedVectorCache =>
 					cache &&
 					Number.isInteger(cache.vectorDim) &&
-					cache.vectorDim > 0 &&
-					Array.isArray(cache.vectorChunkIds) &&
+					(cache.vectorDim === 256 || cache.vectorDim === 768) &&
+				Array.isArray(cache.vectorChunkIds) &&
+				cache.vectorChunkIds.length <= MAX_INDEX_CHUNKS &&
+				cache.vectorChunkIds.every((id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 4096) &&
+					(cache.vectorChunkHashes === undefined ||
+						(Array.isArray(cache.vectorChunkHashes) &&
+							cache.vectorChunkHashes.length === cache.vectorChunkIds.length &&
+							cache.vectorChunkHashes.every((hash: unknown) => typeof hash === "string" && /^[0-9a-f]{16}$/i.test(hash)))) &&
+					new Set(cache.vectorChunkIds).size === cache.vectorChunkIds.length &&
 					typeof cache.vectorHash === "string" &&
+					/^[0-9a-f]{64}$/i.test(cache.vectorHash) &&
 					typeof cache.fileName === "string" &&
-					path.basename(cache.fileName) === cache.fileName,
+					(cache.fileName === "vectors.bin" || cache.fileName === `vectors-${cache.vectorDim}d.bin`),
 			);
 		}
 
 		if (
 			Number.isInteger(data.vectorDim) &&
-			data.vectorDim > 0 &&
+			(data.vectorDim === 256 || data.vectorDim === 768) &&
 			Array.isArray(data.vectorChunkIds) &&
-			typeof data.vectorHash === "string"
+			data.vectorChunkIds.length <= MAX_INDEX_CHUNKS &&
+			data.vectorChunkIds.every((id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 4096) &&
+			new Set(data.vectorChunkIds).size === data.vectorChunkIds.length &&
+			(data.vectorChunkHashes === undefined || (Array.isArray(data.vectorChunkHashes) && data.vectorChunkHashes.length === data.vectorChunkIds.length && data.vectorChunkHashes.every((hash: unknown) => typeof hash === "string" && /^[0-9a-f]{16}$/i.test(hash)))) &&
+			typeof data.vectorHash === "string" &&
+			/^[0-9a-f]{64}$/i.test(data.vectorHash)
 		) {
 			return [{
 				vectorDim: data.vectorDim,
@@ -346,7 +489,11 @@ export class HybridSearchIndex {
 		);
 	}
 
-	private loadVectorCache(cache: PersistedVectorCache): void {
+	private loadVectorCache(
+		cache: PersistedVectorCache,
+		persistedChunkHashes: Map<string, string>,
+		allowUnhashedVectors = false,
+	): void {
 		const vectorChunkIds = cache.vectorChunkIds;
 		const vectorPath = this.getVectorsFilePath(cache.fileName);
 		if (
@@ -355,8 +502,18 @@ export class HybridSearchIndex {
 			new Set(vectorChunkIds).size !== vectorChunkIds.length
 		) return;
 
-		const buffer = fs.readFileSync(vectorPath);
 		const expectedBytes = vectorChunkIds.length * cache.vectorDim * 4;
+		if (expectedBytes > MAX_PERSISTED_VECTOR_BYTES) return;
+		const descriptor = fs.openSync(vectorPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+		let buffer: Buffer;
+		try {
+			const before = fs.fstatSync(descriptor);
+			if (!before.isFile() || before.size !== expectedBytes) return;
+			buffer = readDescriptorBounded(descriptor, expectedBytes);
+			if (!sameFileSnapshot(before, fs.fstatSync(descriptor))) return;
+		} finally {
+			fs.closeSync(descriptor);
+		}
 		if (
 			buffer.byteLength !== expectedBytes ||
 			cache.vectorHash !==
@@ -372,25 +529,27 @@ export class HybridSearchIndex {
 			Array.isArray(cache.vectorChunkHashes) &&
 			cache.vectorChunkHashes.length === vectorChunkIds.length;
 		if (Array.isArray(cache.vectorChunkHashes) && !hasChunkHashes) return;
-		if (!hasChunkHashes && !this.isWorkspaceSnapshotFresh()) return;
-		if (
-			!hasChunkHashes &&
-			(vectorChunkIds.length !== this.chunks.size ||
-				vectorChunkIds.some((id) => !this.chunks.has(id)))
-		) return;
-
+		if (!hasChunkHashes && (
+			!allowUnhashedVectors ||
+			vectorChunkIds.length !== this.chunks.size ||
+			vectorChunkIds.some((id) => !this.chunks.has(id)) ||
+			!this.isWorkspaceSnapshotFresh()
+		)) return;
 		const floatArray = new Float32Array(
 			buffer.buffer,
 			buffer.byteOffset,
 			buffer.byteLength / 4,
 		);
+		for (const value of floatArray) {
+			if (!Number.isFinite(value)) return;
+		}
 		for (let index = 0; index < vectorChunkIds.length; index++) {
 			const chunkId = vectorChunkIds[index];
 			if (!this.chunks.has(chunkId)) continue;
-			if (
-				hasChunkHashes &&
+			if (hasChunkHashes && (
+				cache.vectorChunkHashes?.[index] !== persistedChunkHashes.get(chunkId) ||
 				cache.vectorChunkHashes?.[index] !== currentHashes.get(chunkId)
-			) continue;
+			)) continue;
 			const vector = new Float32Array(cache.vectorDim);
 			vector.set(
 				floatArray.subarray(
@@ -411,9 +570,24 @@ export class HybridSearchIndex {
 		if (!fs.existsSync(indexPath)) return false;
 
 		try {
-			const raw = fs.readFileSync(indexPath, "utf-8");
-			const data = JSON.parse(raw);
-			const validated = validatePersistedIndex(data, this.cwd);
+			const descriptor = fs.openSync(indexPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+			let data: any;
+			let validated: PersistedIndexSnapshot;
+			try {
+				const before = fs.fstatSync(descriptor);
+				if (!before.isFile()) throw new Error("Persisted index is not a regular file");
+				const raw = readDescriptorBounded(descriptor, MAX_PERSISTED_INDEX_BYTES).toString("utf8");
+				data = JSON.parse(raw);
+				validated = validatePersistedIndex(data, this.cwd);
+				if (!sameFileSnapshot(before, fs.fstatSync(descriptor)) || !sameFileSnapshot(before, fs.statSync(indexPath))) {
+					throw new Error("Persisted index changed while loading");
+				}
+			} finally {
+				fs.closeSync(descriptor);
+			}
+			const persistedVectorCaches = this.getPersistedVectorCaches(data).filter((cache) =>
+				cache.vectorChunkIds.every((id) => validated.chunkFiles.has(id)),
+			);
 
 			this.chunks.clear();
 			this.bm25.clear();
@@ -434,7 +608,7 @@ export class HybridSearchIndex {
 				this.ignoreConfigHashes.set(file, hash);
 			}
 
-			this.persistedVectorCaches = this.getPersistedVectorCaches(data);
+			this.persistedVectorCaches = persistedVectorCaches;
 			const wantsVectors =
 				this.config.effectiveProfile === "hybrid" ||
 				this.config.effectiveProfile === "full";
@@ -443,7 +617,11 @@ export class HybridSearchIndex {
 			);
 			if (wantsVectors && activeCache) {
 				try {
-					this.loadVectorCache(activeCache);
+					this.loadVectorCache(
+						activeCache,
+						validated.chunkHashes,
+						data.version === LEGACY_INDEX_VERSION && validated.staleFiles.size === 0,
+					);
 				} catch (error) {
 					this.vectors.clear();
 					kernelDebug(error);
@@ -457,7 +635,7 @@ export class HybridSearchIndex {
 					Array.from(this.vectors.values()).every(
 						(vector) => vector.length === this.config.matryoshkaDim,
 					));
-			this.isInitialized = vectorsReady;
+			this.isInitialized = vectorsReady && validated.staleFiles.size === 0;
 			return true;
 		} catch (error) {
 			kernelDebug(error);
@@ -508,6 +686,7 @@ export class HybridSearchIndex {
 				const vectorChunkHashes = vectorChunkIds.map(
 					(id) => this.chunks.get(id)?.hash || "",
 				);
+				if (vectorChunkHashes.some((hash) => !hash)) return;
 				const fileName = this.getVectorCacheFileName(vectorDim);
 				vectorCaches.set(vectorDim, {
 					vectorDim,
@@ -695,16 +874,21 @@ export class HybridSearchIndex {
 		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
 			try {
-				const stat = fs.statSync(filePath);
-				if (!stat.isFile() || stat.size > MAX_INDEX_FILE_BYTES) {
-					this.skippedOversizedFiles.add(relPath);
-					continue;
+				const descriptor = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+				let content: string;
+				let opened: fs.Stats;
+				try {
+					opened = fs.fstatSync(descriptor);
+					if (!opened.isFile() || opened.size > MAX_INDEX_FILE_BYTES || workspaceBytes + opened.size > MAX_INDEX_WORKSPACE_BYTES) {
+						this.skippedOversizedFiles.add(relPath);
+						continue;
+					}
+					content = readDescriptorBounded(descriptor, MAX_INDEX_FILE_BYTES).toString("utf8");
+				} finally {
+					fs.closeSync(descriptor);
 				}
-				if (workspaceBytes + stat.size > MAX_INDEX_WORKSPACE_BYTES) {
-					this.skippedOversizedFiles.add(relPath);
-					continue;
-				}
-				const content = fs.readFileSync(filePath, "utf8");
+				const afterRead = fs.statSync(filePath);
+				if (!sameFileSnapshot(opened, afterRead)) return null;
 				const actualBytes = Buffer.byteLength(content, "utf8");
 				if (actualBytes > MAX_INDEX_FILE_BYTES || workspaceBytes + actualBytes > MAX_INDEX_WORKSPACE_BYTES) {
 					this.skippedOversizedFiles.add(relPath);
@@ -812,10 +996,7 @@ export class HybridSearchIndex {
 			// Read each file once and derive both its chunks and hash from that same
 			// snapshot. A second read could pair old chunks with a new hash and make
 			// the final freshness check falsely accept stale content.
-			const currentFiles = new Map<
-				string,
-				{ hash: string; chunks: CodeChunk[] }
-			>();
+			const currentFiles = new Map<string, { hash: string; chunks: CodeChunk[] }>();
 			let workspaceBytes = 0;
 			let workspaceChunks = 0;
 			for (const absPath of chunkableFiles) {
@@ -830,7 +1011,20 @@ export class HybridSearchIndex {
 						this.skippedOversizedFiles.add(relPath);
 						continue;
 					}
-					const content = fs.readFileSync(absPath, "utf-8");
+					const descriptor = fs.openSync(absPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+					let content: string;
+					let opened: fs.Stats;
+					try {
+						opened = fs.fstatSync(descriptor);
+						if (!opened.isFile()) throw new Error(`Not a regular file: ${relPath}`);
+						content = readDescriptorBounded(descriptor, MAX_INDEX_FILE_BYTES).toString("utf8");
+					} finally {
+						fs.closeSync(descriptor);
+					}
+					const afterRead = fs.statSync(absPath);
+					if (!sameFileSnapshot(opened, afterRead)) {
+						throw new Error(`Workspace file changed while reading: ${relPath}`);
+					}
 					const actualBytes = Buffer.byteLength(content, "utf8");
 					if (actualBytes > MAX_INDEX_FILE_BYTES || workspaceBytes + actualBytes > MAX_INDEX_WORKSPACE_BYTES) {
 						this.skippedOversizedFiles.add(relPath);
@@ -863,7 +1057,7 @@ export class HybridSearchIndex {
 					const vector = this.vectors.get(chunk.id);
 					return !vector || vector.length !== this.config.matryoshkaDim;
 				});
-				if (forceReindex || missingFileVectors || !oldHash || oldHash !== info.hash) {
+				if (forceReindex || !oldHash || oldHash !== info.hash || missingFileVectors) {
 					filesToReindex.push(relPath);
 				}
 			}
@@ -947,9 +1141,11 @@ export class HybridSearchIndex {
 					}
 
 					for (let j = 0; j < batch.length; j++) {
-						if (vecs[j] && vecs[j].length === this.config.matryoshkaDim) {
-							this.vectors.set(batch[j].id, vecs[j]);
-						}
+						const vector = vecs[j];
+						if (!vector || vector.length !== this.config.matryoshkaDim || !Array.from(vector).every(Number.isFinite)) continue;
+						const chunk = batch[j];
+						const activeChunk = this.chunks.get(chunk.id);
+						if (activeChunk?.hash === chunk.hash) this.vectors.set(chunk.id, vector);
 					}
 
 					// Async sleep to yield CPU and prevent freezing system daemons
@@ -1097,7 +1293,19 @@ export class HybridSearchIndex {
 					this.scheduleDebouncedSave();
 					return;
 				}
-				content = fs.readFileSync(resolvedPath, "utf-8");
+				const descriptor = fs.openSync(resolvedPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+				let opened: fs.Stats;
+				try {
+					opened = fs.fstatSync(descriptor);
+					if (!opened.isFile() || opened.size > MAX_INDEX_FILE_BYTES) throw new Error(`Invalid workspace file: ${relPath}`);
+					content = readDescriptorBounded(descriptor, MAX_INDEX_FILE_BYTES).toString("utf8");
+				} finally {
+					fs.closeSync(descriptor);
+				}
+				const afterRead = fs.statSync(resolvedPath);
+				if (!sameFileSnapshot(opened, afterRead)) {
+					throw new Error(`Workspace file changed while reading: ${relPath}`);
+				}
 				if (Buffer.byteLength(content, "utf8") > MAX_INDEX_FILE_BYTES) {
 					this.skippedOversizedFiles.add(relPath);
 					this.removeIndexedFile(relPath);
@@ -1127,8 +1335,15 @@ export class HybridSearchIndex {
 			}
 
 			const fileHash = computeHash(content);
-			// If file hasn't changed at all and is already indexed, nothing to do
-			if (this.fileHashes.get(relPath) === fileHash && !this.dirtyFiles.has(relPath)) {
+			const wantsVectors =
+				this.config.effectiveProfile === "hybrid" ||
+				this.config.effectiveProfile === "full";
+			const fileChunks = Array.from(this.chunks.values()).filter((chunk) => chunk.filePath === relPath);
+			const fileVectorsReady = !wantsVectors || fileChunks.every((chunk) => {
+				const vector = this.vectors.get(chunk.id);
+				return !!vector && vector.length === this.config.matryoshkaDim;
+			});
+			if (this.fileHashes.get(relPath) === fileHash && !this.dirtyFiles.has(relPath) && fileVectorsReady) {
 				return;
 			}
 
@@ -1152,10 +1367,6 @@ export class HybridSearchIndex {
 				return;
 			}
 			this.skippedOversizedFiles.delete(relPath);
-			const wantsVectors =
-				this.config.effectiveProfile === "hybrid" ||
-				this.config.effectiveProfile === "full";
-
 			// Map content hash -> vector from existing chunks
 			const hashToVector = new Map<string, Float32Array>();
 			for (const chunk of this.chunks.values()) {
@@ -1188,8 +1399,9 @@ export class HybridSearchIndex {
 					const batchTexts = texts.slice(i, i + batchSize);
 					const vecs = await this.embedder.embedBatch(batchTexts, false);
 					for (let j = 0; j < batchChunks.length; j++) {
-						if (vecs[j]) {
-							newVectors.set(batchChunks[j].id, vecs[j]);
+						const vector = vecs[j];
+						if (vector && vector.length === this.config.matryoshkaDim && Array.from(vector).every(Number.isFinite)) {
+							newVectors.set(batchChunks[j].id, vector);
 						}
 					}
 				}
@@ -1286,18 +1498,19 @@ export class HybridSearchIndex {
 		// Do not return the previous snapshot while a background synchronization
 		// is active. This also covers startup/reindex work where the old index is
 		// still initialized and would otherwise look usable.
-		await this.waitForActiveSync();
-		if (this.activeFileUpdates.size > 0) {
-			await Promise.all(Array.from(this.activeFileUpdates.values()));
-		}
-		if (this.dirtyFiles.size > 0 || !this.isInitialized) {
-			if (!this.isIndexing) {
-				await this.syncWorkspace(false);
+		for (;;) {
+			await this.waitForActiveSync();
+			if (this.activeFileUpdates.size > 0) {
+				await Promise.all(Array.from(this.activeFileUpdates.values()));
+				continue;
 			}
-		}
-
-		if (this.isInitialized && !this.isIndexing) {
+			if (this.dirtyFiles.size > 0 || !this.isInitialized) {
+				await this.syncWorkspace(false);
+				continue;
+			}
 			await this.ensureWorkspaceSnapshotFresh();
+			if (!this.isInitialized || this.isIndexing || this.activeSync || this.dirtyFiles.size > 0) continue;
+			break;
 		}
 
 		const limit = options.limit || 5;
