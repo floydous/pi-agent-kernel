@@ -24,6 +24,8 @@ agent-kernel-benchmark/
 benchmarks/
 feedback/
 PLAN.md
+ANALYSIS.md
+IMPROVEMENT_LOOP.md
 .research/
 /AGENTS.md
 

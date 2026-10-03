@@ -44,10 +44,10 @@ export async function run(): Promise<void> {
 		const cappedText = text(capped);
 		assert.equal(capped.isError, undefined);
 		assert.equal(capped.details.truncated, true);
-		assert.ok(capped.details.shownLines > 0 && capped.details.shownLines <= 2000);
+		assert.equal(capped.details.shownLines, 250, "unconstrained read on large file caps at default 250 lines");
 		assert.ok(cappedText.startsWith("line-0 "), "ordinary broad reads are plain by default");
 		assert.ok(!/^\s*1#[0-9A-F]{2}│/m.test(cappedText), "broad read does not pay anchor overhead by default");
-		assert.match(cappedText, new RegExp(`Use offset=${capped.details.shownLines + 1} to continue\\.`));
+		assert.match(cappedText, /Use offset=251 to continue\./);
 
 		const evidence = globalEpistemicGuard.getEvidence(largePath, sessionId, tempDir);
 		assert.ok(evidence);
@@ -66,6 +66,19 @@ export async function run(): Promise<void> {
 			false,
 			"hidden lines are not authorized by a capped read",
 		);
+
+		// Assert explicit limit overrides the 250-line default window up to MAX_READ_LINES
+		const explicit = await read.execute("explicit", { path: "large.ts", limit: 600 }, undefined, undefined, ctx);
+		assert.equal(explicit.details.shownLines, 600, "explicit limit overrides 250-line default window");
+		assert.equal(explicit.details.truncated, true);
+		assert.match(text(explicit), /Use offset=601 to continue\./);
+
+		// Assert file below 250 lines is returned in full without truncation
+		const smallPath = path.join(tempDir, "small.ts");
+		fs.writeFileSync(smallPath, Array.from({ length: 120 }, (_, i) => `small-line-${i}`).join("\n"));
+		const small = await read.execute("small", { path: "small.ts" }, undefined, undefined, ctx);
+		assert.equal(small.details.shownLines, 120, "file under 250 lines is returned in full");
+		assert.equal(small.details.truncated, false, "small file is not truncated");
 
 		const anchored = await read.execute(
 			"anchored",

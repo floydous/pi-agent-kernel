@@ -21,7 +21,7 @@ import {
 } from "../retrieval/ast_search";
 import { checkSyntax } from "../editing/syntax-verify";
 import { kernelDebug } from "../safety/kernel_debug";
-import type { SessionDeps } from "./context";
+import { speculativeToolsEnabled, type SessionDeps } from "./context";
 
 /** Extracted from index.ts — registers the `lsp` tool. */
 export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
@@ -447,7 +447,10 @@ export function registerLspTool(pi: ExtensionAPI, deps?: SessionDeps): void {
 				}
 
 				return result(
-					`[LSP Notice] No installed LSP server found for ${path.basename(absPath)}. Use 'ast_search' or run '/lsp install' to configure an LSP server.`,
+					`[LSP Notice] No installed LSP server found for ${path.basename(absPath)}. ` +
+					(speculativeToolsEnabled(deps.getConfig, ctx.cwd)
+						? `Use 'ast_search' or run '/lsp install' to configure an LSP server.`
+						: `Run '/lsp install' to configure an LSP server.`),
 					"tree-sitter",
 					{ status: "unavailable" },
 				);

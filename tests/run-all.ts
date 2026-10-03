@@ -336,6 +336,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./read-tool/batch_read_test")),
 	},
 	{
+		name: "Read Tool Hint Accuracy",
+		key: "read-tool-hint",
+		loader: () => runSuiteModule(() => import("./read-tool/tool_hint_test")),
+	},
+	{
 		name: "Dual Smart Anchor Engine Suite",
 		key: "smart-anchor",
 		loader: () => runSuiteModule(() => import("./editing/smart_anchor_test")),

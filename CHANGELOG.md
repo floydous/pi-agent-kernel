@@ -1,16 +1,34 @@
 # Changelog
 
-## [0.4.1] - 2026-09-24
+## [0.4.1] - Unreleased
 
 ### Security
 - Removed repository diff injection from the system prompt, trusted project configuration only after project trust, validated all configuration fields, and bounded read/index/LSP output paths.
 - Excluded workspace executables from LSP resolution, added shell-free child launches with a minimal environment, and pinned language-server installers and the embedding model revision.
 - Moved retrieval caches to a trusted per-workspace directory, validated persisted chunks against current source, and made spillovers exclusive and bounded.
+- Verified every persisted vector against its owning chunk's content hash before activation, so a stale or forged chunk hash can no longer authorize a cached vector.
+- Hardened persisted-index loading: paths must be workspace-relative and free of symlinked components, chunk metadata is bounded and schema-checked, and vectors must be finite and match the configured dimension.
+- Read index, vector, and workspace source files through bounded descriptors with `O_NOFOLLOW` and `fstat` identity checks, rejecting files replaced mid-read.
 
 ### Fixed
 - Made smart anchors fail closed on stale hashes, serialized file mutations, and made multi-file rollback restore disk, index, LSP, and guard state or report partial recovery.
 - Made session repair explicit and locked, preserved atomic-write metadata, and made tool registration collision-aware.
 - Added clean-artifact, adversarial, release-guard, and cross-platform regression coverage.
+- **Retrieval Cache Reconciliation**: Reloading the index no longer discards unchanged chunks and vectors. Changed and deleted files are marked stale and removed from search while their hashes are retained for incremental reconciliation, so editing one file re-embeds only that file instead of re-embedding the workspace.
+- **Stale Vector Reactivation**: Cached vectors belonging to modified or deleted files can no longer be reused, including when a chunk keeps an identical id after the source changes.
+- **Cross-Session Tool Registration**: `code_search` registration no longer depends on the first session's retrieval profile. One extension instance can serve multiple workspaces; availability is gated per workspace at execution and in prompts.
+- **CRLF Session Repair**: Session repair now preserves each record's original line separator instead of rewriting CRLF sessions to LF.
+- **Prompt Guidance Gating**: The injected prompt no longer advertises `code_search` in sessions where the retrieval profile is `off`, and the guidance marker regex tolerates CRLF checkouts.
+- **Duplicate Host Truncation**: Output clamping detects a truncation footer written by the host or by an earlier pass and reuses the existing spillover file instead of spilling the same output twice.
+- **BM25 Removal and Ordering**: File removal matches exact path prefixes instead of substring matches, and equal-score results are ordered deterministically by chunk id.
+- **Kernel Edit/Read Tools Were Never Registered**: Built-in tool detection compared `sourceInfo.path` against the literal `<builtin:`, but pi's actual prefix is `builtin:`. Every built-in therefore looked like an extension tool, so the kernel registered neither `read` nor `edit` and silently deferred to pi's implementations. Smart anchors, atomic multi-file rollback, post-edit verification, and line-ending preservation were all inactive. Built-ins are now identified by `sourceInfo.source`, and a regression test reproduces pi's real tool shape.
+
+### Changed
+- **Code-Only Retrieval Scope**: `code_search` indexes code extensions only; Markdown and other prose extensions were dropped along with the `prose` scope option.
+- **Simplified `code_search` Output**: Replaced the mode/count diagnostic header with a plain-language preview notice in mixed mode.
+- **Reduced Prompt Markers**: Removed the unused `read`, `edit`, and `bash` guidance blocks; only `code_search` availability varies by profile.
+- **Calibrated Clamping Defaults**: Raised the default clamped output to 100 lines and aligned the system prompt to direct root-cause fixes.
+- Added `scripts/podman-linux-check.sh`, which runs tracked working-tree snapshots in a disposable Linux container for cross-platform verification.
 
 ## [0.4.0] - 2026-09-23
 

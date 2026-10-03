@@ -10,7 +10,7 @@ import {
 	globalEpistemicGuard,
 	resolveUserPath,
 } from "../safety/epistemic_guard";
-import type { SessionDeps } from "./context";
+import { speculativeToolsEnabled, type SessionDeps } from "./context";
 
 function countFileLines(filePath: string): number {
 	return fs.readFileSync(filePath, "utf8").split("\n").length;
@@ -19,6 +19,7 @@ function countFileLines(filePath: string): number {
 const MAX_READ_LINES = 2_000;
 const MAX_READ_BYTES = 50 * 1024;
 const MAX_READ_FILE_BYTES = 5 * 1024 * 1024;
+const DEFAULT_UNCONSTRAINED_LINES = 250;
 
 function validateReadableFile(filePath: string): string | null {
 	try {
@@ -340,7 +341,10 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 							.join("\n");
 						errorText = `Symbol '${sym}' not found in ${params.path}.\nDid you mean:\n${formattedSuggestions}`;
 					} else {
-						errorText = `Symbol '${sym}' not found in ${params.path}. Use 'ast_search' to locate symbols or 'rg' in bash to search text.`;
+						errorText = `Symbol '${sym}' not found in ${params.path}. ` +
+							(speculativeToolsEnabled(deps.getConfig, ctx.cwd)
+								? `Use 'ast_search' to locate symbols or 'rg' in bash to search text.`
+								: `Use 'code_search' to locate code or 'rg' in bash to search text.`);
 					}
 					return {
 						content: [{ type: "text", text: errorText }],
@@ -513,7 +517,8 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				}
 
 				const offset = params.offset ?? 1;
-				const limit = params.limit ?? totalLines;
+				const hasExplicitLimit = typeof params.limit === "number";
+				const limit = hasExplicitLimit ? params.limit : Math.min(totalLines, DEFAULT_UNCONSTRAINED_LINES);
 				const startIdx = offset - 1;
 
 				// Offset past the end of file: return a clean error instead of an

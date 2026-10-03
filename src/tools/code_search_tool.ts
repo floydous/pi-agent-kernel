@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
 import { formatCodeSearchResults, CODE_SEARCH_MODES, type CodeSearchMode } from "./code_search_output";
-import type { SearchDeps } from "./context";
+import { speculativeToolsEnabled, type SearchDeps } from "./context";
 
 /** Extracted from index.ts — registers the `code_search` tool. */
 export function registerCodeSearchTool(
@@ -100,7 +100,10 @@ export function registerCodeSearchTool(
 					content: [
 						{
 							type: "text",
-							text: `${vectorNotice}No code chunks found matching "${query}". (Tips: Try 'ast_search' for exact symbol names or 'rg' for exact text literals).`,
+							text: `${vectorNotice}No code chunks found matching "${query}". (` +
+								(speculativeToolsEnabled(deps.getConfig, ctx.cwd)
+									? `Tips: Try 'ast_search' for exact symbol names or 'rg' for exact text literals.`
+									: `Tips: Try broader or different terms, or 'rg' for exact text literals.`),
 						},
 					],
 					details: { count: 0 },

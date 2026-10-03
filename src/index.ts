@@ -14,6 +14,7 @@ import { loadKernelConfig, registerAgentKernelCommand } from "./config";
 import { kernelDebug } from "./safety/kernel_debug";
 import { registerRepoMapTool } from "./tools/repo_map_tool";
 import { registerAstSearchTool } from "./tools/ast_search_tool";
+import { speculativeToolsEnabled } from "./tools/context";
 import { registerCodeSearchTool } from "./tools/code_search_tool";
 import { registerReadTool } from "./tools/read_tool";
 import { registerEditTool } from "./tools/edit_tool";
@@ -781,8 +782,14 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	const registerKernelTools = (cwd: string): void => {
 		if (kernelToolsRegistered) return;
 		kernelToolsRegistered = true;
+		// pi marks its own built-in tools with sourceInfo.source === "builtin" and a
+		// "builtin:<name>" path (BUILTIN_PATH_PREFIX in pi's core/source-info). Only tools owned
+		// by another extension are collisions: extension tools override built-ins in pi's tool
+		// registry, so built-ins must be excluded here or we would never register our own read/edit.
 		const extensionTools = (pi.getAllTools?.() || []).filter(
-			(tool: any) => !String(tool?.sourceInfo?.path || "").startsWith("<builtin:"),
+			(tool: any) =>
+				tool?.sourceInfo?.source !== "builtin" &&
+				!String(tool?.sourceInfo?.path || "").startsWith("builtin:"),
 		);
 		const owned = new Set(extensionTools.map((tool: any) => tool.name));
 		if (owned.has("bash")) toolCollisions.add("bash");
@@ -809,10 +816,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			kernelRegisteredTools.add("code_search");
 		}
 
-		const enableSpeculativeTools =
-			process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "1" ||
-			process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS === "true" ||
-			getConfig(cwd).retrieval.enable_tools === true;
+		const enableSpeculativeTools = speculativeToolsEnabled(getConfig, cwd);
 		if (enableSpeculativeTools) {
 			if (canRegister("get_repo_map")) registerRepoMapTool(pi);
 			if (canRegister("ast_search")) {

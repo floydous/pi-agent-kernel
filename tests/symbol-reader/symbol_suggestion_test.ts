@@ -65,7 +65,9 @@ export async function testSymbolSuggestions(): Promise<void> {
 		assertPass("Non-existent symbol returns error", noneRes.isError === true, { noneRes });
 		const noneText = noneRes.content[0].text;
 		assertPass("Non-existent symbol does not suggest random items", !noneText.includes("Did you mean:"), { noneText });
-		assertPass("Non-existent symbol suggests ast_search/rg fallback", noneText.includes("Use 'ast_search' to locate symbols"), { noneText });
+		// This read tool instance has no retrieval.enable_tools, so ast_search is NOT registered;
+		// the fallback must point at a tool the model can actually call.
+	assertPass("Non-existent symbol suggests an available fallback (code_search/rg)", noneText.includes("Use 'code_search' to locate code") && !noneText.includes("ast_search"), { noneText });
 
 		// 4. Multiple candidates ranked properly (e.g. 'connect')
 		const multiRes = await readTool.execute(
