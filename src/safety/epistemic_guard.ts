@@ -945,7 +945,68 @@ export class EpistemicGuard {
 			return { allowed: true };
 		}
 
-		// 4. Edit operations: Dual-Tier Authorization
+		// 4. Edit operations: Per-Block Hybrid Authorization
+		// Each block in a multi-block edit must independently satisfy either:
+		// - Tier 1: its resolved target range is covered by visible read evidence, OR
+		// - Tier 2: its search block is substantive (>=2 lines and >=35 chars, or >=50 chars).
+		if (targetRanges && targetRanges.length > 0 && searchBlocks && searchBlocks.length === targetRanges.length) {
+			let allCoveredByRead = true;
+			let failingBlockIndex = -1;
+
+			for (let i = 0; i < targetRanges.length; i++) {
+				const range = targetRanges[i];
+				const sb = searchBlocks[i];
+
+				// Validate range integrity
+				if (
+					!range ||
+					!Number.isFinite(range.startLine) ||
+					!Number.isFinite(range.endLine) ||
+					range.startLine < 1 ||
+					range.endLine < range.startLine ||
+					(evidence.coverage.totalLines !== undefined && range.endLine > evidence.coverage.totalLines)
+				) {
+					return {
+						allowed: false,
+						reason: `[BLOCKED: Malformed or out-of-bounds target range in block ${i + 1}/${targetRanges.length} -> read({ path: "${relPath}" })]`,
+					};
+				}
+
+				if (!sb || typeof sb !== "string" || sb.trim().length === 0) {
+					return {
+						allowed: false,
+						reason: `[BLOCKED: Empty search block in block ${i + 1}/${targetRanges.length} -> read({ path: "${relPath}" })]`,
+					};
+				}
+
+				const isCovered = coversRanges(evidence.coverage, [range]);
+				if (!isCovered) {
+					allCoveredByRead = false;
+					const contentLines = sb.replace(/\r\n/g, "\n").split("\n").filter((l) => l.trim().length > 0);
+					const totalSubstantiveChars = contentLines.reduce((sum, line) => sum + line.trim().length, 0);
+					const isSubstantive = contentLines.length >= 2 && totalSubstantiveChars >= 35;
+					if (!isSubstantive) {
+						failingBlockIndex = i;
+						break;
+					}
+				}
+			}
+
+			if (failingBlockIndex === -1) {
+				return { allowed: true, tier: allCoveredByRead ? 1 : 2 };
+			}
+
+			const failRange = targetRanges[failingBlockIndex];
+			const maxAvailable = evidence.coverage.totalLines !== undefined
+				? Math.max(1, evidence.coverage.totalLines - failRange.startLine + 1)
+				: Math.max(15, failRange.endLine - failRange.startLine + 5);
+			const hintLimit = Math.min(Math.max(15, failRange.endLine - failRange.startLine + 5), maxAvailable);
+			return {
+				allowed: false,
+				reason: `[BLOCKED: Target lines not covered by visible read and search block is non-substantive (<2 lines / <35 chars) -> read({ path: "${relPath}", offset: ${failRange.startLine}, limit: ${hintLimit} })]`,
+			};
+		}
+
 		// Tier 1: Strict range coverage
 		if (evidence.kind === "read" && coversRanges(evidence.coverage, targetRanges)) {
 			return { allowed: true, tier: 1 };
@@ -962,12 +1023,12 @@ export class EpistemicGuard {
 
 		// Tier 2: Substantive unique block authorization
 		// If range math has gaps (e.g. grep context, compiler traces, symbol extraction boundaries),
-		// authorize if every search block is substantive (>=2 lines and >=35 chars, or >=50 chars).
+		// authorize if every search block is substantive (>=2 non-empty content lines and >=35 chars).
 		if (searchBlocks && searchBlocks.length > 0) {
 			const allSubstantive = searchBlocks.every((sb) => {
-				const lineCount = sb.replace(/\r\n/g, "\n").split("\n").length;
-				const charCount = sb.length;
-				return (lineCount >= 2 && charCount >= 35) || charCount >= 50;
+				const contentLines = sb.replace(/\r\n/g, "\n").split("\n").filter((l) => l.trim().length > 0);
+				const totalSubstantiveChars = contentLines.reduce((sum, line) => sum + line.trim().length, 0);
+				return contentLines.length >= 2 && totalSubstantiveChars >= 35;
 			});
 
 			if (allSubstantive) {

@@ -26,6 +26,7 @@ export interface EditingConfig {
 	mode: "smart_anchor" | "standard";
 	default_anchors: boolean;
 	read_mode: "auto" | "plain" | "anchored";
+	syntax_gate?: "warn" | "block";
 }
 
 export interface KernelConfigOverrides {
@@ -83,6 +84,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 		mode: "smart_anchor",
 		default_anchors: false,
 		read_mode: "plain",
+		syntax_gate: "warn",
 	},
 	lsp: {
 		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes
@@ -118,7 +120,7 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 		"max_total_bytes",
 		"exec_timeout_ms",
 	]),
-	editing: new Set(["mode", "default_anchors", "read_mode"]),
+	editing: new Set(["mode", "default_anchors", "read_mode", "syntax_gate"]),
 	lsp: new Set([
 		"idle_timeout_ms",
 		"diagnostic_timeout_ms",
@@ -181,6 +183,9 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 	requireEnum(config.editing.mode, "editing.mode", ["smart_anchor", "standard"]);
 	requireBoolean(config.editing.default_anchors, "editing.default_anchors");
 	requireEnum(config.editing.read_mode, "editing.read_mode", ["auto", "plain", "anchored"]);
+	if (config.editing.syntax_gate !== undefined) {
+		requireEnum(config.editing.syntax_gate, "editing.syntax_gate", ["warn", "block"]);
+	}
 
 	requireSafeInt(config.lsp.idle_timeout_ms, "lsp.idle_timeout_ms", 1_000, 60 * 60 * 1_000);
 	requireSafeInt(config.lsp.diagnostic_timeout_ms, "lsp.diagnostic_timeout_ms", 100, 120_000);

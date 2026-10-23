@@ -12,6 +12,7 @@ export interface ClampingOptions {
 	spilloverDir?: string;
 	maxSpilloverFiles?: number;
 	maxSpilloverBytes?: number;
+	isError?: boolean;
 }
 
 export interface ClampingResult {
@@ -136,6 +137,12 @@ export function isDiscoveryCommand(command: string): boolean {
 	}
 
 	return false;
+}
+
+export function isExecutionOrTestCommand(command: string): boolean {
+	if (!command) return false;
+	const trimmed = command.trim().toLowerCase();
+	return /\b(test|vitest|jest|pytest|ava|mocha|cargo|tsc|build|check)\b/.test(trimmed);
 }
 
 const HOST_TRUNCATION_REGEX =
@@ -329,27 +336,98 @@ export function clampCommandOutput(
 
 	let shownLines = totalLines;
 
+	const DIAGNOSTIC_PATTERNS = [
+		/^\s*(?:FAIL|✕|×)\s+\S+/,
+		/\bAssertionError:\s/,
+		/\berror\[E\d+\]:\s/,
+		/\b(?:TypeError|SyntaxError|ReferenceError|Error):\s/,
+		/-->\s+\S+:\d+:\d+/,
+	];
+
 	if (totalLines > maxLines) {
 		const effectiveMaxLines = Math.max(2, maxLines);
-		const headCount = Math.floor(effectiveMaxLines / 2);
-		const tailCount = effectiveMaxLines - headCount;
-		const omittedLines = totalLines - (headCount + tailCount);
-		shownLines = headCount + tailCount;
+		const isDiscovery = isDiscoveryCommand(command);
+		const diagIndices: number[] = [];
+		const isExplicitError = options?.isError === true;
+		const isExplicitSuccess = options?.isError === false;
+		const isUnflaggedTestOrBuild = options?.isError === undefined && !isDiscovery && isExecutionOrTestCommand(command);
 
-		// Head lines
-		for (let i = 0; i < headCount; i++) {
-			clampedLines.push(formatLine(rawLines[i], i));
+		if (!isDiscovery && !isExplicitSuccess && (isExplicitError || isUnflaggedTestOrBuild)) {
+			const patternsToScan = isExplicitError
+				? DIAGNOSTIC_PATTERNS
+				: [/^\s*(?:FAIL|✕|×)\s+\S+/, /-->\s+\S+:\d+:\d+/, /^\s*error\[E\d+\]:\s/];
+			for (let i = 0; i < totalLines; i++) {
+				if (patternsToScan.some((pat) => pat.test(rawLines[i]))) {
+					diagIndices.push(i);
+				}
+			}
 		}
 
-		// Middle omission marker
-		clampedLines.push(
-			`\n[... ${omittedLines.toLocaleString()} lines omitted ...]\n`,
-		);
+		const hasDiagnosticFailure = !isDiscovery && !isExplicitSuccess && (isExplicitError || diagIndices.length > 0);
 
-		// Tail lines
-		const tailStart = totalLines - tailCount;
-		for (let i = tailStart; i < totalLines; i++) {
-			clampedLines.push(formatLine(rawLines[i], i));
+		if (hasDiagnosticFailure && effectiveMaxLines >= 8) {
+			const headCount = Math.min(4, Math.max(2, Math.floor(effectiveMaxLines * 0.12)));
+			const tailCount = Math.min(5, Math.max(2, Math.floor(effectiveMaxLines * 0.15)));
+			const windowBudget = effectiveMaxLines - headCount - tailCount;
+
+			let windowStart: number;
+			let windowEnd: number;
+
+			if (diagIndices.length > 0) {
+				const primaryDiag = diagIndices[0];
+				const half = Math.floor(windowBudget / 2);
+				windowStart = Math.max(headCount, primaryDiag - half);
+				windowEnd = Math.min(totalLines - tailCount, windowStart + windowBudget);
+				if (windowEnd === totalLines - tailCount) {
+					windowStart = Math.max(headCount, windowEnd - windowBudget);
+				}
+			} else {
+				// No explicit pattern matched but isError is set: bias toward tail
+				windowEnd = totalLines - tailCount;
+				windowStart = Math.max(headCount, windowEnd - windowBudget);
+			}
+
+			// Head lines
+			for (let i = 0; i < headCount; i++) {
+				clampedLines.push(formatLine(rawLines[i], i));
+			}
+			if (windowStart > headCount) {
+				clampedLines.push(`\n[... ${(windowStart - headCount).toLocaleString()} lines omitted ...]\n`);
+			}
+			// Diagnostic window
+			for (let i = windowStart; i < windowEnd; i++) {
+				clampedLines.push(formatLine(rawLines[i], i));
+			}
+			if (totalLines - tailCount > windowEnd) {
+				clampedLines.push(`\n[... ${(totalLines - tailCount - windowEnd).toLocaleString()} lines omitted ...]\n`);
+			}
+			// Tail lines
+			for (let i = totalLines - tailCount; i < totalLines; i++) {
+				clampedLines.push(formatLine(rawLines[i], i));
+			}
+			shownLines = headCount + (windowEnd - windowStart) + tailCount;
+		} else {
+			// Standard symmetric head/tail split
+			const headCount = Math.floor(effectiveMaxLines / 2);
+			const tailCount = effectiveMaxLines - headCount;
+			const omittedLines = totalLines - (headCount + tailCount);
+			shownLines = headCount + tailCount;
+
+			// Head lines
+			for (let i = 0; i < headCount; i++) {
+				clampedLines.push(formatLine(rawLines[i], i));
+			}
+
+			// Middle omission marker
+			clampedLines.push(
+				`\n[... ${omittedLines.toLocaleString()} lines omitted ...]\n`,
+			);
+
+			// Tail lines
+			const tailStart = totalLines - tailCount;
+			for (let i = tailStart; i < totalLines; i++) {
+				clampedLines.push(formatLine(rawLines[i], i));
+			}
 		}
 	} else {
 		for (let i = 0; i < totalLines; i++) {

@@ -18,7 +18,34 @@ export function testTypescriptSyntax(): void {
 
 		// Restore
 		fs.writeFileSync(tsPath, original, "utf8");
-		logPass("TypeScript syntax verification passed!");
+
+		// JSX / TSX validation tests
+		const tsxPath = `${ws.tempDir}/src/App.tsx`;
+		const validTsx = `
+import React, { StrictMode } from 'react';
+export function App() {
+  const index = 0;
+  const session = { profile: 'default', id: '123' };
+  return (
+    <StrictMode>
+      <div className="min-h-screen" style={{ animationDelay: \`\${Math.min(index, 8) * 28}ms\` }} key={\`\${session.profile}:\${session.id}\`}>
+        <p>1) Step one: click (here) or [there]</p>
+        <span />
+      </div>
+    </StrictMode>
+  );
+}
+`;
+		fs.writeFileSync(tsxPath, validTsx, "utf8");
+		const tsxValidRes = checkSyntax(tsxPath);
+		assertPass("TSX with template literal attributes, self-closing tags, and text parens is valid", tsxValidRes.valid === true, { tsxValidRes });
+
+		// Broken TSX (unclosed tag)
+		fs.writeFileSync(tsxPath, "export const Broken = () => <div><span>hello</div>;", "utf8");
+		const tsxBrokenRes = checkSyntax(tsxPath);
+		assertPass("TSX with unclosed tag is detected as invalid", tsxBrokenRes.valid === false, { tsxBrokenRes });
+
+		logPass("TypeScript & TSX syntax verification passed!");
 	} finally {
 		ws.cleanup();
 	}

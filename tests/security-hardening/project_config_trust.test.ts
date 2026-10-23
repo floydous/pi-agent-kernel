@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import kernelExtension from "../../src/index";
+import kernelExtension, { KERNEL_GUIDANCE_MARKER } from "../../src/index";
 import { getProjectConfigPath, loadKernelConfig } from "../../src/config";
 import { loadPersistedProfile } from "../../src/retrieval/search_config";
 import { HybridSearchIndex } from "../../src/retrieval/search_index";
@@ -93,7 +93,7 @@ export async function run(): Promise<void> {
       context,
     );
     assert.equal(
-      String(beforeTrusted?.systemPrompt || "").includes("## Agent Kernel Guidance"),
+      String(beforeTrusted?.systemPrompt || "").includes(KERNEL_GUIDANCE_MARKER),
       true,
       "untrusted project must not suppress trusted global guidance",
     );
@@ -103,7 +103,7 @@ export async function run(): Promise<void> {
       { ...context, isProjectTrusted: () => true },
     );
     assert.equal(
-      String(afterTrusted?.systemPrompt || "").includes("## Agent Kernel Guidance"),
+      String(afterTrusted?.systemPrompt || "").includes(KERNEL_GUIDANCE_MARKER),
       false,
       "trusted project setting must be applied after session trust is known",
     );

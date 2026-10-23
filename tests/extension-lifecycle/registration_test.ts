@@ -141,7 +141,9 @@ export async function testExtensionRegistration(): Promise<void> {
     // idempotent. The prompt's own section headings are content, not contract, so they are not
     // asserted here.
     assertPass("before_agent_start injects kernel guidance under the stable marker",
-      guidedPrompt.includes(KERNEL_GUIDANCE_MARKER) && guidedPrompt.startsWith("Base system prompt") &&
+      guidedPrompt.includes(KERNEL_GUIDANCE_MARKER) &&
+      guidedPrompt.includes("</agent_kernel_guidance>") &&
+      guidedPrompt.startsWith("Base system prompt") &&
       guidedPrompt.length > "Base system prompt".length,
       { guidedPrompt });
     const secondResult = await beforeAgentStart(
@@ -149,6 +151,17 @@ export async function testExtensionRegistration(): Promise<void> {
       sessionCtx,
     );
     assertPass("before_agent_start does not duplicate guidance", secondResult?.systemPrompt === result.systemPrompt);
+
+    // An unclosed or literal mention of the marker in the base prompt must not suppress guidance
+    const literalMarkerResult = await beforeAgentStart(
+      { systemPrompt: "System prompt discussing <agent_kernel_guidance> as a concept", systemPromptOptions: { contextFiles: [] } },
+      sessionCtx,
+    );
+    const literalGuidedPrompt = String(literalMarkerResult?.systemPrompt || "");
+    assertPass("literal opening tag in base prompt does not suppress guidance injection",
+      literalGuidedPrompt.includes("</agent_kernel_guidance>") &&
+      literalGuidedPrompt.includes("## Tool Selection"),
+      { literalGuidedPrompt });
 
     const offPiDir = fs.mkdtempSync(path.join(ws.tempDir, "off-pi-"));
     const previousOffPiDir = process.env.PI_DIR;
@@ -184,6 +197,7 @@ export async function testExtensionRegistration(): Promise<void> {
         !offPrompt.includes("ast_search") && !offPrompt.includes("lsp") &&
         offPrompt.includes("BASE USER POLICY: preserve this policy verbatim.") &&
         offPrompt.includes(KERNEL_GUIDANCE_MARKER) &&
+        offPrompt.includes("</agent_kernel_guidance>") &&
         offPrompt.length > "BASE USER POLICY: preserve this policy verbatim.".length,
         { offAdvertised, offPrompt });
     } finally {
@@ -272,7 +286,8 @@ export async function testExtensionRegistration(): Promise<void> {
       !collisionPrompt.includes(csBlock.trim()) &&
       !collisionPrompt.includes("<!-- KERNEL:") &&
       collisionPrompt.includes("Tool Integration Notice") &&
-      collisionPrompt.includes(KERNEL_GUIDANCE_MARKER),
+      collisionPrompt.includes(KERNEL_GUIDANCE_MARKER) &&
+      collisionPrompt.includes("</agent_kernel_guidance>"),
       { csBlock, collisionPrompt });
 
     logPass("Deferred registration, guidance, and startup indexing verified!");

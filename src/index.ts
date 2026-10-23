@@ -48,7 +48,7 @@ function getSessionId(ctx: any): string {
 const PI_DOCS_START =
 	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
 const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
-export const KERNEL_GUIDANCE_MARKER = "## Agent Kernel Guidance";
+export const KERNEL_GUIDANCE_MARKER = "<agent_kernel_guidance>";
 const KERNEL_TOOL_BLOCKS = ["CODE_SEARCH"] as const;
 let kernelGuidance: string | null | undefined;
 const piDocsEnabledBySession = new Map<string, boolean>();
@@ -111,9 +111,14 @@ function loadKernelGuidance(
 }
 
 function appendKernelGuidance(systemPrompt: string, guidance: string): string {
-	if (!guidance || systemPrompt.includes(guidance)) return systemPrompt;
+	if (!guidance) return systemPrompt;
+	const trimmed = guidance.trim();
+	const wrapped = `${KERNEL_GUIDANCE_MARKER}\n${trimmed}\n</agent_kernel_guidance>`;
+	if (systemPrompt.includes(wrapped) || systemPrompt.includes(guidance) || systemPrompt.includes(trimmed)) {
+		return systemPrompt;
+	}
 	const base = systemPrompt.trimEnd();
-	return `${base ? `${base}\n\n` : ""}${KERNEL_GUIDANCE_MARKER}\n${guidance}`;
+	return `${base ? `${base}\n\n` : ""}${wrapped}`;
 }
 import { clampCommandOutput, getSpilloverRoot } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
@@ -896,6 +901,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 							maxLines: outputConfig.safety.max_lines,
 							maxTotalBytes: outputConfig.safety.max_total_bytes,
 							spilloverDir,
+							isError: event.isError,
 						});
 					if (clamped.truncated) {
 						bashOutputComplete = false;

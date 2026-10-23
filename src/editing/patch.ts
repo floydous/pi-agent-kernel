@@ -442,6 +442,7 @@ export function applySurgicalPatch(
 		end_line?: number;
 		line_hint?: number;
 		autoHeal?: boolean;
+		syntaxGate?: "warn" | "block";
 	},
 ): PatchResult {
 	const resolvedPath = resolvePatchPath(filePath);
@@ -493,12 +494,15 @@ export function applySurgicalPatch(
 	}
 
 	if (!syntax.valid) {
-		return {
-			success: false,
-			filePath: resolvedPath,
-			strategy: result.strategy,
-			error: syntax.error || "Candidate syntax validation failed",
-		};
+		const shouldBlock = options?.syntaxGate !== "warn";
+		if (shouldBlock) {
+			return {
+				success: false,
+				filePath: resolvedPath,
+				strategy: result.strategy,
+				error: syntax.error || "Candidate syntax validation failed",
+			};
+		}
 	}
 
 	const writeError = writePatchedContent(
@@ -513,7 +517,9 @@ export function applySurgicalPatch(
 
 	const finalStrategy = autoHealed
 		? `${result.strategy} (auto-healed syntax)`
-		: result.strategy;
+		: !syntax.valid
+			? `${result.strategy} (applied with syntax warning)`
+			: result.strategy;
 
 	return {
 		success: true,
@@ -531,7 +537,7 @@ export function applySurgicalPatch(
 export function applyMultiBlockPatch(
 	filePath: string,
 	blocks: PatchBlock[],
-	options: { autoHeal?: boolean } = {},
+	options: { autoHeal?: boolean; syntaxGate?: "warn" | "block" } = {},
 ): PatchResult {
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
@@ -644,12 +650,15 @@ export function applyMultiBlockPatch(
 	}
 
 	if (!syntax.valid) {
-		return {
-			success: false,
-			filePath: resolvedPath,
-			strategy: appliedStrategies.join(", "),
-			error: syntax.error || "Candidate syntax validation failed",
-		};
+		const shouldBlock = options.syntaxGate !== "warn";
+		if (shouldBlock) {
+			return {
+				success: false,
+				filePath: resolvedPath,
+				strategy: appliedStrategies.join(", "),
+				error: syntax.error || "Candidate syntax validation failed",
+			};
+		}
 	}
 
 	const writeError = writePatchedContent(
@@ -664,7 +673,9 @@ export function applyMultiBlockPatch(
 
 	const finalStrategy = autoHealed
 		? `${appliedStrategies.join(", ")} (auto-healed syntax)`
-		: appliedStrategies.join(", ");
+		: !syntax.valid
+			? `${appliedStrategies.join(", ")} (applied with syntax warning)`
+			: appliedStrategies.join(", ");
 
 	return {
 		success: true,

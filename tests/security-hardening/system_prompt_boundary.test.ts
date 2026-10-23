@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import kernelExtension from "../../src/index";
+import kernelExtension, { KERNEL_GUIDANCE_MARKER } from "../../src/index";
 
 export async function run(): Promise<void> {
   console.log("=== Running System Prompt Boundary Tests ===");
@@ -52,7 +52,7 @@ export async function run(): Promise<void> {
     assert.equal(systemPrompt.includes("git-status"), false, "git status must not be injected");
     assert.equal(systemPrompt.includes("Passive environment context"), false, "untrusted text must not be relabeled as passive");
     assert.equal(systemPrompt.includes("BASE SYSTEM PROMPT"), true, "base system prompt must be preserved");
-    assert.equal(systemPrompt.includes("## Agent Kernel Guidance"), true, "kernel guidance must remain available");
+    assert.equal(systemPrompt.includes(KERNEL_GUIDANCE_MARKER), true, "kernel guidance must remain available");
 
     console.log("✓ Repository status, filenames, and diff content cannot enter the system prompt!");
   } finally {

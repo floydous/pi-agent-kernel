@@ -26,6 +26,12 @@ feedback/
 PLAN.md
 ANALYSIS.md
 IMPROVEMENT_LOOP.md
+.adw_loop.db
+.adw_transcripts/
+*.adw_backup
+candidate.patch
+__pycache__/
+*.py[cod]
 .research/
 /AGENTS.md
 

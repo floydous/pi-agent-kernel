@@ -8,6 +8,7 @@ import { testCaseSensitivity } from "./case_sensitivity_test";
 import { testSessionIsolation } from "./session_isolation_test";
 import { testMultiChannelStressMatrix } from "./multi_channel_stress_test";
 import { testHistoricalSessionReproductions } from "./historical_repro_test";
+import { testHybridAuthorization } from "./hybrid_authorization_test";
 
 export async function run(): Promise<void> {
 	await runSuite("Read-Before-Write Epistemic Guard Suite", () => {
@@ -17,6 +18,7 @@ export async function run(): Promise<void> {
 		testSessionIsolation();
 		testMultiChannelStressMatrix();
 		testHistoricalSessionReproductions();
+		testHybridAuthorization();
 	});
 }
 

@@ -306,6 +306,7 @@ export function preflightSmartAnchorEdits(
 export function applySmartAnchorEdits(
 	filePath: string,
 	edits: SmartAnchorEditBlock[],
+	options: { syntaxGate?: "warn" | "block" } = {},
 ): PatchResult {
 	const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
 	if (!fs.existsSync(resolvedPath)) {
@@ -363,7 +364,7 @@ export function applySmartAnchorEdits(
 
 	// Syntax validation gate
 	const syntax = checkSyntaxContent(resolvedPath, candidateContent);
-	if (!syntax.valid) {
+	if (!syntax.valid && options.syntaxGate !== "warn") {
 		return {
 			success: false,
 			filePath: resolvedPath,

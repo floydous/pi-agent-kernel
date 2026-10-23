@@ -226,15 +226,18 @@ async function applyPreparedEdit(
 	prepared: PreparedFileEdit,
 	ctx: any,
 	deps: SessionDeps,
+	options: { syntaxGate?: "warn" | "block" } = {},
 ): Promise<{ success: boolean; mutated: boolean; error?: string; verification?: any; strategy?: string; statusText?: string }> {
 	const { resolvedPath, relPath, item, isAnchorMode, hasSingleBlock, hasMultiBlock, anchorBlocks, anchorPreflight, targetRanges } = prepared;
-	const editingMode = deps.getConfig?.(ctx.cwd)?.editing?.mode ?? "smart_anchor";
+	const config = deps.getConfig?.(ctx.cwd);
+	const editingMode = config?.editing?.mode ?? "smart_anchor";
 	const autoHeal = editingMode !== "standard";
+	const syntaxGate = options.syntaxGate ?? config?.editing?.syntax_gate ?? (editingMode === "standard" ? "block" : "warn");
 	let patchRes: ReturnType<typeof applySurgicalPatch>;
 	if (isAnchorMode) {
-		patchRes = applySmartAnchorEdits(resolvedPath, anchorBlocks);
+		patchRes = applySmartAnchorEdits(resolvedPath, anchorBlocks, { syntaxGate });
 	} else if (hasMultiBlock) {
-		patchRes = applyMultiBlockPatch(resolvedPath, item.edits, { autoHeal });
+		patchRes = applyMultiBlockPatch(resolvedPath, item.edits, { autoHeal, syntaxGate });
 	} else if (hasSingleBlock) {
 		const singleOpt = {
 			startLine: item.start_line,
@@ -244,6 +247,7 @@ async function applyPreparedEdit(
 		patchRes = applySurgicalPatch(resolvedPath, item.search, item.replace, {
 			...singleOpt,
 			autoHeal,
+			syntaxGate,
 		});
 	} else {
 		return { success: false, mutated: false, error: `[EDIT ERROR] Must provide either smart anchors or 'search' and 'replace' strings.` };
@@ -328,7 +332,7 @@ async function applyPreparedEdit(
 
 	const statusText = renderPostEditVerification(verification, undefined, relPath);
 	return {
-		success: verification.syntax.state !== "failed",
+		success: true,
 		mutated: true,
 		verification,
 		strategy: patchRes.strategy,
@@ -518,9 +522,9 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 				for (const prepared of preparedList) {
 					try {
-					const outcome = await applyPreparedEdit(prepared, ctx, deps);
-					outcomes.push(outcome);
-					if (outcome.mutated) mutatedPaths.push(prepared.resolvedPath);
+						const outcome = await applyPreparedEdit(prepared, ctx, deps, { syntaxGate: "block" });
+						outcomes.push(outcome);
+						if (outcome.mutated) mutatedPaths.push(prepared.resolvedPath);
 						if (!outcome.success) {
 							failureEncountered = true;
 							failureReason = outcome.error || outcome.statusText || "Verification failed";
@@ -610,7 +614,10 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				content: [{ type: "text", text: `Editing ${preflight.prepared.relPath}...` }],
 			});
 
-			const outcome = await applyPreparedEdit(preflight.prepared, ctx, deps);
+			const config = deps.getConfig?.(ctx.cwd);
+			const editingMode = config?.editing?.mode ?? "smart_anchor";
+			const syntaxGate = config?.editing?.syntax_gate ?? (editingMode === "standard" ? "block" : "warn");
+			const outcome = await applyPreparedEdit(preflight.prepared, ctx, deps, { syntaxGate });
 			if (!outcome.success && outcome.error) {
 				return {
 					content: [{ type: "text", text: outcome.error }],
@@ -618,7 +625,8 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					isError: true,
 				};
 			}
-
+			const hasSyntaxFailure = outcome.verification?.syntax?.state === "failed";
+			const shouldFlagError = !outcome.mutated || (editingMode === "standard" && hasSyntaxFailure);
 			return {
 				content: outcome.statusText ? [{ type: "text", text: outcome.statusText }] : [],
 				details: {
@@ -626,11 +634,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					verification: outcome.verification,
 					success: outcome.verification?.syntax?.state === "clean",
 				},
-				isError:
-					outcome.verification?.syntax?.state === "failed" ||
-					outcome.verification?.diagnostic?.findings?.some(
-						(finding: any) => finding.severity === "error" || !finding.severity,
-					),
+				isError: shouldFlagError,
 			};
 			});
 		},

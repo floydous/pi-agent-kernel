@@ -83,7 +83,7 @@ function checkTsStructure(content: string): string | null {
 		const next = content[i + 1];
 		if (ch === "\n") {
 			line++;
-			if (state === "lineComment") state = "code";
+			if (state === "lineComment" || state === "regex") state = "code";
 			i++;
 			continue;
 		}
@@ -99,11 +99,19 @@ function checkTsStructure(content: string): string | null {
 				break;
 			case "squote":
 				if (ch === "\\") i++;
-				else if (ch === "'") state = "code";
+				else if (ch === "'") {
+					state = "code";
+					prevSig = "'";
+					lastWord = "";
+				}
 				break;
 			case "dquote":
 				if (ch === "\\") i++;
-				else if (ch === '"') state = "code";
+				else if (ch === '"') {
+					state = "code";
+					prevSig = '"';
+					lastWord = "";
+				}
 				break;
 			case "template":
 				if (ch === "\\") {
@@ -114,6 +122,8 @@ function checkTsStructure(content: string): string | null {
 					i++;
 				} else if (ch === "`") {
 					state = "code";
+					prevSig = "`";
+					lastWord = "";
 				}
 				break;
 			case "code":
@@ -123,7 +133,7 @@ function checkTsStructure(content: string): string | null {
 				} else if (ch === "/" && next === "*") {
 					state = "blockComment";
 					i++;
-				} else if (ch === "/" && regexCanStart(prevSig, lastWord)) {
+				} else if (ch === "/" && prevSig !== "<" && next !== ">" && regexCanStart(prevSig, lastWord)) {
 					// Regex literal (division makes no sense at this position).
 					// Delimiters inside it are pattern syntax, not code structure.
 					state = "regex";
@@ -150,6 +160,8 @@ function checkTsStructure(content: string): string | null {
 					}
 					if (top.isTemplateInterp) {
 						state = "template";
+						prevSig = "}";
+						lastWord = "";
 					}
 				}
 				if (!/\s/.test(ch)) prevSig = ch;
@@ -247,9 +259,15 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 			ext === ".mts" ||
 			ext === ".cts"
 		) {
-			const tsContent = fs.readFileSync(resolvedPath, "utf8");
-			const structuralError = checkTsStructure(tsContent);
-			if (structuralError) throw new Error(structuralError);
+			const isJsx = ext === ".tsx" || ext === ".jsx";
+			// JSX/TSX text contains arbitrary unescaped delimiters (e.g. <p>step (1)</p>)
+			// that a naive bracket counter misidentifies. For JSX, tsc with --jsx preserve
+			// performs complete and authoritative syntax validation.
+			if (!isJsx) {
+				const tsContent = fs.readFileSync(resolvedPath, "utf8");
+				const structuralError = checkTsStructure(tsContent);
+				if (structuralError) throw new Error(structuralError);
+			}
 
 			const compiler = resolveTypeScriptCompiler();
 			const compilerArgs = [

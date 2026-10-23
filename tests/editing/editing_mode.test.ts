@@ -43,7 +43,32 @@ export async function run(): Promise<void> {
     assert.equal(standard.isError, true, "standard mode must not auto-heal missing delimiters");
     assert.equal(fs.readFileSync(standardFile, "utf8"), '{"a": 1', "standard failure must leave disk unchanged");
 
-    console.log("! Smart-anchor healing and standard fail-closed editing behavior match the UI contract!");
+    // Test apply-and-warn in smart_anchor mode
+    const tsFile = path.join(root, "warning.ts");
+    fs.writeFileSync(tsFile, "export const x = 1;\n", "utf8");
+    globalEpistemicGuard.recordFileRead(tsFile, "smart_anchor", root, "export const x = 1;\n", { coverage: { complete: true, ranges: [] } });
+    let tool: any;
+    const config: any = {
+      safety: { enable_epistemic_guard: true, max_total_bytes: 20 * 1024 },
+      editing: { mode: "smart_anchor", read_mode: "plain", default_anchors: false, syntax_gate: "warn" },
+    };
+    registerEditTool({ registerTool(registered: any) { tool = registered; } } as any, {
+      getSessionId: () => "smart_anchor",
+      getConfig: () => config,
+      invalidateSearchFile() {},
+    });
+    const warnRes = await tool.execute(
+      "smart_anchor",
+      { path: tsFile, search: "export const x = 1;", replace: "export const x = 1; function (" },
+      null,
+      () => {},
+      { cwd: root },
+    );
+    assert.equal(warnRes.isError, false, "syntax warnings should not block edit application");
+    assert.equal(fs.readFileSync(tsFile, "utf8"), "export const x = 1; function (\n", "candidate content must be saved to disk");
+    assert.match(warnRes.content[0].text, /Syntax Error:/, "syntax error must be clearly reported in output");
+
+    console.log("! Smart-anchor healing, apply-and-warn, and standard fail-closed editing behavior match the UI contract!");
   } finally {
     globalEpistemicGuard.resetSession("smart_anchor");
     globalEpistemicGuard.resetSession("standard");

@@ -6,6 +6,7 @@ import { testMinifiedLineClamping, testMatchFloodVerticalCapping } from "./clamp
 import { testByteBudgetEnforcement, testFailedWriteDoesNotAdvertisePointer } from "./byte_budget_test";
 import { runHostTruncationDedupTests } from "./host_truncation_dedup_test";
 import { testEfficiencyDefaults } from "./efficiency_calibration_test";
+import { testDiagnosticWindowRetention } from "./diagnostic_window_test";
 export async function run(): Promise<void> {
 	await runSuite("Tool Output Interception & Width Clamping Suite", () => {
 		testDiscoveryCommandDetection();
@@ -14,6 +15,7 @@ export async function run(): Promise<void> {
 		testByteBudgetEnforcement();
 		testFailedWriteDoesNotAdvertisePointer();
 		testEfficiencyDefaults();
+		testDiagnosticWindowRetention();
 		runHostTruncationDedupTests();
 	});
 }
