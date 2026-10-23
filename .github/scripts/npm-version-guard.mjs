@@ -51,7 +51,7 @@ export function resolveNpmCli() {
   return found;
 }
 
-export function classifyNpmViewResult(result) {
+export function classifyNpmViewResult(result, expectedVersion) {
   const status = typeof result?.status === "number" ? result.status : 1;
   const stdout = String(result?.stdout ?? "");
   const stderr = String(result?.stderr ?? "");
@@ -81,9 +81,28 @@ export function classifyNpmViewResult(result) {
     };
   }
 
+  if (status !== 0 && stdout.trim()) {
+    try {
+      const errorJson = JSON.parse(stdout.trim());
+      if (
+        errorJson?.error?.code === "E404" &&
+        typeof errorJson?.error?.summary === "string" &&
+        (!expectedVersion ||
+          errorJson.error.summary.includes(`No match found for version ${expectedVersion}`) ||
+          /\bNot Found\b/i.test(errorJson.error.summary))
+      ) {
+        return { published: false };
+      }
+    } catch {}
+  }
+
+  const versionNotFoundPattern = expectedVersion
+    ? new RegExp(`\\bNo match found for version\\s+${expectedVersion.replace(/\./g, "\\.")}\\b`, "i")
+    : /\bNo match found for version\b/i;
+
   const unambiguousNotFound =
     /\bE404\b/.test(combined) &&
-    /\b404\s+Not Found\b/i.test(combined);
+    (/\b404\s+Not Found\b/i.test(combined) || versionNotFoundPattern.test(combined));
   if (unambiguousNotFound) {
     return { published: false };
   }
@@ -119,7 +138,7 @@ export function decideRelease({
       stderr: String(error?.stderr ?? "") || String(error?.message ?? ""),
     };
   }
-  const decision = classifyNpmViewResult(lookupResult);
+  const decision = classifyNpmViewResult(lookupResult, packageVersion);
   if (decision.published && decision.version !== packageVersion) {
     throw new ReleaseGuardError(
       `Registry returned ${decision.version} while checking ${packageName}@${packageVersion}`,

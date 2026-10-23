@@ -16,6 +16,22 @@ function registryMissing(): never {
   });
 }
 
+function registryMissingVersion(version: string): () => never {
+  return () => {
+    throw Object.assign(new Error("not found"), {
+      status: 1,
+      stdout: JSON.stringify({
+        error: {
+          code: "E404",
+          summary: `No match found for version ${version}`,
+          detail: `The requested resource '@floydous/pi-agent-kernel@${version}' could not be found or you do not have permission to access it.`,
+        },
+      }),
+      stderr: `npm error code E404\nnpm error 404 No match found for version ${version}`,
+    });
+  };
+}
+
 export async function run(): Promise<void> {
   console.log("=== Running Release Version Guard Tests ===");
   const manifest = JSON.parse(
@@ -73,6 +89,48 @@ export async function run(): Promise<void> {
   });
   assert.equal(missing.publish, "true");
   assert.equal(missing.state, "publishable");
+
+  const missingVersion = decideRelease({
+    packageName: manifest.name,
+    packageVersion: version,
+    tagName: `v${version}`,
+    lookupVersion: registryMissingVersion(version),
+  });
+  assert.equal(missingVersion.publish, "true");
+  assert.equal(missingVersion.state, "publishable");
+
+  // Mismatched missing version summary must fail closed
+  assert.throws(
+    () =>
+      decideRelease({
+        packageName: manifest.name,
+        packageVersion: version,
+        tagName: `v${version}`,
+        lookupVersion: registryMissingVersion("9.9.9"),
+      }),
+    /without an unambiguous 404/,
+  );
+
+  // Generic permission-masked 404 without version match must fail closed
+  assert.throws(
+    () =>
+      decideRelease({
+        packageName: manifest.name,
+        packageVersion: version,
+        tagName: `v${version}`,
+        lookupVersion: () => ({
+          status: 1,
+          stdout: JSON.stringify({
+            error: {
+              code: "E404",
+              summary: "The requested resource could not be found or you do not have permission",
+            },
+          }),
+          stderr: "npm error code E404",
+        }),
+      }),
+    /without an unambiguous 404/,
+  );
 
   assert.throws(
     () =>
