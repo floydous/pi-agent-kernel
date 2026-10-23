@@ -174,7 +174,7 @@ export async function run(): Promise<void> {
     "utf8",
   );
   const guardIndex = workflow.indexOf("id: release-check");
-  const publishIndex = workflow.indexOf('run: npm publish "release-package/');
+  const publishIndex = workflow.indexOf('run: npm publish "./release-package/');
   const releaseIndex = workflow.indexOf("name: Create or verify GitHub release");
   assert.ok(guardIndex >= 0 && guardIndex < publishIndex, "registry guard must run before publish");
   assert.ok(publishIndex < releaseIndex, "GitHub release step must remain after publication decision");

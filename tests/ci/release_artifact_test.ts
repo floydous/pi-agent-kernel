@@ -92,7 +92,7 @@ export async function run(): Promise<void> {
     assert.ok(downloadIndex < verifyIndex && verifyIndex < publishIndex, "artifact must be verified before publish");
     assert.match(
       workflow,
-      /npm publish "release-package\/\$\{\{ steps\.artifact\.outputs\.filename \}\}"/,
+      /npm publish "(?:\.\/)?release-package\/\$\{\{ steps\.artifact\.outputs\.filename \}\}"/,
       "publish must use the verified tarball filename",
     );
     assert.doesNotMatch(

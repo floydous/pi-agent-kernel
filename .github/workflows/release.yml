@@ -84,7 +84,7 @@ jobs:
 
       - name: Publish verified package via Trusted Publisher
         if: steps.release-check.outputs.publish == 'true'
-        run: npm publish "release-package/${{ steps.artifact.outputs.filename }}" --provenance --access public
+        run: npm publish "./release-package/${{ steps.artifact.outputs.filename }}" --provenance --access public
 
       - name: Create or verify GitHub release
         env:
