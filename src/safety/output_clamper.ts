@@ -344,6 +344,8 @@ export function clampCommandOutput(
 		/-->\s+\S+:\d+:\d+/,
 	];
 
+	let primaryOmittedRange: { start: number; end: number; limit: number } | undefined;
+
 	if (totalLines > maxLines) {
 		const effectiveMaxLines = Math.max(2, maxLines);
 		const isDiscovery = isDiscoveryCommand(command);
@@ -392,14 +394,22 @@ export function clampCommandOutput(
 				clampedLines.push(formatLine(rawLines[i], i));
 			}
 			if (windowStart > headCount) {
-				clampedLines.push(`\n[... ${(windowStart - headCount).toLocaleString()} lines omitted ...]\n`);
+				const count = windowStart - headCount;
+				clampedLines.push(`\n[... ${count.toLocaleString()} lines omitted (lines ${headCount + 1}–${windowStart}) ...]\n`);
+				if (!primaryOmittedRange || count > primaryOmittedRange.limit) {
+					primaryOmittedRange = { start: headCount + 1, end: windowStart, limit: count };
+				}
 			}
 			// Diagnostic window
 			for (let i = windowStart; i < windowEnd; i++) {
 				clampedLines.push(formatLine(rawLines[i], i));
 			}
 			if (totalLines - tailCount > windowEnd) {
-				clampedLines.push(`\n[... ${(totalLines - tailCount - windowEnd).toLocaleString()} lines omitted ...]\n`);
+				const count = totalLines - tailCount - windowEnd;
+				clampedLines.push(`\n[... ${count.toLocaleString()} lines omitted (lines ${windowEnd + 1}–${totalLines - tailCount}) ...]\n`);
+				if (!primaryOmittedRange || count > primaryOmittedRange.limit) {
+					primaryOmittedRange = { start: windowEnd + 1, end: totalLines - tailCount, limit: count };
+				}
 			}
 			// Tail lines
 			for (let i = totalLines - tailCount; i < totalLines; i++) {
@@ -418,13 +428,15 @@ export function clampCommandOutput(
 				clampedLines.push(formatLine(rawLines[i], i));
 			}
 
+			const tailStart = totalLines - tailCount;
+
 			// Middle omission marker
 			clampedLines.push(
-				`\n[... ${omittedLines.toLocaleString()} lines omitted ...]\n`,
+				`\n[... ${omittedLines.toLocaleString()} lines omitted (lines ${headCount + 1}–${tailStart}) ...]\n`,
 			);
+			primaryOmittedRange = { start: headCount + 1, end: tailStart, limit: omittedLines };
 
 			// Tail lines
-			const tailStart = totalLines - tailCount;
 			for (let i = tailStart; i < totalLines; i++) {
 				clampedLines.push(formatLine(rawLines[i], i));
 			}
@@ -453,6 +465,10 @@ export function clampCommandOutput(
 		let f = `\n\n[Truncated: ${linesShown}/${totalLines} lines.`;
 		if (spilloverPath) {
 			f += ` Full: ${spilloverPath} (use offset/limit with read if needed)]`;
+			if (primaryOmittedRange && maxTotalBytes >= 1024) {
+				const boundedLimit = Math.min(250, primaryOmittedRange.limit);
+				f += `\nTo inspect omitted lines ${primaryOmittedRange.start}–${primaryOmittedRange.end}: read({ path: "${spilloverPath}", offset: ${primaryOmittedRange.start}, limit: ${boundedLimit} })`;
+			}
 		} else {
 			f += `]`;
 		}

@@ -26,7 +26,9 @@ export function testMatchFloodVerticalCapping(): void {
 	assertPass("Head of flood preserved", clamped.text.includes("src/file_0.ts"), { clamped });
 	assertPass("Tail of flood preserved", clamped.text.includes("src/file_149.ts"), { clamped });
 	assertPass("Footer reports omitted lines", clamped.text.includes("110 lines omitted"), { clamped });
+	assertPass("Middle marker includes 1-based omitted line span", clamped.text.includes("lines 21–130"), { clamped });
 	assertPass("Footer reports total vs shown", clamped.text.includes("Truncated: 40/150 lines"), { clamped });
+	assertPass("Footer includes actionable read recipe", clamped.text.includes("read({ path:") && clamped.text.includes("offset: 21, limit: 110"), { clamped });
 
 	if (clamped.spilloverPath) {
 		try { fs.unlinkSync(clamped.spilloverPath); } catch {}

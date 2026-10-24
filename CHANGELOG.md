@@ -8,6 +8,7 @@
 - **Host Truncation Deduplication**: Extended `HOST_TRUNCATION_REGEX` in `src/safety/output_clamper.ts` to match modern Pi host truncation footers (`[Truncated by host harness. Full: ...]`) with strict line termination, eliminating duplicate stacked notices.
 
 ### Added
+- **Spillover Recovery Affordances & Omitted Line Ranges**: Middle truncation markers in `output_clamper.ts` now explicitly state the 1-based omitted line span (`[... N lines omitted (lines A–B) ...]`), and spillover footers provide an actionable tool-native `read` recipe (`read({ path, offset, limit })`) when byte budgets permit, allowing agents and developers to retrieve omitted failure regions in a single targeted turn without guessing line coordinates.
 - **Actionable Stale-File Drift Diagnostics**: Enhanced `epistemic_guard.ts` stale-file drift rejections to calculate pinpoint read coordinates (`offset` and `limit`) around target edit ranges, enabling agents to re-synchronize in a single narrow read rather than prompting whole-file reads.
 - **Ergonomics & Safety Boundary Adversarial Test Suite**: Added `tests/security-hardening/ergonomics_adversarial_test.ts` verifying syntax verification boundaries, search-to-edit boundaries, stale-drift pinpoint recovery, and forged truncation footer defense.
 
