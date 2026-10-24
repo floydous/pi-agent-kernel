@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.3] - 2026-10-24
 
 ### Fixed
 - **Syntax Verifier Host Executable Resolution**: Added `resolveNodeExecutable` in `src/editing/syntax-verify.ts` to probe candidate Node runtimes (including Electron environments with `ELECTRON_RUN_AS_NODE=1` and system `PATH` discovery) before running `--check` or `tsc`. Resolves false-alarm `[SYNTAX WARNING]` notices when operating inside packaged host environments where `process.execPath` is not a standard Node CLI.
