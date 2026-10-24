@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { kernelDebug } from "./kernel_debug";
+import { getPiHomeDir } from "../config/kernel_config";
 
 /**
  * Extract file paths used as inputs by known shell content-reader commands.
@@ -164,10 +165,16 @@ export type EvidenceProvenance =
 	| "edit"
 	| "write";
 
+export interface SearchHit {
+	line: number;
+	text?: string;
+}
+
 export interface EvidenceOptions {
 	coverage?: EvidenceCoverage;
 	provenance?: EvidenceProvenance;
 	query?: string;
+	searchHits?: SearchHit[];
 }
 
 export interface ContextEvidence {
@@ -179,6 +186,7 @@ export interface ContextEvidence {
 	coverage: EvidenceCoverage;
 	provenance: EvidenceProvenance;
 	query?: string;
+	searchHits?: SearchHit[];
 }
 
 interface InspectionEvidence {
@@ -187,6 +195,7 @@ interface InspectionEvidence {
 	coverage: EvidenceCoverage;
 	provenance: EvidenceProvenance;
 	query?: string;
+	searchHits?: SearchHit[];
 }
 
 function normalizeRanges(
@@ -259,6 +268,7 @@ function mergeEvidence(
 	coverage: EvidenceCoverage,
 	provenance: EvidenceProvenance,
 	query?: string,
+	searchHits?: SearchHit[],
 ): InspectionEvidence {
 	if (previous.fingerprint !== fingerprint) {
 		return {
@@ -267,16 +277,26 @@ function mergeEvidence(
 			coverage,
 			provenance,
 			...(query === undefined ? {} : { query }),
+			...(searchHits === undefined || searchHits.length === 0 ? {} : { searchHits }),
 		};
 	}
 	// Once marked read, retain read kind unless reset
 	const mergedKind = previous.kind === "read" || kind === "read" ? "read" : "search";
+	const combinedHits = [
+		...(previous.searchHits || []),
+		...(searchHits || []),
+	];
+	const uniqueHits = combinedHits.length > 0
+		? Array.from(new Map(combinedHits.map((h) => [h.line, h])).values()).sort((a, b) => a.line - b.line)
+		: undefined;
+
 	return {
 		...previous,
 		kind: mergedKind,
 		coverage: mergeCoverage(previous.coverage, coverage),
 		provenance,
 		...(query === undefined ? {} : { query }),
+		...(uniqueHits ? { searchHits: uniqueHits } : {}),
 	};
 }
 
@@ -307,14 +327,25 @@ export function linesToRanges(lines: Iterable<number>): EvidenceRange[] {
 	return ranges;
 }
 
-/** Parse stdout from grep / ripgrep, capturing file paths and line numbers. */
+export interface GrepParseOutput extends Map<string, number[]> {
+	searchHits?: Map<string, SearchHit[]>;
+}
+
+/**
+ * Parse stdout from grep / ripgrep, capturing file paths, emitted line numbers, and search hits.
+ */
 export function parseGrepOutput(
 	outputText: string,
 	candidateFiles: string[],
 	cwd = process.cwd(),
-): Map<string, number[]> {
+): GrepParseOutput {
 	const fileLinesMap = new Map<string, Set<number>>();
-	if (!outputText || typeof outputText !== "string") return new Map();
+	const searchHitsMap = new Map<string, SearchHit[]>();
+	if (!outputText || typeof outputText !== "string") {
+		const empty: GrepParseOutput = new Map();
+		empty.searchHits = searchHitsMap;
+		return empty;
+	}
 
 	const normalizedCandidates = new Map<string, string>();
 	for (const cand of candidateFiles) {
@@ -327,24 +358,46 @@ export function parseGrepOutput(
 
 	const lines = outputText.split(/\r?\n/);
 	for (const line of lines) {
-		const trimmed = line.trim();
-		if (!trimmed) continue;
+		const cleanLine = line.replace(/\x1b\[[0-9;]*m/g, "").trim();
+		if (!cleanLine || cleanLine === "--" || cleanLine.startsWith("--") && cleanLine.trim() === "--") continue;
 
-		// 1. Single file: "123:code" or "123-context"
-		const singleMatch = line.match(/^(\d+)[:-]/);
+		// 1. Single file: "123:code" (hit) or "123-context" (context)
+		const singleMatch = cleanLine.match(/^(\d+)([:-])(.*)$/);
 		if (singleMatch && candidateFiles.length === 1) {
 			const lineNum = parseInt(singleMatch[1], 10);
+			const isHit = singleMatch[2] === ":";
+			const text = singleMatch[3]?.trim();
 			const targetPath = normalizedCandidates.get(candidateFiles[0]) || path.resolve(cwd, candidateFiles[0]);
 			if (!fileLinesMap.has(targetPath)) fileLinesMap.set(targetPath, new Set());
 			fileLinesMap.get(targetPath)!.add(lineNum);
+			if (isHit) {
+				if (!searchHitsMap.has(targetPath)) searchHitsMap.set(targetPath, []);
+				searchHitsMap.get(targetPath)!.push({ line: lineNum, text });
+			}
 			continue;
 		}
 
 		// 2. Multi-file: "path/to/file.ts:123:code" or "path/to/file.ts-123-context"
-		const multiMatch = line.match(/^([^:\-\n\r]+(?:\.[a-zA-Z0-9]+)?)(?::(\d+):|-(\d+)-)/);
-		if (multiMatch) {
-			const rawPath = multiMatch[1].trim();
-			const lineNum = parseInt(multiMatch[2] || multiMatch[3], 10);
+		// Match lines: colons never appear inside path segments (except drive letter prefix).
+		const matchHit = cleanLine.match(
+			/^((?:[a-zA-Z]:[\\\/])?[^:\r\n]+):(\d+):(?:\d+:)?(.*)$/,
+		);
+		// Context lines: anchor extension to avoid splitting on "-<digits>-" in folder/file names.
+		const contextHit = !matchHit
+			? cleanLine.match(
+					/^((?:[a-zA-Z]:[\\\/])?[^:\r\n]+?\.[a-zA-Z0-9_]+)-(\d+)-(.*)$/,
+				) ||
+				cleanLine.match(
+					/^((?:[a-zA-Z]:[\\\/])?[^:\r\n]+?)-(\d+)-(.*)$/,
+				)
+			: null;
+
+		const parsedHit = matchHit || contextHit;
+		if (parsedHit) {
+			const rawPath = parsedHit[1].trim();
+			const lineNum = parseInt(parsedHit[2], 10);
+			const isHit = Boolean(matchHit);
+			const text = parsedHit[3]?.trim();
 			let absPath =
 				normalizedCandidates.get(rawPath) ||
 				normalizedCandidates.get(path.resolve(cwd, rawPath)) ||
@@ -363,6 +416,10 @@ export function parseGrepOutput(
 			if (absPath && Number.isFinite(lineNum) && lineNum >= 1) {
 				if (!fileLinesMap.has(absPath)) fileLinesMap.set(absPath, new Set());
 				fileLinesMap.get(absPath)!.add(lineNum);
+				if (isHit) {
+					if (!searchHitsMap.has(absPath)) searchHitsMap.set(absPath, []);
+					searchHitsMap.get(absPath)!.push({ line: lineNum, text });
+				}
 				continue;
 			}
 		}
@@ -374,8 +431,8 @@ export function parseGrepOutput(
 		// - Go / GCC: "main.go:12:3: error"
 		// - C# / MSBuild: "file.cs(12,3): error"
 		const traceMatch =
-			line.match(/(?:-->|\s+at|\s+❯|File\s+["']?)\s*([^\s"(),]+\.[a-zA-Z0-9]+)(?:["']?)(?:[:(]|\s*,?\s*line\s+)(\d+)/i) ||
-			line.match(/(?:^|[\s(])([^\s()]+\.[a-zA-Z0-9]+)[:(](\d+)(?:[:,\s)]|$)/);
+			cleanLine.match(/(?:-->|\s+at|\s+❯|File\s+["']?)\s*([^\s"(),]+\.[a-zA-Z0-9]+)(?:["']?)(?:[:(]|\s*,?\s*line\s+)(\d+)/i) ||
+			cleanLine.match(/(?:^|[\s(])([^\s()]+\.[a-zA-Z0-9]+)[:(](\d+)(?:[:,\s)]|$)/);
 
 		if (traceMatch) {
 			const rawPath = traceMatch[1].trim();
@@ -403,14 +460,17 @@ export function parseGrepOutput(
 				for (let i = Math.max(1, lineNum - 2); i <= lineNum + 2; i++) {
 					fileLinesMap.get(absPath)!.add(i);
 				}
+				if (!searchHitsMap.has(absPath)) searchHitsMap.set(absPath, []);
+				searchHitsMap.get(absPath)!.push({ line: lineNum });
 			}
 		}
 	}
 
-	const result = new Map<string, number[]>();
+	const result: GrepParseOutput = new Map<string, number[]>();
 	for (const [file, set] of fileLinesMap.entries()) {
 		result.set(file, Array.from(set).sort((a, b) => a - b));
 	}
+	result.searchHits = searchHitsMap;
 	return result;
 }
 
@@ -501,6 +561,116 @@ function coversRanges(
 				range.startLine <= target.startLine && range.endLine >= target.endLine,
 		),
 	);
+}
+
+export function getInspectionStateFilePath(sessionId: string, cwd = process.cwd()): string {
+	const safeSessionId = crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 24);
+	const canonicalWorkspace = fs.existsSync(cwd) ? fs.realpathSync(cwd) : path.resolve(cwd);
+	const workspaceId = crypto
+		.createHash("sha256")
+		.update(process.platform === "win32" ? canonicalWorkspace.toLowerCase() : canonicalWorkspace)
+		.digest("hex")
+		.slice(0, 24);
+	const baseDir = path.join(getPiHomeDir(), "cache", "agent-kernel", "sessions", workspaceId, safeSessionId);
+	return path.join(baseDir, "inspection-state.json");
+}
+
+export function saveSessionInspectionState(
+	sessionId: string,
+	evidenceMap: Map<string, InspectionEvidence>,
+	cwd = process.cwd(),
+): void {
+	if (!sessionId || evidenceMap.size === 0) return;
+	try {
+		const filePath = getInspectionStateFilePath(sessionId, cwd);
+		const dir = path.dirname(filePath);
+		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+
+		const canonicalWorkspace = fs.existsSync(cwd) ? fs.realpathSync(cwd) : path.resolve(cwd);
+		const records: Record<string, any> = {};
+		for (const [absPath, ev] of evidenceMap.entries()) {
+			const rel = path.relative(canonicalWorkspace, absPath).replace(/\\/g, "/");
+			if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+			records[rel] = {
+				kind: ev.kind,
+				fingerprint: ev.fingerprint,
+				coverage: ev.coverage,
+				provenance: ev.provenance,
+				query: ev.query,
+				searchHits: ev.searchHits?.map((h) => ({ line: h.line })),
+			};
+		}
+
+		const tmpPath = `${filePath}.${crypto.randomBytes(4).toString("hex")}.tmp`;
+		fs.writeFileSync(
+			tmpPath,
+			JSON.stringify({ version: 1, workspace: canonicalWorkspace, records }, null, 2),
+			{ encoding: "utf8", mode: 0o600 },
+		);
+		fs.renameSync(tmpPath, filePath);
+	} catch (err) {
+		kernelDebug(err);
+	}
+}
+
+export function loadSessionInspectionState(
+	sessionId: string,
+	cwd = process.cwd(),
+): Map<string, InspectionEvidence> {
+	const result = new Map<string, InspectionEvidence>();
+	if (!sessionId) return result;
+	try {
+		const filePath = getInspectionStateFilePath(sessionId, cwd);
+		if (!fs.existsSync(filePath)) return result;
+		const stat = fs.statSync(filePath);
+		if (!stat.isFile() || stat.size > 2 * 1024 * 1024) return result;
+
+		const raw = fs.readFileSync(filePath, "utf8");
+		let data: any;
+		try {
+			data = JSON.parse(raw);
+		} catch {
+			return result;
+		}
+		if (!data || data.version !== 1 || !data.records || typeof data.records !== "object") return result;
+
+		const canonicalWorkspace = fs.existsSync(cwd) ? fs.realpathSync(cwd) : path.resolve(cwd);
+		for (const [relPath, rec] of Object.entries(data.records as Record<string, any>)) {
+			if (!relPath || typeof relPath !== "string" || relPath.includes("\0")) continue;
+			const absPath = path.resolve(canonicalWorkspace, relPath);
+			const relCheck = path.relative(canonicalWorkspace, absPath).replace(/\\/g, "/");
+			if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) continue;
+
+			if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) continue;
+			// Ensure symlinks pointing outside workspace root are rejected
+			const canonicalFile = fs.realpathSync(absPath);
+			const realRelCheck = path.relative(canonicalWorkspace, canonicalFile).replace(/\\/g, "/");
+			if (realRelCheck.startsWith("..") || path.isAbsolute(realRelCheck)) continue;
+
+			const content = fs.readFileSync(absPath);
+			const currentFingerprint = crypto.createHash("sha256").update(content).digest("hex");
+			if (currentFingerprint !== rec.fingerprint) continue;
+
+			const normalized = process.platform === "win32" ? absPath.toLowerCase() : absPath;
+			const hits = Array.isArray(rec.searchHits)
+				? rec.searchHits
+						.filter((h: any) => h && typeof h.line === "number" && Number.isFinite(h.line) && h.line >= 1)
+						.map((h: any) => ({ line: Math.floor(h.line) }))
+				: undefined;
+
+			result.set(normalized, {
+				kind: rec.kind === "read" ? "read" : "search",
+				fingerprint: rec.fingerprint,
+				coverage: normalizeCoverage(rec.coverage),
+				provenance: rec.provenance || "read",
+				query: rec.query,
+				searchHits: hits,
+			});
+		}
+	} catch (err) {
+		kernelDebug(err);
+	}
+	return result;
 }
 
 export class EpistemicGuard {
@@ -605,12 +775,20 @@ export class EpistemicGuard {
 		);
 	}
 
+	private persistSessionState(sessionId: string, cwd = process.cwd()): void {
+		const evidence = this.inspectedFilesBySession.get(sessionId);
+		if (evidence) {
+			saveSessionInspectionState(sessionId, evidence, cwd);
+		}
+	}
+
 	private getSessionEvidence(
 		sessionId: string,
+		cwd = process.cwd(),
 	): Map<string, InspectionEvidence> {
 		let evidence = this.inspectedFilesBySession.get(sessionId);
 		if (!evidence) {
-			evidence = new Map();
+			evidence = loadSessionInspectionState(sessionId, cwd);
 			this.inspectedFilesBySession.set(sessionId, evidence);
 		}
 		return evidence;
@@ -629,7 +807,7 @@ export class EpistemicGuard {
 		if (!fingerprint) return;
 		const normalized = this.normalize(filePath, cwd);
 		const coverage = normalizeCoverage(options.coverage);
-		const evidence = this.getSessionEvidence(sessionId);
+		const evidence = this.getSessionEvidence(sessionId, cwd);
 		const previous = evidence.get(normalized);
 		evidence.set(
 			normalized,
@@ -639,14 +817,17 @@ export class EpistemicGuard {
 					fingerprint,
 					coverage: { complete: false, ranges: [] },
 					provenance: options.provenance || "read",
+					searchHits: options.searchHits,
 				},
 				fingerprint,
 				"read",
 				coverage,
 				options.provenance || "read",
 				options.query,
+				options.searchHits,
 			),
 		);
+		this.persistSessionState(sessionId, cwd);
 	}
 
 	/**
@@ -669,7 +850,7 @@ export class EpistemicGuard {
 		const fingerprint = this.fingerprint(filePath, cwd, content);
 		if (!fingerprint) return;
 		const normalized = this.normalize(filePath, cwd);
-		const evidence = this.getSessionEvidence(sessionId);
+		const evidence = this.getSessionEvidence(sessionId, cwd);
 		const previous = evidence.get(normalized);
 
 		const isComplete = options.complete ?? previous?.coverage?.complete ?? false;
@@ -711,6 +892,7 @@ export class EpistemicGuard {
 			}),
 			provenance: "edit",
 		});
+		this.persistSessionState(sessionId, cwd);
 	}
 
 	/** Search results are weaker evidence and never authorize a mutation. */
@@ -723,7 +905,7 @@ export class EpistemicGuard {
 		if (!filePath) return;
 		const fingerprint = this.fingerprint(filePath, cwd);
 		if (!fingerprint) return;
-		const evidence = this.getSessionEvidence(sessionId);
+		const evidence = this.getSessionEvidence(sessionId, cwd);
 		const normalized = this.normalize(filePath, cwd);
 		const previous = evidence.get(normalized);
 		if (previous?.kind === "read") return;
@@ -744,6 +926,7 @@ export class EpistemicGuard {
 				options.query,
 			),
 		);
+		this.persistSessionState(sessionId, cwd);
 	}
 
 	private recordShellEvidence(
@@ -783,7 +966,7 @@ export class EpistemicGuard {
 			}
 		}
 
-		let parsed: Map<string, number[]>;
+		let parsed: GrepParseOutput;
 		if (isPaging) {
 			parsed = parsePagingAndDiffOutput(command, outputText, files, cwd);
 		} else {
@@ -793,16 +976,18 @@ export class EpistemicGuard {
 		for (const [filePath, lineNumbers] of parsed.entries()) {
 			const ranges = linesToRanges(lineNumbers);
 			if (ranges.length > 0) {
+				const hits = parsed.searchHits?.get(filePath);
 				this.recordFileRead(filePath, sessionId, cwd, undefined, {
 					coverage: { complete: false, ranges },
 					provenance: "bash",
 					query: command,
+					searchHits: hits,
 				});
 			}
 		}
 
 		for (const filePath of files) {
-			const evidence = this.getSessionEvidence(sessionId).get(this.normalize(filePath, cwd));
+			const evidence = this.getSessionEvidence(sessionId, cwd).get(this.normalize(filePath, cwd));
 			if (!evidence) {
 				this.recordFileSearched(filePath, sessionId, cwd, {
 					coverage: { complete: false, ranges: [] },
@@ -914,7 +1099,7 @@ export class EpistemicGuard {
 		if (!enforceInspection || !exists) return { allowed: true };
 
 		const normalized = this.normalize(resolvedPath, workspace);
-		const evidence = this.getSessionEvidence(sessionId).get(normalized);
+		const evidence = this.getSessionEvidence(sessionId, workspace).get(normalized);
 		const relPath = (path.relative(workspace, resolvedPath) || filePath).replace(/\\/g, "/");
 
 		// 1. Session inspection check
@@ -980,7 +1165,43 @@ export class EpistemicGuard {
 				}
 
 				const isCovered = coversRanges(evidence.coverage, [range]);
-				if (!isCovered) {
+				let isAuthorized = isCovered;
+
+				// Tier 1.5: Verified Search Overlap
+				if (!isAuthorized && evidence.searchHits && evidence.searchHits.length > 0) {
+					const overlappingHit = evidence.searchHits.find(
+						(h) => h.line >= range.startLine && h.line <= range.endLine,
+					);
+					if (overlappingHit) {
+						const linesBefore = overlappingHit.line - range.startLine;
+						const linesAfter = range.endLine - overlappingHit.line;
+						const totalLines = range.endLine - range.startLine + 1;
+						if (linesBefore <= 3 && linesAfter <= 3 && totalLines <= 10) {
+							isAuthorized = true;
+						}
+					}
+				}
+
+				// Bounded Micro-Hydration for adjacent edits (within 2 lines of an observed search hit)
+				if (!isAuthorized && evidence.searchHits && evidence.searchHits.length > 0) {
+					const adjacentHit = evidence.searchHits.find(
+						(h) =>
+							Math.abs(range.startLine - h.line) <= 2 ||
+							Math.abs(range.endLine - h.line) <= 2,
+					);
+					const totalLines = range.endLine - range.startLine + 1;
+					if (adjacentHit && totalLines <= 5) {
+						try {
+							evidence.coverage = mergeCoverage(evidence.coverage, {
+								complete: false,
+								ranges: [range],
+							});
+							isAuthorized = true;
+						} catch {}
+					}
+				}
+
+				if (!isAuthorized) {
 					allCoveredByRead = false;
 					const contentLines = sb.replace(/\r\n/g, "\n").split("\n").filter((l) => l.trim().length > 0);
 					const totalSubstantiveChars = contentLines.reduce((sum, line) => sum + line.trim().length, 0);
@@ -1010,6 +1231,27 @@ export class EpistemicGuard {
 		// Tier 1: Strict range coverage
 		if (evidence.kind === "read" && coversRanges(evidence.coverage, targetRanges)) {
 			return { allowed: true, tier: 1 };
+		}
+
+		// Tier 1.5: Verified Search Overlap on single range
+		if (
+			evidence.kind === "read" &&
+			targetRanges.length === 1 &&
+			evidence.searchHits &&
+			evidence.searchHits.length > 0
+		) {
+			const range = targetRanges[0];
+			const overlappingHit = evidence.searchHits.find(
+				(h) => h.line >= range.startLine && h.line <= range.endLine,
+			);
+			if (overlappingHit) {
+				const linesBefore = overlappingHit.line - range.startLine;
+				const linesAfter = range.endLine - overlappingHit.line;
+				const totalLines = range.endLine - range.startLine + 1;
+				if (linesBefore <= 3 && linesAfter <= 3 && totalLines <= 10) {
+					return { allowed: true, tier: 1 };
+				}
+			}
 		}
 
 		// Search metadata is useful for navigation but never authorizes mutation,
@@ -1053,7 +1295,7 @@ export class EpistemicGuard {
 		sessionId: string,
 		cwd = process.cwd(),
 	): boolean {
-		return this.getSessionEvidence(sessionId).has(this.normalize(filePath, cwd));
+		return this.getSessionEvidence(sessionId, cwd).has(this.normalize(filePath, cwd));
 	}
 
 	public restoreEvidence(
@@ -1081,7 +1323,9 @@ export class EpistemicGuard {
 			},
 			provenance: evidence.provenance,
 			...(evidence.query === undefined ? {} : { query: evidence.query }),
+			...(evidence.searchHits ? { searchHits: [...evidence.searchHits] } : {}),
 		});
+		this.persistSessionState(sessionId, cwd);
 	}
 
 	/** Return a stable, non-content ledger view for diagnostics and tests. */
@@ -1091,7 +1335,7 @@ export class EpistemicGuard {
 		cwd = process.cwd(),
 	): ContextEvidence | null {
 		const normalized = this.normalize(filePath, cwd);
-		const evidence = this.getSessionEvidence(sessionId).get(normalized);
+		const evidence = this.getSessionEvidence(sessionId, cwd).get(normalized);
 		if (!evidence) return null;
 		return {
 			sessionId,
@@ -1107,15 +1351,24 @@ export class EpistemicGuard {
 			},
 			provenance: evidence.provenance,
 			...(evidence.query === undefined ? {} : { query: evidence.query }),
+			...(evidence.searchHits ? { searchHits: [...evidence.searchHits] } : {}),
 		};
 	}
 
-	public getInspectedFiles(sessionId: string): string[] {
-		return Array.from(this.getSessionEvidence(sessionId).keys());
+	public getInspectedFiles(sessionId: string, cwd = process.cwd()): string[] {
+		return Array.from(this.getSessionEvidence(sessionId, cwd).keys());
 	}
 
 	public resetSession(sessionId: string): void {
 		this.inspectedFilesBySession.delete(sessionId);
+	}
+
+	public purgeSession(sessionId: string, cwd = process.cwd()): void {
+		this.inspectedFilesBySession.delete(sessionId);
+		try {
+			const filePath = getInspectionStateFilePath(sessionId, cwd);
+			if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+		} catch {}
 	}
 
 	public reset(): void {

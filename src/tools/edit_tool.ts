@@ -421,7 +421,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						? "Edit code with a unique exact search block and replacement block only."
 						: benchmarkMethod === "adaptive"
 							? "Edit code with search/replace or line range; use search first."
-						: "Edit code with exact search/replace blocks (optional line_hint), multi-block 'edits', or multi-file 'files'. Auto-heals syntax.",
+						: "Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Valid after read or exact rg search.",
 		promptSnippet: "Edit code using search/replace (optional line_hint), multi-block 'edits', or multi-file 'files'",
 		renderShell: "default",
 		parameters: editToolParameters,

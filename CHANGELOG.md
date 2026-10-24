@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Tier 1.5 Verified Search Overlap Authorization**: Authorized direct find-and-replace edits immediately following `rg -n` searches when the target search block uniquely matches on disk and overlaps an observed search hit with bounded context (<= 3 lines before/after), eliminating redundant `read` ceremony turns.
+- **Bounded Micro-Hydration for Adjacent Edits**: Edits targeting lines immediately adjacent to a recorded search hit (<= 2 lines away, <= 5 lines total) are verified directly against disk and authorized in the same turn without throwing guard rejections.
+- **Durable Session Continuity (`inspection-state.json`)**: Persisted inspected file state across session restarts and resumes under `~/.pi/cache/agent-kernel/sessions/<workspaceId>/<safeSessionId>/inspection-state.json`. SHA-256 content fingerprints and canonical workspace boundaries are revalidated on rehydration, invalidating modified or deleted files fail-closed.
+- **Emitted Context Line Parsing & Path Disambiguation**: Hardened `parseGrepOutput` to capture context lines (`-C`, `-A`, `-B` with `path-123-context`) into visible line coverage, strip ANSI escapes, skip `--` separators, reliably parse Windows drive letters (`C:\...`), and disambiguate `-<digits>-` in filenames/directories from context delimiters across Linux and Windows.
+
+### Changed
+- **Two-Lane Prompt Guidance**: Updated `AGENT_KERNEL_SYS_PROMPT.md` to introduce a clear distinction between the **Inspection Lane** (reading narrow ranges for complex logic bugs) and the **Direct Edit Lane** (calling `edit` directly after exact `rg -n` output for mechanical replacements).
+- **Edit Tool Description**: Clarified in the `edit` tool definition that edits are valid after a read or directly after an exact `rg` search, keeping the schema under the 1,200 character ceiling.
+
 ## [0.4.1] - 2026-10-24
 
 ### Added
