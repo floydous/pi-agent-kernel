@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.2] - 2026-10-24
 
 ### Added
 - **Tier 1.5 Verified Search Overlap Authorization**: Authorized direct find-and-replace edits immediately following `rg -n` searches when the target search block uniquely matches on disk and overlaps an observed search hit with bounded context (<= 3 lines before/after), eliminating redundant `read` ceremony turns.
