@@ -166,6 +166,7 @@ export function testSearchToEdit(): void {
 		);
 		assertPass("Post-search external modification triggers Stale File Drift", staleCheck.allowed === false);
 		assertPass("Reason reports Stale File Drift", Boolean(staleCheck.reason?.includes("BLOCKED: Stale File Drift")));
+		assertPass("Stale drift includes pinpoint read remedy with offset and limit", Boolean(staleCheck.reason?.includes("offset: 7, limit: 15")), { reason: staleCheck.reason });
 		logPass("Post-search external modification fails closed");
 
 		// Restore original content

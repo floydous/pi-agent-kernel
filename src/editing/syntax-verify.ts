@@ -202,6 +202,49 @@ function checkTsStructure(content: string): string | null {
 	return null;
 }
 
+let cachedNodeExec: { bin: string; env?: Record<string, string> } | null | undefined;
+
+export function resolveNodeExecutable(): { bin: string; env?: Record<string, string> } | null {
+	if (cachedNodeExec !== undefined) return cachedNodeExec;
+
+	const candidates: { bin: string; env?: Record<string, string> }[] = [];
+
+	if (process.versions?.electron) {
+		candidates.push({ bin: process.execPath, env: { ELECTRON_RUN_AS_NODE: "1" } });
+	}
+	candidates.push({ bin: process.execPath });
+	candidates.push({ bin: "node" });
+
+	for (const cand of candidates) {
+		try {
+			const env = cand.env ? { ...process.env, ...cand.env } : process.env;
+			const res = execFileSync(cand.bin, ["-e", "process.stdout.write(process.versions.node || '')"], {
+				stdio: ["ignore", "pipe", "ignore"],
+				timeout: 2000,
+				env,
+				encoding: "utf8",
+			});
+			if (res && res.trim()) {
+				cachedNodeExec = cand;
+				return cand;
+			}
+		} catch {}
+	}
+
+	cachedNodeExec = null;
+	return null;
+}
+
+export function resetNodeExecutableCache(): void {
+	cachedNodeExec = undefined;
+}
+
+export function setNodeExecutableForTesting(
+	nodeExec: { bin: string; env?: Record<string, string> } | null | undefined,
+): void {
+	cachedNodeExec = nodeExec;
+}
+
 export function resolveTypeScriptCompiler(): string {
   try {
     return path.join(path.dirname(require.resolve("typescript/package.json")), "bin", "tsc");
@@ -248,10 +291,41 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 			const content = fs.readFileSync(resolvedPath, "utf8");
 			JSON.parse(content);
 		} else if (ext === ".js" || ext === ".mjs" || ext === ".cjs") {
-			execFileSync(process.execPath, ["--check", resolvedPath], {
-				stdio: "pipe",
-				timeout: 5000,
-			});
+			const nodeExec = resolveNodeExecutable();
+			if (!nodeExec) {
+				return {
+					valid: true,
+					status: "unavailable",
+					error: "Node runtime unavailable for syntax verification",
+				};
+			}
+			try {
+				execFileSync(nodeExec.bin, ["--check", resolvedPath], {
+					stdio: ["ignore", "pipe", "pipe"],
+					timeout: 5000,
+					env: nodeExec.env ? { ...process.env, ...nodeExec.env } : process.env,
+				});
+			} catch (error: any) {
+				const stderr = error?.stderr?.toString?.() || "";
+				const stdout = error?.stdout?.toString?.() || "";
+				const output = (stderr || stdout || error?.message || "").trim();
+				if (
+					output.includes("SyntaxError") ||
+					output.includes("Unexpected token") ||
+					output.includes("Parsing error")
+				) {
+					return {
+						valid: false,
+						status: "failed",
+						error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${output}`,
+					};
+				}
+				return {
+					valid: true,
+					status: "unavailable",
+					error: output || "Node syntax check unavailable",
+				};
+			}
 		} else if (
 			ext === ".ts" ||
 			ext === ".tsx" ||
@@ -266,10 +340,25 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 			if (!isJsx) {
 				const tsContent = fs.readFileSync(resolvedPath, "utf8");
 				const structuralError = checkTsStructure(tsContent);
-				if (structuralError) throw new Error(structuralError);
+				if (structuralError) {
+					return {
+						valid: false,
+						status: "failed",
+						error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${structuralError}`,
+					};
+				}
 			}
 
+			const nodeExec = resolveNodeExecutable();
 			const compiler = resolveTypeScriptCompiler();
+			if (!nodeExec || !fs.existsSync(compiler)) {
+				return {
+					valid: true,
+					status: "unavailable",
+					error: "TypeScript compiler unavailable",
+				};
+			}
+
 			const compilerArgs = [
 				"--noEmit",
 				"--noCheck",
@@ -288,19 +377,28 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 				resolvedPath,
 			];
 			try {
-				execFileSync(process.execPath, [compiler, ...compilerArgs], {
-					stdio: "pipe",
+				execFileSync(nodeExec.bin, [compiler, ...compilerArgs], {
+					stdio: ["ignore", "pipe", "pipe"],
 					timeout: 5000,
+					env: nodeExec.env ? { ...process.env, ...nodeExec.env } : process.env,
 				});
 			} catch (error: any) {
-				if (error?.code === "ENOENT" || error?.status === 9009) {
+				const stderr = error?.stderr?.toString?.() || "";
+				const stdout = error?.stdout?.toString?.() || "";
+				const output = (stderr || stdout || error?.message || "").trim();
+				// TS syntax errors are TS1000-TS1999 (grammar) and TS17000-TS17999 (JSX syntax)
+				if (/error TS1(?:\d{3}|7\d{3}):/.test(output) || output.includes("SyntaxError")) {
 					return {
 						valid: false,
-						status: "unavailable",
-						error: "TypeScript compiler unavailable",
+						status: "failed",
+						error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${output}`,
 					};
 				}
-				throw error;
+				return {
+					valid: true,
+					status: "unavailable",
+					error: output || "TypeScript compiler unavailable",
+				};
 			}
 		} else {
 			return {

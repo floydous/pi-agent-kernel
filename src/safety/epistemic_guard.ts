@@ -1113,9 +1113,25 @@ export class EpistemicGuard {
 		// 2. Stale file drift check
 		const currentFingerprint = this.fingerprint(resolvedPath, workspace);
 		if (!currentFingerprint || currentFingerprint !== evidence.fingerprint) {
+			let remedy = `read({ path: "${relPath}" })`;
+			if (
+				targetRanges &&
+				targetRanges.length > 0 &&
+				targetRanges[0] &&
+				Number.isFinite(targetRanges[0].startLine) &&
+				Number.isFinite(targetRanges[0].endLine) &&
+				targetRanges[0].startLine >= 1 &&
+				targetRanges[0].endLine >= targetRanges[0].startLine
+			) {
+				const start = Math.max(1, targetRanges[0].startLine - 2);
+				const span = targetRanges[0].endLine - start + 3;
+				const limit = Math.min(100, Math.max(15, span));
+				const blockSuffix = targetRanges.length > 1 ? ` (block 1/${targetRanges.length})` : "";
+				remedy = `read({ path: "${relPath}", offset: ${start}, limit: ${limit} })${blockSuffix}`;
+			}
 			return {
 				allowed: false,
-				reason: `[BLOCKED: Stale File Drift] File '${relPath}' changed on disk since last observed -> read({ path: "${relPath}" })`,
+				reason: `[BLOCKED: Stale File Drift] File '${relPath}' changed on disk since last observed. Re-synchronize target lines -> ${remedy}`,
 			};
 		}
 

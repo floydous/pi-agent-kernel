@@ -4,6 +4,7 @@ import { findExecutable } from "../../src/lsp/lsp_registry";
 import { checkSyntaxContent } from "../../src/editing/syntax-verify";
 import { formatDefinitions, formatReferences } from "../../src/lsp/lsp_formatter";
 import { StdioLspClient } from "../../src/lsp/lsp_client";
+import { runErgonomicsAdversarialTests } from "./ergonomics_adversarial_test";
 
 export async function run(): Promise<void> {
 	console.log("\n=== Security Hardening & Penetration Test Suite ===");
@@ -189,5 +190,8 @@ __proto__ = "danger"
 	}
 
 	console.log("  ✓ LSP stdio framing resilient against malformed headers, fragmentation, and oversized payloads");
+
+	await runErgonomicsAdversarialTests();
+
 	console.log("\n✓ Security Hardening & Penetration Test Suite Passed Successfully!");
 }

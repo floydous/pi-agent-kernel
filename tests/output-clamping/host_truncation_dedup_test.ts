@@ -99,6 +99,19 @@ export function runHostTruncationDedupTests(): void {
 		assert.strictEqual(res10.truncated, true);
 		assert.strictEqual((res10.text.match(/\[Truncated/g) || []).length, 1);
 
+		// 11. Modern Pi host harness truncation format:
+		// [Truncated by host harness. Full: <path> (use offset/limit with read if needed)]
+		const input11 = `Command output line 1\nCommand output line 2\n\n[Truncated by host harness. Full: ${validPiFile} (use offset/limit with read if needed)]`;
+		const res11 = clampCommandOutput(input11, "bash test");
+		assert.strictEqual(res11.truncated, true, "Modern host footer must be detected as truncated");
+		assert.strictEqual(res11.spilloverPath, validPiFile, "Must reuse validated host path");
+		assert.strictEqual((res11.text.match(/\[Truncated/g) || []).length, 1, "Must contain exactly ONE truncation footer");
+
+		// 12. Idempotent re-clamping of modern host footer
+		const clampedTwiceModern = clampCommandOutput(res11.text, "bash test");
+		assert.strictEqual((clampedTwiceModern.text.match(/\[Truncated/g) || []).length, 1, "Must not duplicate modern footer on re-clamp");
+		assert.strictEqual(clampedTwiceModern.spilloverPath, validPiFile);
+
 		console.log("✓ All Host Harness Truncation Deduplication Tests Passed!");
 	} finally {
 		try { fs.unlinkSync(validPiFile); } catch {}

@@ -146,10 +146,10 @@ export function isExecutionOrTestCommand(command: string): boolean {
 }
 
 const HOST_TRUNCATION_REGEX =
-	/(?:\r?\n){2}\[Showing (?:lines \d+-\d+ of \d+(?: \([^)]+\))?|last [^)]+\))\.\s*Full output:\s*([^\]]+)\]\s*$/;
+	/(?:\r?\n){1,2}\[(?:Showing (?:lines \d+-\d+ of \d+(?: \([^)]+\))?|last [^)]+\))\.[ \t]*Full output:|Truncated by host harness\.[ \t]*Full:)[ \t]*([^\]\r\n]+?)(?:[ \t]+\(use offset\/limit with read if needed\))?\][ \t\r\n]*$/;
 
 const KERNEL_TRUNCATION_REGEX =
-	/(?:\r?\n){2}\[Truncated[^\r\n\]]*?(?:\.\s*(?:Full|Spillover):\s*([^\]\r\n]+?)(?:\s*\(use offset\/limit[^)]*\)|\s*\(received fragment only\))?)?\]\s*$/;
+	/(?:\r?\n){2}\[Truncated[^\r\n\]]*?(?:\.[ \t]*(?:Full|Spillover):[ \t]*([^\]\r\n]+?)(?:[ \t]+\(use offset\/limit[^)]*\)|[ \t]+\(received fragment only\))?)?\][ \t\r\n]*$/;
 
 function validateHostSpilloverPath(candidatePath: string): string | undefined {
 	try {
@@ -219,30 +219,30 @@ export function clampCommandOutput(
 	let hostSpilloverPath: string | undefined;
 	let priorSpilloverPath: string | undefined;
 
-	const kernelMatch = rawText.match(KERNEL_TRUNCATION_REGEX);
-	if (kernelMatch && kernelMatch.index !== undefined) {
-		priorKernelTruncated = true;
-		textToProcess = rawText.slice(0, kernelMatch.index);
-		const candidate = kernelMatch[1]?.trim();
-		if (candidate) {
-			const cleanCandidate = candidate.replace(/\s*\(use offset\/limit.*\)$/i, "").trim();
-			hostSpilloverPath = validateHostSpilloverPath(cleanCandidate);
-			if (!hostSpilloverPath && fs.existsSync(cleanCandidate)) {
-				try {
-					const lstat = fs.lstatSync(cleanCandidate);
-					if (!lstat.isSymbolicLink() && lstat.isFile()) {
-						priorSpilloverPath = path.resolve(cleanCandidate);
-					}
-				} catch {}
-			}
-		}
+	const hostMatch = rawText.match(HOST_TRUNCATION_REGEX);
+	if (hostMatch && hostMatch.index !== undefined) {
+		hostTruncated = true;
+		textToProcess = rawText.slice(0, hostMatch.index);
+		const candidate = hostMatch[1].trim();
+		hostSpilloverPath = validateHostSpilloverPath(candidate);
 	} else {
-		const hostMatch = rawText.match(HOST_TRUNCATION_REGEX);
-		if (hostMatch && hostMatch.index !== undefined) {
-			hostTruncated = true;
-			textToProcess = rawText.slice(0, hostMatch.index);
-			const candidate = hostMatch[1].trim();
-			hostSpilloverPath = validateHostSpilloverPath(candidate);
+		const kernelMatch = rawText.match(KERNEL_TRUNCATION_REGEX);
+		if (kernelMatch && kernelMatch.index !== undefined) {
+			priorKernelTruncated = true;
+			textToProcess = rawText.slice(0, kernelMatch.index);
+			const candidate = kernelMatch[1]?.trim();
+			if (candidate) {
+				const cleanCandidate = candidate.replace(/\s*\(use offset\/limit.*\)$/i, "").trim();
+				hostSpilloverPath = validateHostSpilloverPath(cleanCandidate);
+				if (!hostSpilloverPath && fs.existsSync(cleanCandidate)) {
+					try {
+						const lstat = fs.lstatSync(cleanCandidate);
+						if (!lstat.isSymbolicLink() && lstat.isFile()) {
+							priorSpilloverPath = path.resolve(cleanCandidate);
+						}
+					} catch {}
+				}
+			}
 		}
 	}
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **Syntax Verifier Host Executable Resolution**: Added `resolveNodeExecutable` in `src/editing/syntax-verify.ts` to probe candidate Node runtimes (including Electron environments with `ELECTRON_RUN_AS_NODE=1` and system `PATH` discovery) before running `--check` or `tsc`. Resolves false-alarm `[SYNTAX WARNING]` notices when operating inside packaged host environments where `process.execPath` is not a standard Node CLI.
+- **Differentiated Syntax Diagnostics from Operational Crashes**: Syntax verification only classifies results as `failed` when genuine grammar diagnostics (`SyntaxError`, TypeScript core grammar codes `TS1000`–`TS1999`, or JSX codes `TS17000`–`TS17999`) are emitted. Runtime/checker operational faults or missing dependencies fail open gracefully with `status: "unavailable"`.
+- **Host Truncation Deduplication**: Extended `HOST_TRUNCATION_REGEX` in `src/safety/output_clamper.ts` to match modern Pi host truncation footers (`[Truncated by host harness. Full: ...]`) with strict line termination, eliminating duplicate stacked notices.
+
+### Added
+- **Actionable Stale-File Drift Diagnostics**: Enhanced `epistemic_guard.ts` stale-file drift rejections to calculate pinpoint read coordinates (`offset` and `limit`) around target edit ranges, enabling agents to re-synchronize in a single narrow read rather than prompting whole-file reads.
+- **Ergonomics & Safety Boundary Adversarial Test Suite**: Added `tests/security-hardening/ergonomics_adversarial_test.ts` verifying syntax verification boundaries, search-to-edit boundaries, stale-drift pinpoint recovery, and forged truncation footer defense.
+
 ## [0.4.2] - 2026-10-24
 
 ### Added
