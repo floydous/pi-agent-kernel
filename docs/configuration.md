@@ -25,18 +25,29 @@ Settings can be managed via the `/agent-kernel` interactive modal or CLI subcomm
 - `default_profile`: `auto`, `lean`, `hybrid`, `full`, or `off`.
 - `repo_map_budget`: token budget for the repository map.
 - `max_search_results`: result limit for code search.
+- `enable_tools`: expose exploratory retrieval tools (`ast_search`, `get_repo_map`) directly to the model (default: `false` to conserve tokens via the passive shield).
 
 ### `[safety]`
 
 - `enable_epistemic_guard`: require inspection before editing existing files.
 - `max_line_length`, `max_lines`, and `max_total_bytes`: output-clamping limits.
 - `exec_timeout_ms`: bounded subprocess timeout.
-- `dedup_min_bytes`: minimum rendered byte size for tool output deduplication side storage.
-- `dedup_max_entries_per_session`: maximum LRU capacity for deduplicated tool results per session.
+
+### `[editing]`
+
+- `mode`: `"smart_anchor"` (default) or `"standard"`.
+- `default_anchors`: boolean (`true` by default) rendering contextual line hashes on targeted reads.
+- `read_mode`: `"auto"` (default), `"plain"`, or `"anchored"`.
+- `syntax_gate`: `"warn"` (default in smart anchor mode) or `"block"` (blocks invalid syntax before write).
 
 ### `[ui]`
 
 - `enable_pastel_footer`: enable the TrueColor footer when supported.
+
+### `[instructions]`
+
+- `enabled`: inject Agent Kernel guidance into the system prompt (default: `true`).
+- `pi_docs`: toggle inclusion of Pi documentation reference guidance in the system prompt (default: `true`).
 
 Invalid or unreadable configuration is handled as a best-effort load failure;
 the loader retains defaults rather than presenting an uncertain value as a
