@@ -21,7 +21,7 @@ Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `uf
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
 
-*Prompts describe symptoms and expected behavior without providing the fix. Aggregate Task Time reflects the sum of per-task runtimes under concurrency 4. Total tokens and tool calls reflect harness-reported telemetry across all conversational turns. Pi + Agent-Kernel solved 24/24 trials (100%), while Pi Vanilla solved 23/24 trials (95.8%).*
+*Prompts describe symptoms and expected behavior without providing the fix. Aggregate Task Time reflects the sum of per-task runtimes under concurrency 4. Total Turn Tokens reflects cumulative provider-reported tokens across all turns, including prompt cache reads (repeated conversational history) and completions; Input Tokens reports non-cached prompt tokens only. Pi + Agent-Kernel solved 24/24 trials (100%), while Pi Vanilla solved 23/24 trials (95.8%).*
 
 ---
 
