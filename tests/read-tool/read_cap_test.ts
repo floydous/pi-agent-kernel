@@ -88,10 +88,10 @@ export async function run(): Promise<void> {
 		assert.equal(small.details.shownLines, 120, "file under 250 lines is returned in full");
 		assert.equal(small.details.truncated, false, "small file is not truncated");
 
-		// Assert passing an ignored legacy symbol argument reads the file cleanly without throwing
-		const legacy = await read.execute("legacy", { path: "small.ts", symbol: "arbitrarySymbol" }, undefined, undefined, ctx);
-		assert.equal(legacy.isError, undefined, "legacy symbol parameter does not cause error");
-		assert.equal(legacy.details.shownLines, 120, "legacy symbol argument reads file contents normally");
+		// Assert passing ignored legacy symbol and surrounding_lines arguments reads the file cleanly without throwing
+		const legacy = await read.execute("legacy", { path: "small.ts", symbol: "arbitrarySymbol", surrounding_lines: 5 }, undefined, undefined, ctx);
+		assert.equal(legacy.isError, undefined, "legacy symbol and surrounding_lines parameters do not cause error");
+		assert.equal(legacy.details.shownLines, 120, "legacy symbol arguments read file contents normally");
 
 		const anchored = await read.execute(
 			"anchored",
