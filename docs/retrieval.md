@@ -6,7 +6,7 @@ fast discovery does not require loading the local embedding model.
 ## Components
 
 - `workspace_walker.ts` provides unified, `.gitignore`- and `.piignore`-aware filesystem traversal shared across indexing with directory pruning and child negation.
-- `tag_extractor.ts` extracts syntax-aware AST symbol definitions and test-path classifications for code chunking and symbol reading.
+- `tag_extractor.ts` extracts syntax-aware AST symbol definitions and test-path classifications for code chunking and semantic search.
 - `search_chunker.ts` creates syntax-aware chunks with breadcrumbs.
 - `search_bm25.ts` provides the fast lexical search path.
 - `search_embedder.ts` provides optional local embeddings.

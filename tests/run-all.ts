@@ -165,11 +165,6 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./ast-extraction")),
 	},
 	{
-		name: "Targeted Symbol Reader",
-		key: "symbol-reader",
-		loader: () => runSuiteModule(() => import("./symbol-reader")),
-	},
-	{
 		name: "Single-Block Patching",
 		key: "single-block-patch",
 		loader: () => runSuiteModule(() => import("./single-block-patch")),
@@ -268,11 +263,6 @@ const suites: TestEntry[] = [
 		name: "Batch Read Tool",
 		key: "batch-read-tool",
 		loader: () => runSuiteModule(() => import("./read-tool/batch_read_test")),
-	},
-	{
-		name: "Read Tool Hint Accuracy",
-		key: "read-tool-hint",
-		loader: () => runSuiteModule(() => import("./read-tool/tool_hint_test")),
 	},
 	{
 		name: "Dual Smart Anchor Engine Suite",

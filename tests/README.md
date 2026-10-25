@@ -24,7 +24,6 @@ npx tsx tests/run-all.ts epistemic-guard
 | Suite | Coverage |
 | --- | --- |
 | `ast-extraction` | Polyglot AST extraction |
-| `symbol-reader` | Targeted symbol extraction |
 | `single-block-patch` | Surgical single-block edits |
 | `multi-block-patch` | Disjoint multi-block edits |
 | `syntax-verification` | Syntax validation |

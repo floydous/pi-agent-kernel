@@ -3,17 +3,12 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { extractSymbolContent } from "../retrieval/symbol_reader";
-import { computeLineHash, formatSmartAnchorLines } from "../editing/smart_anchor";
+import { computeLineHash } from "../editing/smart_anchor";
 import {
 	globalEpistemicGuard,
 	resolveUserPath,
 } from "../safety/epistemic_guard";
 import type { SessionDeps } from "./context";
-
-function countFileLines(filePath: string): number {
-	return fs.readFileSync(filePath, "utf8").split("\n").length;
-}
 
 const MAX_READ_LINES = 2_000;
 const MAX_READ_BYTES = 50 * 1024;
@@ -103,7 +98,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const benchmarkMethod = ["line-range", "search-replace", "hash-anchor", "adaptive"].includes(editMethod || "") ? editMethod : undefined;
 	const readMode = process.env.PI_READ_MODE?.toLowerCase();
 	let readToolDescription =
-		"Read file contents (plain text), extract a symbol via 'symbol', or read multiple files via 'paths'. Bounded at 2,000 lines or 50KB. Use 'offset'/'limit' for ranges.";
+		"Read file contents with 50KB / 2,000-line caps. Supports bounded line-range inspection via 'offset' and 'limit', or batch inspection across multiple files via 'paths'.";
 	switch (benchmarkMethod) {
 		case "line-range":
 			readToolDescription = "Read source with line numbers for numeric line-range edits.";
@@ -119,39 +114,29 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	}
 	const readToolDefinition: any = {
 		name: "read",
-		label: "Read File / Symbol",
+		label: "Read File",
 		description: readToolDescription,
-		promptSnippet: "Read file contents, inspect line ranges, extract symbols, or read multiple files via 'paths'",
+		promptSnippet: "Read file contents, inspect line ranges, or read multiple files via 'paths'",
 		renderShell: "default",
 		parameters: Type.Object({
 			path: Type.Optional(
 				Type.String({
-					description: "File path (relative or absolute). For multiple files, use 'paths'",
+					description: "Workspace-relative or absolute file path to inspect. For multiple files, use 'paths'",
 				}),
 			),
 			paths: Type.Optional(
 				Type.Array(Type.String(), {
-					description: "Read multiple files in one turn",
-				}),
-			),
-			symbol: Type.Optional(
-				Type.String({
-					description: "Function, class, or type to extract",
+					description: "Array of file paths to read in a single batch (plain text only, bounded per file)",
 				}),
 			),
 			offset: Type.Optional(
 				Type.Number({
-					description: "Start line number (1-indexed)",
+					description: "1-based starting line number for windowed reads (best when examining code around an exact line coordinate from grep or test failures)",
 				}),
 			),
 			limit: Type.Optional(
 				Type.Number({
-					description: "Maximum lines to read",
-				}),
-			),
-			surrounding_lines: Type.Optional(
-				Type.Number({
-					description: "Extra surrounding context lines for symbol",
+					description: "Maximum number of lines to read starting from 'offset' (default: 250 for unconstrained reads; keep <= 60 for narrow inspection)",
 				}),
 			),
 			anchors: Type.Optional(
@@ -169,9 +154,9 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			_toolCallId: string,
 			params: any,
 			_signal: any,
-			onUpdate: any,
+			_onUpdate: any,
 			ctx: any,
-		): Promise<any> {
+		) {
 			let targetPaths: string[] = [];
 			if (params && typeof params === "object") {
 				if (Array.isArray(params.paths)) {
@@ -292,111 +277,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-			const readLimitError = validateReadableFile(resolvedPath);
-			if (readLimitError) {
-				return {
-					content: [{ type: "text", text: `[READ ERROR] ${readLimitError}: ${params.path}` }],
-					details: { error: "read_limit", maxBytes: MAX_READ_FILE_BYTES },
-					isError: true,
-				};
-			}
-
-			// Mode 1: Targeted AST symbol extraction
-			if (params.symbol && params.symbol.trim()) {
-				const sym = params.symbol.trim();
-				onUpdate?.({
-					content: [
-						{
-							type: "text",
-							text: `Extracting symbol '${sym}' from ${params.path}...`,
-						},
-					],
-				});
-				let symbolSnapshot: string;
-				try {
-					symbolSnapshot = fs.readFileSync(resolvedPath, "utf8");
-				} catch (error: any) {
-					return {
-						content: [
-							{ type: "text", text: `[READ ERROR] Unable to read ${params.path}: ${error.message}` },
-						],
-						isError: true,
-					};
-				}
-				const res = extractSymbolContent(
-					resolvedPath,
-					sym,
-					{ surroundingLines: params.surrounding_lines },
-					symbolSnapshot,
-				);
-
-				if (!res.found || res.symbols.length === 0) {
-					const sym = params.symbol.trim();
-					const errorText = res.error || `Symbol '${sym}' not found in ${params.path}. Use 'code_search' to locate code or 'rg' in bash to search text.`;
-					return {
-						content: [{ type: "text", text: errorText }],
-						details: {
-							error: "symbol_not_found",
-							query: sym,
-						},
-						isError: true,
-					};
-				}
-
-				// Record the exact snapshot used for extraction only after a successful
-				// symbol result; failed extraction must not authorize a mutation.
-				globalEpistemicGuard.recordFileRead(
-					resolvedPath,
-					deps.getSessionId(ctx),
-					ctx.cwd,
-					symbolSnapshot,
-					{
-						coverage: {
-							complete: false,
-							ranges: res.symbols.map((symbol) => ({
-								startLine: symbol.startLine,
-								endLine: symbol.endLine,
-							})),
-							totalLines: countFileLines(resolvedPath),
-						},
-						provenance: "symbol",
-						query: sym,
-					},
-				);
-
-				const config = deps.getConfig?.(ctx.cwd);
-				const defaultAnchors = config?.editing?.default_anchors ?? true;
-				const configuredReadMode = readMode ?? config?.editing?.read_mode ?? "auto";
-				const useAnchors = shouldUseAnchors(params, benchmarkMethod, configuredReadMode, defaultAnchors, true);
-
-				const allFileLines = symbolSnapshot.split("\n");
-				const formatted = res.symbols
-					.map((s) => {
-						const header = `// ${(path.relative(ctx.cwd, s.filePath) || s.filePath).replace(/\\/g, "/")}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}`;
-						let body = s.content;
-						if (useAnchors) {
-							body = formatSmartAnchorLines(allFileLines, s.startLine, s.endLine);
-						} else if (benchmarkMethod === "line-range") {
-							body = allFileLines.slice(s.startLine - 1, s.endLine).map((line, index) => `${String(s.startLine + index).padStart(String(s.endLine).length, " ")}│${line}`).join("\n");
-						}
-						return `${header}\n${body}`;
-					})
-					.join("\n\n");
-
-				return {
-					content: [{ type: "text", text: formatted }],
-					details: {
-						count: res.symbols.length,
-						symbols: res.symbols.map((s) => ({
-							name: s.name,
-							kind: s.kind,
-							lines: `${s.startLine}-${s.endLine}`,
-						})),
-					},
-				};
-			}
-
-			// Mode 2: Standard file reading
+			// Single file read
 			try {
 				const readLimitError = validateReadableFile(resolvedPath);
 				if (readLimitError) {
@@ -599,11 +480,6 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			const relPath = rawPath
 				? (path.relative(context.cwd, rawPath) || rawPath).replace(/\\/g, "/")
 				: "";
-			if (args?.symbol) {
-				return makeOutputText(
-					`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", args.symbol)} in ${theme.fg("dim", relPath)}`,
-				);
-			}
 			let range = "";
 			if (args?.offset || args?.limit) {
 				const off = args.offset ?? 1;

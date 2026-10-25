@@ -9,7 +9,6 @@ import {
 	loadPersistedProfile,
 	savePersistedProfile,
 } from "../../src/retrieval/search_config";
-import { extractSymbolContent } from "../../src/retrieval/symbol_reader";
 import { clampCommandOutput } from "../../src/safety/output_clamper";
 
 async function runEndToEndTests() {
@@ -82,38 +81,10 @@ async function runEndToEndTests() {
 	savePersistedProfile("lean");
 	console.log("✓ Profile auto-detection, config resolution, and persistence verified!");
 
-	// Test 3: Multiple Regex Fallback Extraction in extractSymbolContent
-	console.log("\n[3. Verifying Multi-Match Extraction in Symbol Reader Fallback]");
-	// We use a custom file extension (.custom / .txt) that is NOT handled by extractFileTags (no tag definition parser).
-	// This strictly forces extractSymbolContent into the fallback regex path (`if (matchingDefs.length === 0)`).
-	const tempTestFile = path.join(process.cwd(), "temp_multi_symbol_fallback.custom");
-	const multiSymbolContent = `// First custom declaration
-function renderTemplate(name: string): string {
-    return name;
-}
-
-// Second custom declaration with identical name
-function renderTemplate(id: number): string {
-    return id.toString();
-}`;
-	fs.writeFileSync(tempTestFile, multiSymbolContent, "utf-8");
-
-	try {
-		const extracted = extractSymbolContent(tempTestFile, "renderTemplate");
-		assert.strictEqual(extracted.found, true, "Should find target symbols via regex fallback");
-		assert.strictEqual(extracted.symbols.length, 2, "Fallback path must extract all matching occurrences without early break");
-		assert.strictEqual(extracted.symbols[0].startLine, 1, "First occurrence should start on line 1 with preceding comments");
-		assert.strictEqual(extracted.symbols[1].startLine, 6, "Second occurrence should start on line 6 with preceding comments");
-		console.log("✓ Multi-match symbol extraction verified on fallback regex path!");
-	} finally {
-		if (fs.existsSync(tempTestFile)) fs.unlinkSync(tempTestFile);
-	}
-
-	// Test 4: Bounded Spillover Log Pruning in output_clamper
-	console.log("\n[4. Verifying Output Clamper Spillover File Pruning]");
+	// Test 3: Bounded Spillover Log Pruning in output_clamper
+	console.log("\n[3. Verifying Output Clamper Spillover File Pruning]");
 	const spilloverDir = fs.mkdtempSync(path.join(os.tmpdir(), "end-to-end-spillover-"));
 	try {
-		// Create 25 eligible files in the exact directory the product will prune.
 		for (let i = 0; i < 25; i++) {
 			const fixture = path.join(spilloverDir, `pi_bash_spillover_test_${i}.log`);
 			fs.writeFileSync(fixture, "dummy content");
@@ -137,7 +108,7 @@ function renderTemplate(id: number): string {
 	}
 
 	console.log("\n=================================================");
-	console.log("ALL END-TO-END ENHANCEMENT TESTS PASSED (4/4)");
+	console.log("ALL END-TO-END ENHANCEMENT TESTS PASSED (3/3)");
 	console.log("=================================================");
 }
 

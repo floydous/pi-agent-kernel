@@ -81,7 +81,7 @@ Use `/pi-docs on` when returning to work on Pi extensions.
 
 | Tool | Description |
 |---|---|
-| `read` | Reads plain text with 50 KB / 2,000-line caps, or extracts an individual symbol with AST parsing (`symbol="name"`). |
+| `read` | Reads file contents with 50 KB / 2,000-line caps and bounded line-windowing (`offset`/`limit`). |
 | `edit` | Applies search-and-replace patches with automatic delimiter healing and optional `line_hint` line coordinates. |
 | `write` | Creates new files or replaces complete files. |
 | `bash` | Runs shell commands with clamped output and spillover logging. |
