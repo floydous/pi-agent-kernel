@@ -4,32 +4,29 @@
 
 ### Added
 
-- **Package Entrypoint Manifest Fields**: Added explicit `"main": "./src/index.ts"` and `"types": "./src/index.ts"` to `package.json` to ensure package consumers can resolve the module entrypoint directly alongside the `"pi.extensions"` manifest.
-- **Table-Driven Benchmark Method & RRF Test Suite**: Added `tests/editing/benchmark_method_and_rrf_test.ts` to `tests/run-all.ts` (suite 63) to verify table-driven schemas and descriptions for all 5 `PI_EDIT_METHOD` modes, as well as RRF reciprocal rank fusion signal classification across lexical, semantic, hybrid, and zero-score conditions.
+- **Package Entrypoints**: Added standard package export definitions so external tools and Node projects can import Agent Kernel directly.
+- **Verification Tests**: Added test coverage verifying editing modes and search result ranking behaviors.
 
 ### Changed
 
-- **System Prompt Workflow Guidance**: Removed the prescriptive `## Execution Workflow` section from `AGENT_KERNEL_SYS_PROMPT.md` (covering pre-flight grounding, root-cause priority, multi-file edit grouping, and exit guidance), retaining tool-selection guidance for `code_search`, `rg`, inspection, and direct-edit lanes.
-- **Benchmark Suite & Chart Reporting**: Evaluated all 6 agent harnesses on `cx/gpt-6-luna-high` (concurrency 4, 360s timeout) across the 8 core bug-fix tasks. Added a `Tasks Solved (N/24)` category to `agent-kernel-benchmark/generate_chart.py`, visualized prompt cache-read token breakdown using darker overlapping segments within total tokens, and updated `static/benchmark-comparison.png` alongside `README.md` with matched six-harness evaluation metrics and prompt cache-read accounting. Pi Kernel achieved a 100% solve rate across 24 counterbalanced trials (N=3) with 28.9% fewer tokens and 7.4% faster aggregate runtime than Vanilla Pi.
+- **Streamlined System Guidance**: Simplified the extension prompt to focus on tool selection rather than prescribing rigid workflow steps, giving agents freedom to pick the best strategy for each task.
+- **Benchmark Chart Updates**: Updated the benchmark comparison chart to show prompt cache reuse and task solve rates across all evaluated coding agents.
 
 ### Fixed
 
-- **Cleaned Unused Imports in Edit & Search Tools**: Removed unused `kernelDebug` and `findSurgicalPatchTargetRange` imports in `src/tools/edit_tool.ts`, and removed unused `loadKernelConfig` and `getGlobalConfigPath` imports in `src/retrieval/search_config.ts`.
-- **Removed Unused Variables & Empty Catches**: Removed unused `isGrepOrRg` in `src/safety/epistemic_guard.ts`, removed dead fields (`isSaving`, `hasPendingSave`, `cacheDir`) in `src/retrieval/search_index.ts`, removed in-place `.reverse()` stack mutation in `src/editing/auto_heal.ts`, and routed all silent empty catches through `kernelDebug`.
-- **Cross-Platform Deterministic Code-Unit Sorting**: Replaced locale-dependent string sorting in `search_index.ts` and `search_bm25.ts` with explicit code-unit comparators (`compareStrings` / `a < b ? -1 : a > b ? 1 : 0`), preserving deterministic chunk ordering and index reproducibility across machines and ICU runtimes.
-- **Replaced Loose Typings & Unsafe Casts**: Enforced typed `Record<string, Record<string, TomlValue>>` in `getGlobalRawConfig`, eliminated unnecessary `as any` casts across `kernel_config.ts`, `search_config.ts`, `patch.ts`, `workspace_walker.ts`, `index.ts`, and `agent_kernel_command.ts`, and replaced global `isNaN` with `Number.isSafeInteger`.
-- **Structural Code Polish & Branch Flattening**: Replaced 25+ redundant `else if` returns with linear `if (...) return;` dispatches in `tree_sitter_engine.ts`, replaced 6-deep nested ternaries in `edit_tool.ts` with structured `switch (benchmarkMethod)` blocks, and flattened nested ternaries across `patch.ts`, `search_modal.ts`, `search_bm25.ts`, `repomap.ts`, `read_tool.ts`, and `post_edit_verification.ts`.
+- **Consistent Search Ordering**: Ensured search results and indexed code chunks are ordered identically across different platforms and operating systems.
+- **Internal Cleanups**: Cleaned up internal typings, removed unused functions, and flattened nested branching across search and editing modules.
 
 ### Security
 
-- **Untrusted Inspection State Boundary Defense**: Hardened `epistemic_guard.ts` session persistence against tampered state files by enforcing strict runtime schema validation, bounding entry counts (<= 1,000 files) and string lengths (paths <= 512, provenance <= 128, queries <= 1,024), discarding duplicate keys to prevent weakening prior evidence, preventing search records from manufacturing `complete: true` coverage, and routing file writes through `writeFileSyncAtomic`.
-- **TOML Prototype Pollution Hardening**: Added explicit `Object.defineProperty` data property assignment on `Object.create(null)` tables in `src/config/toml.ts` and expanded test suites verifying that `__proto__`, `prototype`, and `constructor` keys cannot pollute `Object.prototype`.
+- **Session State Validation**: Added stricter validation when restoring saved session files so prior file inspection records cannot be corrupted.
+- **Configuration Parsing Safety**: Hardened the configuration parser against prototype pollution attacks when loading custom settings files.
 
 ### Removed
 
-- **Symbol Extraction Mode & Engine (`symbol_reader.ts`)**: Purged the `symbol` and `surrounding_lines` parameters from the `read` tool and deleted `src/retrieval/symbol_reader.ts` (232 lines) along with its test suites (`tests/symbol-reader/`). File inspection is standardized on bounded line-windowing (`offset`/`limit`) and multi-file inspection (`paths`), saving tool schema token overhead on every conversational turn. Specialized symbol extraction and definition jumping are cleanly deferred to dedicated code intelligence extensions (such as `pi-lens`).
-- **Exploratory Tools & Legacy Subsystems (`ast_search`, `repomap`)**: Completely purged the exploratory retrieval engines (`src/retrieval/ast_search.ts`, `src/retrieval/repomap.ts`), tool registrations (`src/tools/ast_search_tool.ts`, `src/tools/repo_map_tool.ts`), result formatters (`src/tools/ast_search_formatter.ts`), and the interactive `/repomap` command. Retained active polyglot AST symbol extraction under `src/retrieval/tag_extractor.ts` to power `code_search` chunking and semantic search. Removed dormant `repo_map_*` and `enable_tools` settings from `KernelConfig` and settings dashboard, while safely tolerating legacy configuration keys for backwards compatibility.
-- **LSP Subsystem & Background Daemons**: Removed the background Language Server Protocol subsystem (`src/lsp/`), the agent-facing `lsp` tool (`src/tools/lsp_tool.ts`), and the interactive `/lsp` slash command and TUI modal. Synchronous post-edit LSP diagnostic polling and daemon document synchronization were eliminated from `src/tools/edit_tool.ts` and `src/index.ts`. Language intelligence and semantic LSP diagnostics are deferred to dedicated ecosystem extensions (such as `pi-lens`), while `pi-agent-kernel` remains a pure, zero-daemon in-process extension focused on output clamping, epistemic guards, smart anchors, and Tree-Sitter WASM code search. Existing `[lsp]` configuration blocks in user files are sanitized and safely ignored for backwards compatibility without throwing unknown-section errors.
+- **Symbol Extraction Parameter**: Removed the optional symbol parameter from the file reader tool in favor of line-windowed reads. This keeps the reader simple, saves prompt space on every request, and defers deep code navigation to dedicated language tools.
+- **Exploratory Search & Repo Map Engines**: Removed legacy repository mapping and AST search tools in favor of unified, fast keyword and semantic code search.
+- **Language Server Subsystem**: Removed the built-in background language server manager. Code intelligence and language diagnostics are now deferred to dedicated extensions like pi-lens.
 
 ## [0.4.3] - 2026-10-24
 
