@@ -12,7 +12,7 @@ src/
 ├── config/        Hierarchical TOML configuration
 ├── context/       Session repair
 ├── editing/       Surgical patching and verification
-├── retrieval/     AST, repository-map, and code-search logic
+├── retrieval/     AST, BM25 indexing, and code-search logic
 ├── safety/        Read guards, output limits, and execution helpers
 ├── tools/         Pi tool registrations
 └── ui/            Footer and terminal rendering helpers

@@ -14,7 +14,7 @@ edits instead of unnecessary context or background processing.
 - [Architecture](architecture.md) — source layout, subsystem boundaries, and runtime flow.
 - [Configuration](configuration.md) — global, project-local, and environment configuration.
 - [Editing and verification](editing-and-verification.md) — surgical edits, safety checks, and post-edit verification.
-- [Retrieval](retrieval.md) — repository maps, AST search, and hybrid code search.
+- [Retrieval](retrieval.md) — AST indexing, profiles, and hybrid code search.
 - [Testing](testing.md) — focused tests, the full suite, and verification policy.
 
 The implementation lives under `src/`. This directory documents the public
