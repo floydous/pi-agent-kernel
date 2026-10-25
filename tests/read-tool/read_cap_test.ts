@@ -93,6 +93,12 @@ export async function run(): Promise<void> {
 		assert.equal(legacy.isError, undefined, "legacy symbol and surrounding_lines parameters do not cause error");
 		assert.equal(legacy.details.shownLines, 120, "legacy symbol arguments read file contents normally");
 
+		// Discriminating regression test: verify bounded read with legacy parameters is 100% identical to standard read
+		const boundedStandard = await read.execute("boundedStandard", { path: "large.ts", offset: 10, limit: 20 }, undefined, undefined, ctx);
+		const boundedLegacy = await read.execute("boundedLegacy", { path: "large.ts", offset: 10, limit: 20, symbol: "arbitrarySymbol", surrounding_lines: 5 }, undefined, undefined, ctx);
+		assert.equal(text(boundedLegacy), text(boundedStandard), "legacy parameters produce text identical to standard bounded read");
+		assert.deepEqual(boundedLegacy.details, boundedStandard.details, "legacy parameters produce details identical to standard bounded read");
+
 		const anchored = await read.execute(
 			"anchored",
 			{ path: "large.ts", offset: 1, limit: 2, anchors: true },
