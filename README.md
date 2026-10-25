@@ -12,8 +12,6 @@ Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `uf
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
 
-*Prompts describe symptoms and expected behavior without providing the fix. Aggregate Task Time reflects the sum of per-task runtimes under concurrency 4. Total Turn Tokens includes non-cached prompt tokens, prompt cache reads (reused conversational history across turns), and completions. †Prompt cache-read breakdown is not separately reported by Claude Code and Codex CLI telemetry (all prompt tokens are counted in input). Pi + Agent-Kernel solved 24/24 trials (100%), while Pi Vanilla solved 23/24 trials (95.8%).*
-
 ---
 
 ## Quick start
