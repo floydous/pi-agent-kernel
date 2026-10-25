@@ -11,7 +11,6 @@ import {
 } from "../../src/retrieval/search_config";
 import { extractSymbolContent } from "../../src/retrieval/symbol_reader";
 import { clampCommandOutput } from "../../src/safety/output_clamper";
-import { computeRepoMap } from "../../src/retrieval/repomap";
 
 async function runEndToEndTests() {
 	console.log("=== END-TO-END VERIFICATION OF APPLIED ENHANCEMENTS ===\n");
@@ -23,6 +22,9 @@ async function runEndToEndTests() {
 		{
 			id: "src/auth.ts:1-10",
 			filePath: "src/auth.ts",
+			absolutePath: "/mock/src/auth.ts",
+			kind: "function",
+			hash: "mockhash1",
 			symbolName: "authenticateUser",
 			signature: "function authenticateUser(token: string): boolean",
 			content: "export function authenticateUser(token: string): boolean { return token === 'secret'; }",
@@ -34,6 +36,9 @@ async function runEndToEndTests() {
 		{
 			id: "src/db.ts:1-10",
 			filePath: "src/db.ts",
+			absolutePath: "/mock/src/db.ts",
+			kind: "function",
+			hash: "mockhash2",
 			symbolName: "connectDatabase",
 			signature: "function connectDatabase(url: string): void",
 			content: "export function connectDatabase(url: string): void { console.log(url); }",
@@ -131,17 +136,8 @@ function renderTemplate(id: number): string {
 		fs.rmSync(spilloverDir, { recursive: true, force: true });
 	}
 
-	// Test 5: Repo-Map Generation & Caching Behavior
-	console.log("\n[5. Verifying Repo-Map AST Generation]");
-	const t0 = performance.now();
-	const repoMap1 = computeRepoMap(process.cwd(), 1024);
-	const dur1 = performance.now() - t0;
-	assert.ok(repoMap1.includes("Repository Map"), "Repo map output must contain header");
-	assert.ok(repoMap1.length > 100, "Repo map must produce non-trivial symbol map");
-	console.log(`✓ Repo-map generated in ${dur1.toFixed(1)}ms!`);
-
 	console.log("\n=================================================");
-	console.log("ALL END-TO-END ENHANCEMENT TESTS PASSED (5/5)");
+	console.log("ALL END-TO-END ENHANCEMENT TESTS PASSED (4/4)");
 	console.log("=================================================");
 }
 

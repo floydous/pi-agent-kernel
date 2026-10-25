@@ -2,7 +2,7 @@
 // Verifies exact AST extraction coordinates, kinds, and signatures across:
 // TypeScript, Python, Rust, Go, Java, and C# with strict adversarial checks.
 
-import { extractFileTags } from "../../src/retrieval/repomap";
+import { extractFileTags } from "../../src/retrieval/tag_extractor";
 import { TreeSitterEngine } from "../../src/retrieval/tree_sitter_engine";
 import { runSuite, assertPass, logPass } from "../_setup";
 import { TS_COMPLEX_CODE } from "./cases/typescript";

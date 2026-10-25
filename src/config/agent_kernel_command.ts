@@ -46,7 +46,6 @@ export function formatConfigDashboard(cwd: string, config: KernelConfig): string
 		``,
 		`[Retrieval & Tools]`,
 		`  • Profile (Engine)      : ${config.retrieval.default_profile} (auto | lean | hybrid | full | off)`,
-		`  • Repo Map Budget       : ${config.retrieval.repo_map_budget} tokens`,
 		`  • Max Search Results    : ${config.retrieval.max_search_results}`,
 		``,
 		`[Safety & Interception]`,

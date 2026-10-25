@@ -23,7 +23,6 @@ Settings can be managed via the `/agent-kernel` interactive modal or CLI subcomm
 ### `[retrieval]`
 
 - `default_profile`: `auto`, `lean`, `hybrid`, `full`, or `off`.
-- `repo_map_budget`: token budget for the repository map.
 - `max_search_results`: result limit for code search.
 
 ### `[safety]`

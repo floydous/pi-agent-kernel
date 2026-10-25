@@ -7,9 +7,6 @@ import { writeFileSyncAtomic } from "../safety/atomic_write";
 
 export interface RetrievalConfig {
 	default_profile: "auto" | "lean" | "hybrid" | "full" | "off";
-	repo_map_budget: number;
-	repo_map_min_files: number;
-	repo_map_min_bytes: number;
 	max_search_results: number;
 }
 
@@ -56,9 +53,6 @@ export interface KernelConfig {
 const DEFAULT_CONFIG: KernelConfig = {
 	retrieval: {
 		default_profile: "lean",
-		repo_map_budget: 1024,
-		repo_map_min_files: 10,
-		repo_map_min_bytes: 50 * 1024,
 		max_search_results: 5,
 	},
 	safety: {
@@ -88,9 +82,6 @@ export class KernelConfigError extends Error {}
 const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 	retrieval: new Set([
 		"default_profile",
-		"repo_map_budget",
-		"repo_map_min_files",
-		"repo_map_min_bytes",
 		"max_search_results",
 	]),
 	safety: new Set([
@@ -140,9 +131,6 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 
 	const retrieval = config.retrieval;
 	requireEnum(retrieval.default_profile, "retrieval.default_profile", ["auto", "lean", "hybrid", "full", "off"]);
-	requireSafeInt(retrieval.repo_map_budget, "retrieval.repo_map_budget", 64, 32_768);
-	requireSafeInt(retrieval.repo_map_min_files, "retrieval.repo_map_min_files", 0, 10_000);
-	requireSafeInt(retrieval.repo_map_min_bytes, "retrieval.repo_map_min_bytes", 0, 1024 * 1024 * 1024);
 	requireSafeInt(retrieval.max_search_results, "retrieval.max_search_results", 1, 15);
 
 	const safety = config.safety;
@@ -181,7 +169,7 @@ export function mergeKernelConfig(target: KernelConfig, source: unknown): Kernel
 		}
 		const sectionObj: Record<string, unknown> = {};
 		for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-			if (section === "retrieval" && key === "enable_tools") continue; // Deprecated legacy setting: accepted and ignored
+			if (section === "retrieval" && (key === "enable_tools" || key.startsWith("repo_map_"))) continue; // Deprecated legacy setting: accepted and ignored
 			if (!ALLOWED_CONFIG_KEYS[section as keyof KernelConfig].has(key)) {
 				throw new KernelConfigError(`Unknown configuration key: ${configPath([section, key])}`);
 			}
@@ -287,11 +275,6 @@ export function loadKernelConfig(
 	}
 
 	// 3. Environment Variable Overrides
-	if (process.env.PI_REPO_MAP_BUDGET) {
-		const b = parseInt(process.env.PI_REPO_MAP_BUDGET, 10);
-		if (Number.isSafeInteger(b)) config.retrieval.repo_map_budget = b;
-	}
-
 	if (process.env.PI_RETRIEVAL_PROFILE) {
 		const p = process.env.PI_RETRIEVAL_PROFILE.toLowerCase();
 		if (p === "lean" || p === "hybrid" || p === "full") {

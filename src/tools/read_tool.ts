@@ -4,7 +4,6 @@ import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { extractSymbolContent } from "../retrieval/symbol_reader";
-import { findSymbolSuggestions } from "../retrieval/ast_search";
 import { computeLineHash, formatSmartAnchorLines } from "../editing/smart_anchor";
 import {
 	globalEpistemicGuard,
@@ -69,7 +68,7 @@ function formatReadLine(
 }
 
 function selectReadLineIndexes(
-	lines: readonly string[],
+	_lines: readonly string[],
 	startIdx: number,
 	endIdx: number,
 	formatLine: (index: number) => string,
@@ -331,37 +330,14 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					symbolSnapshot,
 				);
 
-				if (!res.found) {
-					const suggestions = findSymbolSuggestions(
-						ctx.cwd,
-						resolvedPath,
-						sym,
-					);
-					let errorText: string;
-					if (res.error) {
-						errorText = res.error;
-					} else if (suggestions.length > 0) {
-						const formattedSuggestions = suggestions
-							.map(
-								(s) =>
-									`- ${s.name} (${s.filePath}:${s.line}) [${s.kind}] ${s.signature}`,
-							)
-							.join("\n");
-						errorText = `Symbol '${sym}' not found in ${params.path}.\nDid you mean:\n${formattedSuggestions}`;
-					} else {
-						errorText = `Symbol '${sym}' not found in ${params.path}. Use 'code_search' to locate code or 'rg' in bash to search text.`;
-					}
+				if (!res.found || res.symbols.length === 0) {
+					const sym = params.symbol.trim();
+					const errorText = res.error || `Symbol '${sym}' not found in ${params.path}. Use 'code_search' to locate code or 'rg' in bash to search text.`;
 					return {
 						content: [{ type: "text", text: errorText }],
 						details: {
 							error: "symbol_not_found",
 							query: sym,
-							candidates: suggestions.map((s) => ({
-								name: s.name,
-								filePath: s.filePath,
-								line: s.line,
-								kind: s.kind,
-							})),
 						},
 						isError: true,
 					};

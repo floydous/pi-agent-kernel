@@ -4,7 +4,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { measureSession } from "./session_metrics";
 import { logPass } from "../_setup";
-import { run as runNavigationFeatureVerification } from "./navigation_feature_verification";
 
 export async function run(): Promise<void> {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-session-metrics-"));
@@ -21,7 +20,6 @@ export async function run(): Promise<void> {
 		assert.equal(metrics.markdownResultLines, 1);
 		assert.equal(metrics.totalOutputChars, 74);
 		logPass("Session benchmark metrics parser verified!");
-	await runNavigationFeatureVerification();
 	} finally {
 		fs.rmSync(dir, { recursive: true, force: true });
 	}

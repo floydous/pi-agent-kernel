@@ -39,7 +39,7 @@ export async function testSymbolSuggestions(): Promise<void> {
 		assertPass("Exact symbol read succeeds", !exactRes.isError && exactRes.content?.[0]?.text?.includes("withConnection"), { exactRes });
 		assertPass("Exact symbol output contains full body", exactRes.content[0].text.includes("protected release(): void") === false && exactRes.content[0].text.includes("async withConnection"), { text: exactRes.content[0].text });
 
-		// 2. Typo symbol read fails (isError: true) and provides bounded suggestion
+		// 2. Missing symbol read fails (isError: true) and provides code_search suggestion
 		const typoRes = await readTool.execute(
 			"c2",
 			{ path: "src/app.ts", symbol: "withConnectio" },
@@ -47,14 +47,12 @@ export async function testSymbolSuggestions(): Promise<void> {
 			undefined,
 			ctx,
 		);
-		assertPass("Typo symbol read returns error", typoRes.isError === true, { typoRes });
+		assertPass("Missing symbol read returns error", typoRes.isError === true, { typoRes });
 		const typoText = typoRes.content[0].text;
-		assertPass("Typo message states symbol not found", typoText.includes("Symbol 'withConnectio' not found in src/app.ts."), { typoText });
-		assertPass("Typo message includes 'Did you mean:'", typoText.includes("Did you mean:"), { typoText });
-		assertPass("Typo suggestion includes withConnection", typoText.includes("withConnection (src/app.ts:27) [method]"), { typoText });
-		assertPass("Typo does NOT extract method body", !typoText.includes("const conn =") && !typoText.includes("return work(c)"), { typoText });
+		assertPass("Error message states symbol not found", typoText.includes("Symbol 'withConnectio' not found in src/app.ts."), { typoText });
+		assertPass("Suggests code_search and rg", typoText.includes("code_search") && typoText.includes("rg"), { typoText });
 
-		// 3. Completely non-existent symbol returns no suggestions
+		// 3. Completely non-existent symbol returns clear guidance
 		const noneRes = await readTool.execute(
 			"c3",
 			{ path: "src/app.ts", symbol: "completelyUnrelatedSymbolXyz" },
@@ -64,32 +62,14 @@ export async function testSymbolSuggestions(): Promise<void> {
 		);
 		assertPass("Non-existent symbol returns error", noneRes.isError === true, { noneRes });
 		const noneText = noneRes.content[0].text;
-		assertPass("Non-existent symbol does not suggest random items", !noneText.includes("Did you mean:"), { noneText });
-		// This read tool instance has no retrieval.enable_tools, so ast_search is NOT registered;
-		// the fallback must point at a tool the model can actually call.
-	assertPass("Non-existent symbol suggests an available fallback (code_search/rg)", noneText.includes("Use 'code_search' to locate code") && !noneText.includes("ast_search"), { noneText });
+		assertPass("Non-existent symbol suggests code_search fallback", noneText.includes("Use 'code_search' to locate code"), { noneText });
 
-		// 4. Multiple candidates ranked properly (e.g. 'connect')
-		const multiRes = await readTool.execute(
-			"c4",
-			{ path: "src/app.ts", symbol: "connect" },
-			undefined,
-			undefined,
-			ctx,
-		);
-		assertPass("Prefix/partial symbol returns error", multiRes.isError === true, { multiRes });
-		const multiText = multiRes.content[0].text;
-		assertPass("Partial symbol suggests candidates", multiText.includes("Did you mean:"), { multiText });
-		assertPass("Suggestions contain connectInternal or withConnection", multiText.includes("connectInternal") || multiText.includes("withConnection"), { multiText });
-		const candidateCount = (multiText.match(/^- /gm) || []).length;
-		assertPass("Suggestions are bounded to at most 3", candidateCount > 0 && candidateCount <= 3, { candidateCount, multiText });
-
-		// 5. Failed typo read must NOT authorize an edit in epistemic guard
+		// 4. Failed symbol read must NOT authorize an edit in epistemic guard
 		const targetFile = path.join(ws.tempDir, "src/app.ts");
 		const authCheck = guard.checkReadPrecondition(targetFile, "edit", "test-session", ws.tempDir, true, [{ startLine: 27, endLine: 35 }]);
 		assertPass("Failed symbol read did not authorize editing", authCheck.allowed === false, { authCheck });
 
-		logPass("Symbol suggestions unit tests passed!");
+		logPass("Symbol extraction and fallback guidance verified!");
 	} finally {
 		ws.cleanup();
 	}

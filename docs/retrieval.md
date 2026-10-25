@@ -5,10 +5,8 @@ fast discovery does not require loading the local embedding model.
 
 ## Components
 
-- `workspace_walker.ts` provides unified, `.gitignore`- and `.piignore`-aware filesystem traversal shared across indexing, repository maps, and AST search with directory pruning and child negation.
-- `repomap.ts` extracts AST symbols and produces a ranked repository map.
-- `ast_search.ts` provides structural symbol search and language-aware fallback
-  operations such as document symbols, references, and local hover details.
+- `workspace_walker.ts` provides unified, `.gitignore`- and `.piignore`-aware filesystem traversal shared across indexing with directory pruning and child negation.
+- `tag_extractor.ts` extracts syntax-aware AST symbol definitions and test-path classifications for code chunking and symbol reading.
 - `search_chunker.ts` creates syntax-aware chunks with breadcrumbs.
 - `search_bm25.ts` provides the fast lexical search path.
 - `search_embedder.ts` provides optional local embeddings.
@@ -33,13 +31,10 @@ remain enforced so retrieval cannot flood agent context.
 
 The `code_search` index is intentionally code-only: Markdown and other text files remain readable but are not chunked or embedded for retrieval.
 
-AST and code-search path filters match normalized relative path substrings
-(including directory fragments, filenames, and extensions). `includeBody` returns
-a bounded preview of up to 25 lines; when the preview is truncated, the AST
-result marks it as truncated; use the targeted symbol reader for the complete
-implementation. `code_search` reports whether each result is `lexical`, `semantic`,
-or `hybrid`, and accepts an optional bounded RRF smoothing constant from 1 to 200.
-The default remains 60.
+Code-search path filters match normalized relative path substrings
+(including directory fragments, filenames, and extensions). `code_search` reports
+whether each result is `lexical`, `semantic`, or `hybrid`, and accepts an optional
+bounded RRF smoothing constant from 1 to 200. The default remains 60.
 Vector caches are accepted only when their metadata, chunk IDs, dimensions, byte
 length, and content hash agree; invalid vector data is ignored while the BM25
 index remains usable.

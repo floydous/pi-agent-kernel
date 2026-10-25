@@ -24,7 +24,6 @@ npx tsx tests/run-all.ts epistemic-guard
 | Suite | Coverage |
 | --- | --- |
 | `ast-extraction` | Polyglot AST extraction |
-| `repo-map` | Repository map and PageRank |
 | `symbol-reader` | Targeted symbol extraction |
 | `single-block-patch` | Surgical single-block edits |
 | `multi-block-patch` | Disjoint multi-block edits |
@@ -35,10 +34,6 @@ npx tsx tests/run-all.ts epistemic-guard
 | `ui-width-safety` | TUI output-width regression |
 | `epistemic-guard` | Read-before-write safety and session isolation |
 | `unified-footer` | Integrated status footer formatting |
-| `ast-fallback` | AST-based fallback symbol extraction |
-| `aliased-re-exports` | Aliased re-exports and dotted lookups |
-| `typescript-ast` | TypeScript AST and parameter-scope hover |
-| `rust-ast` | Rust AST and bleed defense |
 | `toml-config` | TOML configuration |
 | `extension-lifecycle` | Extension API lifecycle |
 | `post-edit-verification` | Post-edit verification and diagnostic gates |

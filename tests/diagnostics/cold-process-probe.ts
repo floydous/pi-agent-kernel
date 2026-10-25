@@ -1,6 +1,6 @@
 // Standalone cold-process script. Run via:
 //   npx tsx tests/diagnostics/cold-process-probe.ts <filePath> <expectedName1> <expectedName2> ...
-import { extractFileTags } from "../../src/retrieval/repomap";
+import { extractFileTags } from "../../src/retrieval/tag_extractor";
 import * as fs from "node:fs";
 
 const filePath = process.argv[2];

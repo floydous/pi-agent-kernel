@@ -5,8 +5,7 @@ import * as cp from "node:child_process";
 import assert from "node:assert";
 import { walkWorkspaceFiles, isPathIgnored, DEFAULT_IGNORED_DIRS, type IgnoreFrame } from "../../src/retrieval/workspace_walker";
 import { findChunkableFiles, SUPPORTED_EXTENSIONS } from "../../src/retrieval/search_chunker";
-import { findSourceFiles } from "../../src/retrieval/repomap";
-import { findSymbolReferences, searchAstSymbols } from "../../src/retrieval/ast_search";
+import { findSourceFiles } from "../../src/retrieval/tag_extractor";
 import ignore from "ignore";
 
 export async function run(): Promise<void> {
@@ -276,37 +275,7 @@ export async function run(): Promise<void> {
 		);
 		console.log("  ✓ Hard exclusions and additive safety boundary strictly enforced");
 
-		// 4. ast_search integration verification
-		const symbolUsages = findSymbolReferences(tempDir, "TargetSecretSymbol", 10);
-		assert.strictEqual(
-			symbolUsages.length,
-			0,
-			`findSymbolReferences found symbols in ignored files: ${JSON.stringify(symbolUsages)}`,
-		);
-
-		const validUsages = findSymbolReferences(tempDir, "TargetValidSymbol", 10);
-		assert.strictEqual(
-			validUsages.length,
-			1,
-			"findSymbolReferences must find valid symbols in non-ignored files",
-		);
-
-		const astQuery = searchAstSymbols(tempDir, { name: "TargetSecretSymbol" });
-		assert.strictEqual(
-			astQuery.length,
-			0,
-			`searchAstSymbols found symbols in ignored files: ${JSON.stringify(astQuery)}`,
-		);
-
-		const validAstQuery = searchAstSymbols(tempDir, { name: "TargetValidSymbol" });
-		assert.strictEqual(
-			validAstQuery.length,
-			1,
-			"searchAstSymbols must find valid symbols in non-ignored files",
-		);
-		console.log("  ✓ ast_search (findSymbolReferences & searchAstSymbols) strictly respects ignore boundaries");
-
-		// 5. Live workspace verification
+		// 4. Live workspace verification
 		const liveFiles = findChunkableFiles(process.cwd());
 		assert(liveFiles.length > 0, "Live workspace should contain chunkable files");
 		const leakedBenchmarkFiles = liveFiles.filter((f) => f.includes("agent-kernel-benchmark"));
@@ -334,8 +303,7 @@ export async function run(): Promise<void> {
 			fs.writeFileSync(path.join(indexTestDir, ".gitignore"), "# empty\n");
 
 			const { HybridSearchIndex } = await import("../../src/retrieval/search_index");
-			const { getSearchConfig } = await import("../../src/retrieval/search_config");
-			const cfg = getSearchConfig("lean", indexTestDir);
+			const cfg = "lean" as const;
 
 			// Instance 1: Initial sync and persistent write
 			const index1 = new HybridSearchIndex(indexTestDir, cfg);

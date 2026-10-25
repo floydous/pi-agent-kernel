@@ -165,11 +165,6 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./ast-extraction")),
 	},
 	{
-		name: "Repository Map & PageRank",
-		key: "repo-map",
-		loader: () => runSuiteModule(() => import("./repo-map")),
-	},
-	{
 		name: "Targeted Symbol Reader",
 		key: "symbol-reader",
 		loader: () => runSuiteModule(() => import("./symbol-reader")),
@@ -234,22 +229,6 @@ const suites: TestEntry[] = [
 		key: "unified-footer",
 		loader: () => runSuiteModule(() => import("./unified-footer")),
 	},
-	{
-		name: "AST Fallback Extensions",
-		key: "ast-fallback",
-		loader: () => runSuiteModule(() => import("./ast-fallback")),
-	},
-	{
-		name: "Aliased Re-exports",
-		key: "aliased-re-exports",
-		loader: () => runSuiteModule(() => import("./aliased-re-exports")),
-	},
-	{
-		name: "TypeScript Full AST",
-		key: "typescript-ast",
-		loader: () => runSuiteModule(() => import("./typescript-ast")),
-	},
-	{ name: "Rust Full AST", key: "rust-ast", loader: () => runSuiteModule(() => import("./rust-ast")) },
 	{
 		name: "TOML Configuration",
 		key: "toml-config",

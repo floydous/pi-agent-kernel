@@ -1,7 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { extractFileTags } from "../../src/retrieval/repomap";
-import { searchAstSymbols } from "../../src/retrieval/ast_search";
+import { extractFileTags } from "../../src/retrieval/tag_extractor";
 import { extractSymbolContent } from "../../src/retrieval/symbol_reader";
 import { createTestWorkspace, assertPass, logPass } from "../_setup";
 import { POLYGLOT_CASES } from "./polyglot_cases";
@@ -22,20 +21,7 @@ export async function testPolyglotEndToEnd(): Promise<void> {
 				{ expected: testCase.expectedSymbol, tagDef }
 			);
 
-			// 2. searchAstSymbols
-			const searchHits = searchAstSymbols(ws.tempDir, {
-				name: testCase.expectedSymbol,
-				exactMatch: true,
-			});
-			assertPass(
-				`[${testCase.lang}] searchAstSymbols resolves ${testCase.expectedSymbol}`,
-				searchHits.length > 0 &&
-				searchHits.every((hit) => hit.name === testCase.expectedSymbol && hit.filePath === testCase.fileName) &&
-				searchHits.filter((hit) => hit.kind === testCase.expectedKind).length === 1,
-				{ searchHits }
-			);
-
-			// 3. extractSymbolContent
+			// 2. extractSymbolContent
 			const symResult = extractSymbolContent(fullPath, testCase.expectedSymbol);
 			assertPass(
 				`[${testCase.lang}] extractSymbolContent extracts ${testCase.expectedSymbol}`,

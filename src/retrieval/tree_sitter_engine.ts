@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { type SymbolDef, type FileTags } from "./repomap";
+import { type SymbolDef, type FileTags } from "./tag_extractor";
 import { kernelDebug } from "../safety/kernel_debug";
 
 type WtsParser = any;

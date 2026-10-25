@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS } from "./workspace_walker";
-import { extractFileTags, isTestPath, SymbolDef } from "./repomap";
+import { extractFileTags, isTestPath, SymbolDef } from "./tag_extractor";
 import { TreeSitterEngine } from "./tree_sitter_engine";
 
 export interface CodeChunk {

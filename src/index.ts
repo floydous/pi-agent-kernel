@@ -125,7 +125,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		kernelDebug(`TreeSitter background init error: ${err}`);
 	});
 
-	// 3. Slash Commands: /repomap, /engine, /pi-docs
+	// 3. Slash Commands: /engine, /pi-docs
 	let activeTui: any = null;
 	let projectTrusted = false;
 	const configByWorkspace = new Map<
