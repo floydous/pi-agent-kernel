@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Package Entrypoints**: Added standard package export definitions so external tools and Node projects can import Agent Kernel directly.
+- **Package Entry Points**: Added standard package entry points, making Agent Kernel easier to import from Node.js projects and external tools.
 - **Verification Tests**: Added test coverage verifying editing modes and search result ranking behaviors.
 
 ### Changed
@@ -15,18 +15,18 @@
 ### Fixed
 
 - **Consistent Search Ordering**: Ensured search results and indexed code chunks are ordered identically across different platforms and operating systems.
-- **Internal Cleanups**: Cleaned up internal typings, removed unused functions, and flattened nested branching across search and editing modules.
+- **Internal Cleanups**: Improved codebase reliability and maintainability by cleaning up internal types, removing obsolete helper functions, and simplifying branching logic.
 
 ### Security
 
 - **Session State Validation**: Added stricter validation when restoring saved session files so prior file inspection records cannot be corrupted.
-- **Configuration Parsing Safety**: Hardened the configuration parser against prototype pollution attacks when loading custom settings files.
+- **Configuration Parsing Safety**: Hardened custom-settings loading against prototype-pollution attacks, preventing malicious configuration files from altering application behavior.
 
 ### Removed
 
-- **Symbol Extraction Parameter**: Removed the optional symbol parameter from the file reader tool in favor of line-windowed reads. This keeps the reader simple, saves prompt space on every request, and defers deep code navigation to dedicated language tools.
-- **Exploratory Search & Repo Map Engines**: Removed legacy repository mapping and AST search tools in favor of unified, fast keyword and semantic code search.
-- **Language Server Subsystem**: Removed the built-in background language server manager. Code intelligence and language diagnostics are now deferred to dedicated extensions like pi-lens.
+- **Symbol Extraction Parameter**: The file reader no longer accepts an optional symbol parameter. It now standardizes on reading selected line ranges, leaving specialized symbol navigation to dedicated language tools.
+- **Exploratory Search & Repo Map Engines**: Removed legacy repository mapping and syntax-tree search tools in favor of unified, fast keyword and semantic code search.
+- **Language Server Subsystem**: Removed built-in language-server support. Code intelligence and language diagnostics are now deferred to dedicated extensions like pi-lens.
 
 ## [0.4.3] - 2026-10-24
 
