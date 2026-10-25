@@ -287,11 +287,11 @@ export async function run(): Promise<void> {
 
 		const liveSourceFiles = findSourceFiles(process.cwd());
 		assert(liveSourceFiles.length > 0, "Live workspace should contain source files");
-		const leakedRepomapFiles = liveSourceFiles.filter((f) => f.includes("agent-kernel-benchmark"));
+		const leakedSourceFiles = liveSourceFiles.filter((f) => f.includes("agent-kernel-benchmark"));
 		assert.strictEqual(
-			leakedRepomapFiles.length,
+			leakedSourceFiles.length,
 			0,
-			`Benchmark files leaked into repomap: ${leakedRepomapFiles.slice(0, 5).join(", ")}`,
+			`Benchmark files leaked into source files: ${leakedSourceFiles.slice(0, 5).join(", ")}`,
 		);
 		console.log(`  ✓ Live workspace clean: ${liveFiles.length} chunkable files, 0 leaks`);
 

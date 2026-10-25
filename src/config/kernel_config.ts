@@ -96,6 +96,13 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 	instructions: new Set(["enabled", "pi_docs"]),
 };
 
+const DEPRECATED_RETRIEVAL_KEYS = new Set([
+	"enable_tools",
+	"repo_map_budget",
+	"repo_map_min_files",
+	"repo_map_min_bytes",
+]);
+
 function configPath(parts: string[]): string {
 	return parts.join(".");
 }
@@ -169,7 +176,7 @@ export function mergeKernelConfig(target: KernelConfig, source: unknown): Kernel
 		}
 		const sectionObj: Record<string, unknown> = {};
 		for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-			if (section === "retrieval" && (key === "enable_tools" || key.startsWith("repo_map_"))) continue; // Deprecated legacy setting: accepted and ignored
+			if (section === "retrieval" && DEPRECATED_RETRIEVAL_KEYS.has(key)) continue; // Deprecated legacy setting: accepted and ignored
 			if (!ALLOWED_CONFIG_KEYS[section as keyof KernelConfig].has(key)) {
 				throw new KernelConfigError(`Unknown configuration key: ${configPath([section, key])}`);
 			}

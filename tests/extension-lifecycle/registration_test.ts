@@ -33,7 +33,6 @@ export async function testExtensionRegistration(): Promise<void> {
       },
     };
 
-    delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
     await kernelExt(mockPi);
     assertPass("Tool registration waits for complete extension load order", registeredTools.length === 0);
     const sessionStart = eventHandlers.session_start?.[0];

@@ -1,5 +1,5 @@
 // Post-Fix Verification Audit Suite
-// Modular tests for cache invalidation and repomap cold start.
+// Modular tests for cache invalidation.
 
 import { runSuite } from "../_setup";
 import { testStaleCacheRejection } from "./stale_cache_test";

@@ -45,9 +45,8 @@ async function hintFor(): Promise<string> {
 }
 
 /**
- * Tool hints must never recommend a tool the model cannot call. ast_search is opt-in
- * (retrieval.enable_tools / PI_ENABLE_ALL_RETRIEVAL_TOOLS), so the default hint must
- * point at code_search instead.
+ * Tool hints must never recommend a deleted or unavailable tool. The read tool hint must
+ * point at code_search.
  */
 export async function run(): Promise<void> {
 	const defaultHint = await hintFor();

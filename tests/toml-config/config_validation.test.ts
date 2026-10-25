@@ -23,6 +23,10 @@ export async function run(): Promise<void> {
 [retrieval]
 default_profile = "lean"
 max_search_results = 8
+enable_tools = true
+repo_map_budget = 2048
+repo_map_min_files = 10
+repo_map_min_bytes = 50000
 [safety]
 max_total_bytes = 32768
 [lsp]
@@ -31,6 +35,8 @@ idle_timeout_ms = 300000
 `));
     assert.equal(valid.retrieval.max_search_results, 8);
     assert.equal(valid.safety.max_total_bytes, 32768);
+    assert.equal("enable_tools" in valid.retrieval, false, "deprecated enable_tools must not enter valid config");
+    assert.equal("repo_map_budget" in valid.retrieval, false, "deprecated repo_map_budget must not enter valid config");
 
     const invalidDocuments: Array<[string, string]> = [
       ["wrong boolean", `[safety]\nenable_epistemic_guard = "false"`],

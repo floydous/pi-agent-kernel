@@ -12,9 +12,7 @@ export async function run(): Promise<void> {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "project-config-trust-"));
   const previousPiDir = process.env.PI_DIR;
   const previousCwd = process.cwd();
-  const previousTools = process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
   process.env.PI_DIR = path.join(base, "pi");
-  delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
 
   try {
     const workspace = path.join(base, "workspace");
@@ -112,8 +110,6 @@ export async function run(): Promise<void> {
     process.chdir(previousCwd);
     if (previousPiDir === undefined) delete process.env.PI_DIR;
     else process.env.PI_DIR = previousPiDir;
-    if (previousTools === undefined) delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
-    else process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS = previousTools;
     fs.rmSync(base, { recursive: true, force: true });
   }
 }

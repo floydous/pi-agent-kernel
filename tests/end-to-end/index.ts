@@ -84,7 +84,7 @@ async function runEndToEndTests() {
 
 	// Test 3: Multiple Regex Fallback Extraction in extractSymbolContent
 	console.log("\n[3. Verifying Multi-Match Extraction in Symbol Reader Fallback]");
-	// We use a custom file extension (.custom / .txt) that is NOT handled by extractFileTags (no repomap definition parser).
+	// We use a custom file extension (.custom / .txt) that is NOT handled by extractFileTags (no tag definition parser).
 	// This strictly forces extractSymbolContent into the fallback regex path (`if (matchingDefs.length === 0)`).
 	const tempTestFile = path.join(process.cwd(), "temp_multi_symbol_fallback.custom");
 	const multiSymbolContent = `// First custom declaration

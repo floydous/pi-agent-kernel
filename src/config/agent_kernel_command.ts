@@ -83,7 +83,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 			];
 
 			const keys = [
-				{ value: "set tools", label: "set tools <gated|all> - Toggle Passive Shield tool gating" },
 				{ value: "set profile", label: "set profile <auto|lean|hybrid|full|off> - Retrieval engine profile" },
 				{ value: "set epistemic", label: "set epistemic <on|off> - Toggle Epistemic Guard" },
 				{ value: "set editing", label: "set editing <smart_anchor|standard> - Editing engine mode" },
