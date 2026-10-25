@@ -1,7 +1,6 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { computeRepoMap } from "./retrieval/repomap";
 import { HybridSearchIndex } from "./retrieval/search_index";
 import { type SearchProfile, savePersistedProfile } from "./retrieval/search_config";
 import { SearchControlModal } from "./retrieval/search_modal";
@@ -12,9 +11,6 @@ import {
 } from "./safety/epistemic_guard";
 import { loadKernelConfig, registerAgentKernelCommand } from "./config";
 import { kernelDebug } from "./safety/kernel_debug";
-import { registerRepoMapTool } from "./tools/repo_map_tool";
-import { registerAstSearchTool } from "./tools/ast_search_tool";
-import { speculativeToolsEnabled } from "./tools/context";
 import { registerCodeSearchTool } from "./tools/code_search_tool";
 import { registerReadTool } from "./tools/read_tool";
 import { registerEditTool } from "./tools/edit_tool";
@@ -320,9 +316,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		invalidateConfig: (cwd, ctx) => {
 			applyConfigChanges(cwd, ctx);
 		},
-		clearCaches: () => {
-			cachedRepoMap = "";
-		},
 	});
 
 	pi.registerCommand("repair-sessions", {
@@ -382,26 +375,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			const message = `Pi documentation guidance: ${enabled ? "on" : "off"}`;
 			ctx.ui?.notify?.(message, "info");
 			if (!ctx.hasUI) console.log(message);
-		},
-	});
-
-	pi.registerCommand("repomap", {
-		description: "Display the Tree-Sitter AST & PageRank ranked repository map",
-		handler: async (args: string, ctx: any) => {
-			await TreeSitterEngine.getInstance().init();
-			const budget = args ? parseInt(args, 10) : 1024;
-			const map = computeRepoMap(
-				ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd(),
-				Number.isNaN(budget)
-					? getConfig(ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd()).retrieval.repo_map_budget
-					: budget,
-			);
-			ctx.ui?.notify?.("Repository Map Generated", "info");
-			if (ctx.hasUI && ctx.ui?.setWidget) {
-				ctx.ui.setWidget("repomap-widget", map.split("\n").slice(0, 25));
-			} else if (!ctx.hasUI) {
-				console.log("\n" + map + "\n");
-			}
 		},
 	});
 
@@ -604,7 +577,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		projectTrusted = ctx.isProjectTrusted?.() === true;
 		configByWorkspace.clear();
 		const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
-		registerKernelTools(cwd);
+		registerKernelTools();
 		setupUnifiedFooter(ctx);
 		try {
 			const index = getSearchIndex(cwd);
@@ -646,7 +619,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			kernelDebug(`Incremental updateFile error for ${filePath}: ${err}`);
 		});
 	};
-	const registerKernelTools = (cwd: string): void => {
+	const registerKernelTools = (): void => {
 		if (kernelToolsRegistered) return;
 		kernelToolsRegistered = true;
 		// pi marks its own built-in tools with sourceInfo.source === "builtin" and a
@@ -681,14 +654,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		if (canRegister("code_search")) {
 			registerCodeSearchTool(pi, { getSessionId, getSearchIndex, getConfig });
 			kernelRegisteredTools.add("code_search");
-		}
-
-		const enableSpeculativeTools = speculativeToolsEnabled(getConfig, cwd);
-		if (enableSpeculativeTools) {
-			if (canRegister("get_repo_map")) registerRepoMapTool(pi);
-			if (canRegister("ast_search")) {
-				registerAstSearchTool(pi, { getSessionId, getConfig });
-			}
 		}
 	};
 
@@ -854,38 +819,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// Custom user instructions remain the primary authority. Repository-controlled
 	// diffs, source text, filenames, and command output are never promoted into the
 	// system prompt by this extension.
-	let cachedRepoMap = "";
-	let cachedRepoMapCwd = "";
-	let lastRepoMapCheck = 0;
-
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
-		const now = Date.now();
 		const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
 		const kernelConfig = getConfig(currentCwd);
-
-		let shouldInjectMap = false;
-		// Disabled automatic AST repo map injection to evaluate prompt token footprint and latency
-		// The `get_repo_map` tool remains available on-demand.
-
-		// Cache repo-map across turns with a 15-second TTL to avoid scanning/PageRanking entire repo on every turn
-		if (!cachedRepoMap || cachedRepoMapCwd !== currentCwd || now - lastRepoMapCheck > 15000) {
-			if (shouldInjectMap) {
-				await TreeSitterEngine.getInstance().init();
-				cachedRepoMap = computeRepoMap(
-					currentCwd,
-					kernelConfig.retrieval.repo_map_budget,
-				);
-			} else {
-				cachedRepoMap = "";
-			}
-			cachedRepoMapCwd = currentCwd;
-			lastRepoMapCheck = now;
-		}
-
-		const runtimeParts = [
-			cachedRepoMap ? `## Available Repository Context:\n${cachedRepoMap}` : "",
-		].filter(Boolean);
-		const runtimeContext = runtimeParts.length > 0 ? `\n${runtimeParts.join("\n\n")}\n` : "";
 
 		const basePrompt = event.systemPrompt || "";
 		const systemPrompt = piDocsEnabled(ctx)
@@ -903,13 +839,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			? loadKernelGuidance(toolCollisions, promptToolNames)
 			: "";
 		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
-		const shouldAppendRuntime = Boolean(runtimeContext && !guidedPrompt.includes(runtimeContext.trim()));
-		let finalPrompt = guidedPrompt;
-		if (guidedPrompt && shouldAppendRuntime) {
-			finalPrompt = `${guidedPrompt}\n\n${runtimeContext}`;
-		} else if (!guidedPrompt) {
-			finalPrompt = runtimeContext;
-		}
-		return { systemPrompt: finalPrompt };
+		return { systemPrompt: guidedPrompt };
 	});
 }

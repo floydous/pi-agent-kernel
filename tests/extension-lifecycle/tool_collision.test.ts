@@ -5,7 +5,6 @@ export async function run(): Promise<void> {
   console.log("=== Running Extension Tool Collision Tests ===");
   const existing = [
     { name: "read", description: "other read", parameters: {}, promptGuidelines: [], sourceInfo: { path: "/other/read.ts", source: "/other/read.ts", scope: "user", origin: "top-level" } },
-    { name: "ast_search", description: "other ast", parameters: {}, promptGuidelines: [], sourceInfo: { path: "/other/ast.ts", source: "/other/ast.ts", scope: "user", origin: "top-level" } },
     // Real pi shape: BUILTIN_PATH_PREFIX is "builtin:" (no angle brackets) and source === "builtin".
     { name: "write", description: "builtin write", parameters: {}, promptGuidelines: [], sourceInfo: { path: "builtin:write", source: "builtin", scope: "temporary", origin: "top-level" } },
     { name: "edit", description: "builtin edit", parameters: {}, promptGuidelines: [], sourceInfo: { path: "builtin:edit", source: "builtin", scope: "temporary", origin: "top-level" } },
@@ -33,8 +32,7 @@ export async function run(): Promise<void> {
     await handlers.get("session_start")({}, ctx);
 
     assert.equal(registered.includes("read"), false, "earlier extension read must win");
-    assert.equal(registered.includes("ast_search"), false, "earlier extension ast_search must win");
-    for (const expected of ["edit", "code_search", "get_repo_map"]) {
+    for (const expected of ["edit", "code_search"]) {
       assert.equal(registered.includes(expected), true, `${expected} should register when unclaimed`);
     }
     // Regression: pi built-ins must not be mistaken for extension collisions. A real builtin
@@ -55,7 +53,6 @@ export async function run(): Promise<void> {
     // Assert on the collision sentence itself: both real extension collisions are listed and
     // pi's built-in edit is absent, regardless of ordering.
     const collisionList = (String(guidance.systemPrompt).match(/another extension already owns: ([^.]+)\./) || [])[1] || "";
-    assert.match(collisionList, /ast_search/, "real extension collisions must be listed");
     assert.match(collisionList, /read/, "real extension collisions must be listed");
     assert.doesNotMatch(collisionList, /\bedit\b/, "pi built-ins must not be reported as collisions");
     assert.match(String(guidance.systemPrompt), /did not replace/);

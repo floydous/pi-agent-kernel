@@ -11,7 +11,6 @@ export interface RetrievalConfig {
 	repo_map_min_files: number;
 	repo_map_min_bytes: number;
 	max_search_results: number;
-	enable_tools?: boolean;
 }
 
 export interface SafetyConfig {
@@ -61,7 +60,6 @@ const DEFAULT_CONFIG: KernelConfig = {
 		repo_map_min_files: 10,
 		repo_map_min_bytes: 50 * 1024,
 		max_search_results: 5,
-		enable_tools: false,
 	},
 	safety: {
 		enable_epistemic_guard: true,
@@ -94,7 +92,6 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 		"repo_map_min_files",
 		"repo_map_min_bytes",
 		"max_search_results",
-		"enable_tools",
 	]),
 	safety: new Set([
 		"enable_epistemic_guard",
@@ -147,7 +144,6 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 	requireSafeInt(retrieval.repo_map_min_files, "retrieval.repo_map_min_files", 0, 10_000);
 	requireSafeInt(retrieval.repo_map_min_bytes, "retrieval.repo_map_min_bytes", 0, 1024 * 1024 * 1024);
 	requireSafeInt(retrieval.max_search_results, "retrieval.max_search_results", 1, 15);
-	requireBoolean(retrieval.enable_tools, "retrieval.enable_tools");
 
 	const safety = config.safety;
 	requireBoolean(safety.enable_epistemic_guard, "safety.enable_epistemic_guard");
@@ -183,12 +179,15 @@ export function mergeKernelConfig(target: KernelConfig, source: unknown): Kernel
 		if (!value || typeof value !== "object" || Array.isArray(value)) {
 			throw new KernelConfigError(`${section} must be a table`);
 		}
-		for (const key of Object.keys(value as Record<string, unknown>)) {
+		const sectionObj: Record<string, unknown> = {};
+		for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+			if (section === "retrieval" && key === "enable_tools") continue; // Deprecated legacy setting: accepted and ignored
 			if (!ALLOWED_CONFIG_KEYS[section as keyof KernelConfig].has(key)) {
 				throw new KernelConfigError(`Unknown configuration key: ${configPath([section, key])}`);
 			}
+			sectionObj[key] = val;
 		}
-		sanitizedSource[section] = value;
+		sanitizedSource[section] = sectionObj;
 	}
 	mergeDeep(candidate, sanitizedSource);
 	validateKernelConfig(candidate);

@@ -8,20 +8,9 @@ Coding agents waste context when they read entire files to inspect one function,
 
 ## Benchmarks
 
-Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`) with `cx/gpt-6-luna-high` (OmniRoute, concurrency 4, 360s timeout). Pi harnesses report mean values across 3 repeated runs (N=3):
-
-| Harness | Solved | Success | Aggregate Task Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
-|---|:---:|:---:|---:|---:|---:|---:|:---:|
-| Pi + Agent-Kernel (N=3) | 8 / 8 | 100% | 7m 43s | 555k | 14.7k | 759k | 104 |
-| Pi (Vanilla) (N=3) | 7.7 / 8 | 95.8% | 8m 20s | 786k | 15.9k | 1.07M | 94 |
-| OpenCode | 8 / 8 | 100% | 13m 49s | 555k | 14.6k | 3.06M | 152 |
-| OMP | 8 / 8 | 100% | 16m 14s | 2.37M | 27.3k | 7.24M | 342 |
-| Claude Code | 8 / 8 | 100% | 19m 39s | 6.38M | 129.4k | 6.51M | 189 |
-| Codex CLI | 8 / 8 | 100% | 28m 56s | 4.17M | 47.5k | 4.22M | 155 |
+Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`) with `GPT 6 Luna (xhigh)`. Pi harnesses report mean values across 3 repeated runs (N=3):
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
-
-*Prompts describe symptoms and expected behavior without providing the fix. Aggregate Task Time reflects the sum of per-task runtimes under concurrency 4. Total tokens and tool calls reflect harness-reported telemetry across all conversational turns. Pi + Agent-Kernel solved 24/24 trials (100%), while Pi Vanilla solved 23/24 trials (95.8%).*
 
 ---
 
@@ -41,8 +30,6 @@ pi install -l npm:@floydous/pi-agent-kernel
 
 Restart Pi or start a new session.
 
-The instructions in `AGENT_KERNEL_SYS_PROMPT.md` are added to the agent system prompt automatically. To turn them off, set `[instructions] enabled = false` in `.pi/config.toml` or run `/agent-kernel set guidance off`.
-
 ---
 
 ### 2. Configure the retrieval engine (`/engine`)
@@ -54,21 +41,10 @@ The instructions in `AGENT_KERNEL_SYS_PROMPT.md` are added to the agent system p
 ```
 
 - `auto`: Selects `lean` on remote servers, `hybrid` on laptops, or `full` on desktops based on available hardware.
-- `lean` (default): AST-indexed BM25 keyword search (`🌿 retrieval:bm25`) with no extra memory footprint.
-- `hybrid`: BM25 search combined with 256-dimension Matryoshka embeddings (`◈ retrieval:hybrid-256d`).
-- `full`: 768-dimension dense semantic search (`🧠 retrieval:dense-768d`).
+- `lean` (default): AST-indexed BM25 keyword search with no extra memory footprint.
+- `hybrid`: BM25 search combined with 256-dimension Matryoshka embeddings.
+- `full`: 768-dimension dense semantic search.
 - `off`: Disables local indexing completely.
-
-When indexing runs in the background, the status line shows chunk progress:
-```text
-🧠 retrieval:dense-768d ⇢ 45% (22/48 • 14.2 chunk/s)
-```
-
-Switch profiles directly:
-```text
-/engine hybrid
-/engine full
-```
 
 ---
 
@@ -79,11 +55,6 @@ Run `/agent-kernel` to open the settings interface:
 ```text
 /agent-kernel
 ```
-
-Key controls in the settings modal:
-- `Tab` / `Shift+Tab`: Switch categories (`Retrieval`, `Safety`, `Editing`, `UI`).
-- `G` (or `Ctrl+G`): Toggle whether a setting applies globally (`~/.pi/agent/config.toml`) or locally (`.pi/config.toml`). Global settings show in yellow.
-- `Esc` or `q`: Save changes and close. Changes stay in memory and save together when you close the modal, so browsing options will not trigger extra re-indexing runs.
 
 You can also manage settings from the command line:
 ```text
@@ -115,9 +86,6 @@ Use `/pi-docs on` when returning to work on Pi extensions.
 | `write` | Creates new files or replaces complete files. |
 | `bash` | Runs shell commands with clamped output and spillover logging. |
 | `code_search` | Combines AST BM25 keyword matching and semantic embeddings with symbol breadcrumbs. |
-
-> [!NOTE]
-> Exploratory tools (`ast_search`, `get_repo_map`) are disabled by default (`enable_tools = false`) to reduce per-turn token overhead. You can enable them with `/agent-kernel set tools all` or by setting `PI_ENABLE_ALL_RETRIEVAL_TOOLS=1`.
 
 ---
 

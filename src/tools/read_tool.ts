@@ -10,7 +10,7 @@ import {
 	globalEpistemicGuard,
 	resolveUserPath,
 } from "../safety/epistemic_guard";
-import { speculativeToolsEnabled, type SessionDeps } from "./context";
+import type { SessionDeps } from "./context";
 
 function countFileLines(filePath: string): number {
 	return fs.readFileSync(filePath, "utf8").split("\n").length;
@@ -349,10 +349,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 							.join("\n");
 						errorText = `Symbol '${sym}' not found in ${params.path}.\nDid you mean:\n${formattedSuggestions}`;
 					} else {
-						errorText = `Symbol '${sym}' not found in ${params.path}. ` +
-							(speculativeToolsEnabled(deps.getConfig, ctx.cwd)
-								? `Use 'ast_search' to locate symbols or 'rg' in bash to search text.`
-								: `Use 'code_search' to locate code or 'rg' in bash to search text.`);
+						errorText = `Symbol '${sym}' not found in ${params.path}. Use 'code_search' to locate code or 'rg' in bash to search text.`;
 					}
 					return {
 						content: [{ type: "text", text: errorText }],

@@ -281,11 +281,6 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./mutation-continuity")),
 	},
 	{
-		name: "Hierarchical AST Search Formatter Suite",
-		key: "ast-search-formatter",
-		loader: () => runSuiteModule(() => import("./ast-search-formatter")),
-	},
-	{
 		name: "Capped Read Tool",
 		key: "read-tool",
 		loader: () => runSuiteModule(() => import("./read-tool/read_cap_test")),

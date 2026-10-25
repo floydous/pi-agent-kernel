@@ -159,9 +159,7 @@ export type EvidenceProvenance =
 	| "read"
 	| "symbol"
 	| "search"
-	| "lsp"
 	| "bash"
-	| "ast_search"
 	| "code_search"
 	| "edit"
 	| "write";

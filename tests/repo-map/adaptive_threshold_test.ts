@@ -3,8 +3,6 @@ import * as path from "node:path";
 import { evaluateCodebaseMetrics, computeRepoMap, isTestPath } from "../../src/retrieval/repomap";
 import { loadKernelConfig } from "../../src/config";
 import { createTestWorkspace, assertPass, logPass } from "../_setup";
-import { registerRepoMapTool } from "../../src/tools/repo_map_tool";
-import { registerAstSearchTool } from "../../src/tools/ast_search_tool";
 import { registerCodeSearchTool } from "../../src/tools/code_search_tool";
 import { registerReadTool } from "../../src/tools/read_tool";
 import { registerEditTool } from "../../src/tools/edit_tool";
@@ -68,13 +66,11 @@ export async function testAdaptiveRepoMapThreshold(): Promise<void> {
 		const tools: any[] = [];
 		const mockPi: any = { registerTool(t: any) { tools.push(t); } };
 
-		registerRepoMapTool(mockPi);
-		registerAstSearchTool(mockPi, { getSessionId: () => "test", getConfig: () => cfg });
 		registerCodeSearchTool(mockPi, { getSessionId: () => "test", getSearchIndex: () => ({} as any), getConfig: () => cfg });
 		registerReadTool(mockPi, { getSessionId: () => "test", getConfig: () => cfg });
 		registerEditTool(mockPi, { getSessionId: () => "test", getConfig: () => cfg, invalidateSearchFile: () => {} });
 
-		assertPass("All 5 tools registered", tools.length === 5);
+		assertPass("All 3 tools registered", tools.length === 3);
 
 		for (const t of tools) {
 			assertPass(`Tool ${t.name} has description and promptSnippet`, !!t.description && !!t.promptSnippet);
@@ -87,27 +83,6 @@ export async function testAdaptiveRepoMapThreshold(): Promise<void> {
 		}
 
 		logPass("Adaptive repo map threshold, test separation, and compact tool schemas verified!");
-
-		// 7. Verify extension commands (/repomap registered, legacy /profile removed)
-		const registeredCommands: Record<string, any> = {};
-		const eventHandlers: Record<string, Function[]> = {};
-		const mockPiApp: any = {
-			registerTool: () => {},
-			registerCommand: (name: string, def: any) => { registeredCommands[name] = def; },
-			on: (event: string, fn: any) => {
-				if (!eventHandlers[event]) eventHandlers[event] = [];
-				eventHandlers[event].push(fn);
-			},
-		};
-
-		// Dynamically import unified extension to register commands
-		const kernelExt = (await import("../../src/index")).default;
-		await kernelExt(mockPiApp);
-
-		assertPass("/repomap command registered", !!registeredCommands["repomap"]);
-		assertPass("Legacy /profile command is not registered", !registeredCommands["profile"]);
-
-		logPass("/repomap command verified!");
 	} finally {
 		ws.cleanup();
 	}

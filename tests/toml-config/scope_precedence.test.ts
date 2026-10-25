@@ -52,7 +52,6 @@ export async function run(): Promise<void> {
 
     let config = loadKernelConfig(workspace, { projectTrusted: true });
     let component = await renderSettings(workspace, config);
-    component.handleInput("\x1b[B");
     component.handleInput("G");
     component.handleInput("\x1b");
     config = loadKernelConfig(workspace, { projectTrusted: true });
@@ -63,7 +62,6 @@ export async function run(): Promise<void> {
     saveGlobalKernelConfig({ retrieval: { default_profile: "full" } });
     config = loadKernelConfig(workspace, { projectTrusted: true });
     component = await renderSettings(workspace, config);
-    component.handleInput("\x1b[B");
     component.handleInput("G");
     component.handleInput("\x1b");
     config = loadKernelConfig(workspace, { projectTrusted: true });

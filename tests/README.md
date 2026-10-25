@@ -45,7 +45,6 @@ npx tsx tests/run-all.ts epistemic-guard
 | `cache-retrieval` | Embedder cache and search-index retention |
 | `end-to-end` | Cross-feature integration checks |
 | `mutation-continuity` | File lock lifecycle and concurrent edit safety |
-| `ast-search-formatter` | Hierarchical AST search formatter tests |
 | `tree-sitter` | Tree-sitter WASM engine |
 | `audit-verification` | Cache and executable lookup verification |
 | `cold-process-ast` | Fresh-process AST fallback contracts across 11 languages |

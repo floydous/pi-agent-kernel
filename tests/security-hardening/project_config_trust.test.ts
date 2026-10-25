@@ -41,7 +41,6 @@ export async function run(): Promise<void> {
 
     const untrusted = loadKernelConfig(workspace);
     assert.equal(untrusted.safety.enable_epistemic_guard, true);
-    assert.equal(untrusted.retrieval.enable_tools, false);
     assert.equal(untrusted.retrieval.default_profile, "lean");
     assert.equal(loadPersistedProfile(workspace, false), "lean");
     assert.equal(
@@ -52,7 +51,6 @@ export async function run(): Promise<void> {
     const trusted = loadKernelConfig(workspace, { projectTrusted: true });
     assert.equal(trusted.safety.enable_epistemic_guard, false);
     assert.equal(trusted.instructions.enabled, false);
-    assert.equal(trusted.retrieval.enable_tools, true);
     assert.equal(trusted.retrieval.default_profile, "lean");
     assert.equal(loadPersistedProfile(workspace, true), "lean");
     assert.equal(
@@ -107,7 +105,7 @@ export async function run(): Promise<void> {
       false,
       "trusted project setting must be applied after session trust is known",
     );
-    assert.deepEqual(tools, ["read", "edit", "code_search", "get_repo_map", "ast_search"]);
+    assert.deepEqual(tools, ["read", "edit", "code_search"]);
 
     console.log("✓ Untrusted project config is ignored; trusted .pi config alone is applied!");
   } finally {

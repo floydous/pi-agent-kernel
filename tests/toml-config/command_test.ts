@@ -42,7 +42,6 @@ export async function testAgentKernelCommand(): Promise<void> {
 
 		// 1. Test Dashboard formatting
 		const dashboard = formatConfigDashboard(ws.tempDir, currentConfig);
-		assertPass("Dashboard contains Passive Shield", dashboard.includes("Passive Shield"), { dashboard });
 		assertPass("Dashboard contains Epistemic Guard", dashboard.includes("Epistemic Guard"), { dashboard });
 		assertPass("Dashboard contains Profile", dashboard.includes("Profile"), { dashboard });
 
@@ -52,7 +51,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 		const statusCompletions = registeredCommand.getArgumentCompletions("stat");
 		assertPass("Argument completions include 'status'", Array.isArray(statusCompletions) && statusCompletions[0].value === "status", { statusCompletions });
 
-		// 3. Test CLI `set tools all`
+		// 3. Test CLI `set max_lines 50`
 		const mockCtx: any = {
 			cwd: ws.tempDir,
 			hasUI: false,
@@ -60,11 +59,11 @@ export async function testAgentKernelCommand(): Promise<void> {
 			ui: { notify: () => {} },
 		};
 
-		await registeredCommand.handler("set tools all", mockCtx);
+		await registeredCommand.handler("set max_lines 50", mockCtx);
 		const globalPath = getGlobalConfigPath();
 		assertPass("Global config file created", fs.existsSync(globalPath), { globalPath });
 		const reloadedConfig = loadKernelConfig(ws.tempDir, { projectTrusted: true });
-		assertPass("Passive Shield tools updated to true", reloadedConfig.retrieval.enable_tools === true, { reloadedConfig });
+		assertPass("Max lines updated to 50", reloadedConfig.safety.max_lines === 50, { reloadedConfig });
 
 		// 4. Test CLI `set epistemic off`
 		await registeredCommand.handler("set epistemic off", mockCtx);
@@ -241,8 +240,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 			() => {},
 		);
 
-		// Navigate to profile (index 1)
-		tuiModalComp.handleInput("\x1b[B");
+		// Profile is the first item (index 0)
 		// Cycle once: lean -> hybrid
 		tuiModalComp.handleInput(" ");
 		assertPass("Profile not applied yet when passing hybrid", intermediateProfiles.length === 0);

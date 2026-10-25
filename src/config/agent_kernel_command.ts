@@ -46,7 +46,6 @@ export function formatConfigDashboard(cwd: string, config: KernelConfig): string
 		``,
 		`[Retrieval & Tools]`,
 		`  • Profile (Engine)      : ${config.retrieval.default_profile} (auto | lean | hybrid | full | off)`,
-		`  • Passive Shield        : ${config.retrieval.enable_tools ? "all (6 tools exposed)" : "gated (core 3 tools default)"}`,
 		`  • Repo Map Budget       : ${config.retrieval.repo_map_budget} tokens`,
 		`  • Max Search Results    : ${config.retrieval.max_search_results}`,
 		``,
@@ -145,13 +144,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				let desc = "";
 
 				switch (key) {
-					case "tools":
-					case "passive_shield": {
-						const enable = val === "all" || val === "true" || val === "1";
-						updates.retrieval = { enable_tools: enable };
-						desc = `Passive Shield tools set to '${enable ? "all (6 tools)" : "gated (core 3 tools)"}' (takes effect on reload)`;
-						break;
-					}
 					case "profile":
 					case "engine": {
 						if (val === "auto" || val === "lean" || val === "hybrid" || val === "full" || val === "off") {
@@ -267,7 +259,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 
 				const globalRaw = getGlobalRawConfig();
 				function checkIsGlobal(id: string): boolean {
-					if (id === "tools") return globalRaw.retrieval?.enable_tools !== undefined;
 					if (id === "profile") return globalRaw.retrieval?.default_profile !== undefined;
 					if (id === "epistemic") return globalRaw.safety?.enable_epistemic_guard !== undefined;
 					if (id === "max_lines") return globalRaw.safety?.max_lines !== undefined;
@@ -282,11 +273,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				function createPatchForSetting(id: string, value: string): { patch: KernelConfigOverrides; desc: string } {
 					const patch: KernelConfigOverrides = {};
 					let desc = "";
-					if (id === "tools") {
-						const enable = value.startsWith("all");
-						patch.retrieval = { enable_tools: enable };
-						desc = `Passive Shield tools = ${enable ? "all (5 tools)" : "gated (core 3)"}`;
-					} else if (id === "profile") {
+					if (id === "profile") {
 						patch.retrieval = { default_profile: value as "auto" | "lean" | "hybrid" | "full" | "off" };
 						desc = `Retrieval profile = ${value}`;
 					} else if (id === "epistemic") {
@@ -323,8 +310,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 
 				function getSettingSectionAndKey(id: string): { section: string; key: string } | null {
 					switch (id) {
-						case "tools":
-							return { section: "retrieval", key: "enable_tools" };
 						case "profile":
 							return { section: "retrieval", key: "default_profile" };
 						case "epistemic":
@@ -348,20 +333,6 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 
 				const items: CategorizedSettingItem[] = [
 					// 1. Retrieval & Exploration
-					{
-						category: "Retrieval & Exploration",
-						id: "tools",
-						label: "Passive Shield (Tool Gating)",
-						currentValue: currentConfig.retrieval.enable_tools ? "all (5 tools)" : "gated (core 3)",
-						values: ["gated (core 3)", "all (5 tools)"],
-						isGlobal: checkIsGlobal("tools"),
-						descriptions: {
-							"gated (core 3)":
-								"Passive Shield active: Only core tools (read, edit, code_search) are exposed. Gates exploratory tools to save ~3,400 prompt tokens per turn.",
-							"all (5 tools)":
-								"Passive Shield disabled: All retrieval tools (including ast_search, get_repo_map) are exposed simultaneously. Higher token overhead.",
-						},
-					},
 					{
 						category: "Retrieval & Exploration",
 						id: "profile",

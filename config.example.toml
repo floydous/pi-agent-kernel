@@ -8,8 +8,6 @@
 default_profile = "lean"
 repo_map_budget = 1024
 max_search_results = 5
-# true exposes ast_search and get_repo_map tools directly to the model
-enable_tools = false
 
 [safety]
 enable_epistemic_guard = true

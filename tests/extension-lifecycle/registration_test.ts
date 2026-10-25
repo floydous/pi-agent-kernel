@@ -48,11 +48,8 @@ export async function testExtensionRegistration(): Promise<void> {
     await sessionStart({}, sessionCtx);
 
     const toolNames = registeredTools.map((tool: any) => tool.name);
-    assertPass("Exact core essential tools are registered by default",
+    assertPass("Exact core essential tools are registered",
       toolNames.length === 3 && ["read", "edit", "code_search"].every((name) => toolNames.includes(name)),
-      { toolNames });
-    assertPass("Speculative tools are gated by default",
-      !toolNames.includes("ast_search") && !toolNames.includes("get_repo_map"),
       { toolNames });
 
     // Gating is asserted on a synthetic fixture with unique sentinel text per block, so these
@@ -104,30 +101,6 @@ export async function testExtensionRegistration(): Promise<void> {
       assertPass(`prompt never advertises a tool outside the active set ${JSON.stringify(active)}`,
         advertised.length === 0 && !rendered.includes("<!-- KERNEL:"),
         { advertised, rendered });
-    }
-
-    const optInTools: any[] = [];
-    const optInHandlers: Record<string, Function[]> = {};
-    const mockOptInPi: any = {
-      registerTool(tool: any) { optInTools.push(tool); },
-      registerCommand() {},
-      getAllTools() { return []; },
-      on(event: string, handler: any) {
-        if (!optInHandlers[event]) optInHandlers[event] = [];
-        optInHandlers[event].push(handler);
-        return () => {};
-      },
-    };
-    process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS = "1";
-    try {
-      await kernelExt(mockOptInPi);
-      await optInHandlers.session_start?.[0]?.({}, sessionCtx);
-      const optInNames = optInTools.map((tool: any) => tool.name);
-      assertPass("Speculative tools register after trusted opt-in decision",
-        ["ast_search", "get_repo_map"].every((name) => optInNames.includes(name)),
-        { optInNames });
-    } finally {
-      delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
     }
 
     assertPass("At least one command is registered", registeredCommands.length > 0);

@@ -25,7 +25,6 @@ Settings can be managed via the `/agent-kernel` interactive modal or CLI subcomm
 - `default_profile`: `auto`, `lean`, `hybrid`, `full`, or `off`.
 - `repo_map_budget`: token budget for the repository map.
 - `max_search_results`: result limit for code search.
-- `enable_tools`: expose exploratory retrieval tools (`ast_search`, `get_repo_map`) directly to the model (default: `false` to conserve tokens via the passive shield).
 
 ### `[safety]`
 
