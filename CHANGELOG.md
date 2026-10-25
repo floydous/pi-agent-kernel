@@ -10,7 +10,7 @@
 ### Changed
 
 - **System Prompt Workflow Guidance**: Removed the prescriptive `## Execution Workflow` section from `AGENT_KERNEL_SYS_PROMPT.md` (covering pre-flight grounding, root-cause priority, multi-file edit grouping, and exit guidance), retaining tool-selection guidance for `code_search`, `rg`, inspection, and direct-edit lanes.
-- **Benchmark Suite & Chart Reporting**: Evaluated all 6 agent harnesses on `cx/gpt-6-luna-high` (concurrency 4, 360s timeout) across the 8 core bug-fix tasks. Added a `Tasks Solved (N/24)` category to `agent-kernel-benchmark/generate_chart.py` and updated `static/benchmark-comparison.png` alongside `README.md` with matched six-harness evaluation metrics, where Pi Kernel achieved a 100% solve rate across 24 counterbalanced trials (N=3) with 28.9% fewer tokens and 7.4% faster aggregate runtime than Vanilla Pi.
+- **Benchmark Suite & Chart Reporting**: Evaluated all 6 agent harnesses on `cx/gpt-6-luna-high` (concurrency 4, 360s timeout) across the 8 core bug-fix tasks. Added a `Tasks Solved (N/24)` category to `agent-kernel-benchmark/generate_chart.py`, visualized prompt cache-read token breakdown using darker overlapping segments within total tokens, and updated `static/benchmark-comparison.png` alongside `README.md` with matched six-harness evaluation metrics and prompt cache-read accounting. Pi Kernel achieved a 100% solve rate across 24 counterbalanced trials (N=3) with 28.9% fewer tokens and 7.4% faster aggregate runtime than Vanilla Pi.
 
 ### Fixed
 
