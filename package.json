@@ -1,6 +1,6 @@
 {
   "name": "@floydous/pi-agent-kernel",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Focused code retrieval, editing, and safety checks for Pi.",
   "keywords": [
     "pi-package"
