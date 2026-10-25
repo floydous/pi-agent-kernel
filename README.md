@@ -10,15 +10,6 @@ Coding agents waste context when they read entire files to inspect one function,
 
 Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`) with `cx/gpt-6-luna-high` (OmniRoute, concurrency 4, 360s timeout). Pi harnesses report mean values across 3 repeated runs (N=3):
 
-| Harness | Solved | Success | Aggregate Task Time | Input Tokens (Uncached) | Prompt Cache Reads | Output Tokens | Total Turn Tokens | Tool Calls |
-|---|:---:|:---:|---:|---:|---:|---:|---:|:---:|
-| Pi + Agent-Kernel (N=3) | 8 / 8 | 100% | 7m 43s | 555k | 189k | 14.7k | 759k | 104 |
-| Pi (Vanilla) (N=3) | 7.7 / 8 | 95.8% | 8m 20s | 786k | 266k | 15.9k | 1.07M | 94 |
-| OpenCode | 8 / 8 | 100% | 13m 49s | 555k | 2.48M | 14.6k | 3.06M | 152 |
-| OMP | 8 / 8 | 100% | 16m 14s | 2.37M | 4.84M | 27.3k | 7.24M | 342 |
-| Claude Code | 8 / 8 | 100% | 19m 39s | 6.38M | —† | 129.4k | 6.51M | 189 |
-| Codex CLI | 8 / 8 | 100% | 28m 56s | 4.17M | —† | 47.5k | 4.22M | 155 |
-
 ![Benchmark Comparison](static/benchmark-comparison.png)
 
 *Prompts describe symptoms and expected behavior without providing the fix. Aggregate Task Time reflects the sum of per-task runtimes under concurrency 4. Total Turn Tokens includes non-cached prompt tokens, prompt cache reads (reused conversational history across turns), and completions. †Prompt cache-read breakdown is not separately reported by Claude Code and Codex CLI telemetry (all prompt tokens are counted in input). Pi + Agent-Kernel solved 24/24 trials (100%), while Pi Vanilla solved 23/24 trials (95.8%).*
