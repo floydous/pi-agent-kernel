@@ -52,7 +52,7 @@ export async function testExtensionRegistration(): Promise<void> {
       toolNames.length === 3 && ["read", "edit", "code_search"].every((name) => toolNames.includes(name)),
       { toolNames });
     assertPass("Speculative tools are gated by default",
-      !toolNames.includes("ast_search") && !toolNames.includes("get_repo_map") && !toolNames.includes("lsp"),
+      !toolNames.includes("ast_search") && !toolNames.includes("get_repo_map"),
       { toolNames });
 
     // Gating is asserted on a synthetic fixture with unique sentinel text per block, so these
@@ -124,7 +124,7 @@ export async function testExtensionRegistration(): Promise<void> {
       await optInHandlers.session_start?.[0]?.({}, sessionCtx);
       const optInNames = optInTools.map((tool: any) => tool.name);
       assertPass("Speculative tools register after trusted opt-in decision",
-        ["ast_search", "get_repo_map", "lsp"].every((name) => optInNames.includes(name)),
+        ["ast_search", "get_repo_map"].every((name) => optInNames.includes(name)),
         { optInNames });
     } finally {
       delete process.env.PI_ENABLE_ALL_RETRIEVAL_TOOLS;
@@ -194,7 +194,7 @@ export async function testExtensionRegistration(): Promise<void> {
       assertPass("off profile advertises no gated Kernel tool and preserves the user base policy",
         offAdvertised.length === 0 && !offPrompt.includes("<!-- KERNEL:") &&
         !offPrompt.includes("get_repo_map") && !offPrompt.includes("repo_map") &&
-        !offPrompt.includes("ast_search") && !offPrompt.includes("lsp") &&
+        !offPrompt.includes("ast_search") &&
         offPrompt.includes("BASE USER POLICY: preserve this policy verbatim.") &&
         offPrompt.includes(KERNEL_GUIDANCE_MARKER) &&
         offPrompt.includes("</agent_kernel_guidance>") &&

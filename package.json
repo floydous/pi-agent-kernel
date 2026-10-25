@@ -1,12 +1,14 @@
 {
   "name": "@floydous/pi-agent-kernel",
   "version": "0.4.3",
-  "description": "Focused code retrieval, editing, safety checks, and language-server support for Pi.",
+  "description": "Focused code retrieval, editing, and safety checks for Pi.",
   "keywords": [
     "pi-package"
   ],
   "license": "ISC",
   "author": "floydous https://github.com/floydous",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "test": "npx tsx tests/run-all.ts",
     "typecheck": "tsc --noEmit",

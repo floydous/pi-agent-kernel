@@ -14,8 +14,8 @@ max_search_results = 8
 enable_epistemic_guard = false
 max_line_length = 450
 
-[lsp]
-idle_timeout_ms = 120000
+[ui]
+enable_pastel_footer = false
 `;
 
 		const parsed: any = parseToml(sampleToml);
@@ -23,7 +23,7 @@ idle_timeout_ms = 120000
 		assertPass("parsed.retrieval.default_profile === 'full'", parsed.retrieval?.default_profile === "full", { parsed });
 		assertPass("parsed.retrieval.repo_map_budget === 2048", parsed.retrieval?.repo_map_budget === 2048, { parsed });
 		assertPass("parsed.safety.enable_epistemic_guard === false", parsed.safety?.enable_epistemic_guard === false, { parsed });
-		assertPass("parsed.lsp.idle_timeout_ms === 120000", parsed.lsp?.idle_timeout_ms === 120000, { parsed });
+		assertPass("parsed.ui.enable_pastel_footer === false", parsed.ui?.enable_pastel_footer === false, { parsed });
 
 		// stringifyToml roundtrip
 		const stringified = stringifyToml(parsed);
@@ -36,6 +36,28 @@ idle_timeout_ms = 120000
 		assertPass("loadKernelConfig returns an object (possibly empty)", typeof config === "object" && config !== null, { config });
 
 		logPass("TOML parse, stringify, and loadKernelConfig verified!");
+
+		// Adversarial Prototype Pollution Verification
+		const maliciousToml = `
+[__proto__]
+polluted = "yes"
+
+[constructor.prototype]
+polluted2 = "yes"
+
+[retrieval]
+__proto__ = "polluted3"
+"constructor" = "polluted4"
+"prototype" = "polluted5"
+default_profile = "lean"
+`;
+		const parsedMalicious: any = parseToml(maliciousToml);
+		assertPass("Root object has null prototype or is clean", Object.getPrototypeOf(parsedMalicious) === null);
+		assertPass("Object.prototype.polluted is undefined", ({} as any).polluted === undefined);
+		assertPass("Object.prototype.polluted2 is undefined", ({} as any).polluted2 === undefined);
+		assertPass("Object.prototype.polluted3 is undefined", ({} as any).polluted3 === undefined);
+		assertPass("Valid fields are preserved", parsedMalicious.retrieval?.default_profile === "lean");
+		logPass("TOML prototype pollution resistance verified!");
 	} finally {
 		ws.cleanup();
 	}

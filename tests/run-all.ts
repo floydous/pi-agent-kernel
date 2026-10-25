@@ -34,6 +34,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./editing/editing_mode.test")),
 	},
 	{
+		name: "Benchmark Method Schemas & RRF Signals",
+		key: "benchmark-method-rrf",
+		loader: () => runSuiteModule(() => import("./editing/benchmark_method_and_rrf_test")),
+	},
+	{
 		name: "Configuration Scope Precedence",
 		key: "config-scope",
 		loader: () => runSuiteModule(() => import("./toml-config/scope_precedence.test")),
@@ -42,11 +47,6 @@ const suites: TestEntry[] = [
 		name: "Atomic File Metadata Safety",
 		key: "atomic-metadata",
 		loader: () => runSuiteModule(() => import("./safety/atomic_metadata.test")),
-	},
-	{
-		name: "Bounded LSP Output",
-		key: "lsp-output-bounds",
-		loader: () => runSuiteModule(() => import("./lsp-formatters/limits.test")),
 	},
 	{
 		name: "Read and Index Resource Budgets",
@@ -97,21 +97,6 @@ const suites: TestEntry[] = [
 		name: "Code Search Evidence Ranges",
 		key: "guard-search-evidence",
 		loader: () => runSuiteModule(() => import("./code-search-output/evidence_ranges.test")),
-	},
-	{
-		name: "Pinned LSP Installer Boundary",
-		key: "lsp-install-boundary",
-		loader: () => runSuiteModule(() => import("./lsp-manager/installer_boundary.test")),
-	},
-	{
-		name: "LSP Process Boundary",
-		key: "lsp-process-boundary",
-		loader: () => runSuiteModule(() => import("./lsp-uri-and-detection/process_boundary.test")),
-	},
-	{
-		name: "Trusted LSP Executable Resolution",
-		key: "lsp-resolution",
-		loader: () => runSuiteModule(() => import("./lsp-uri-and-detection/executable_resolution.test")),
 	},
 	{
 		name: "Kernel Configuration Validation",
@@ -250,21 +235,6 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./unified-footer")),
 	},
 	{
-		name: "LSP URI/Path & Detection",
-		key: "lsp-uri-and-detection",
-		loader: () => runSuiteModule(() => import("./lsp-uri-and-detection")),
-	},
-	{
-		name: "LSP Formatters",
-		key: "lsp-formatters",
-		loader: () => runSuiteModule(() => import("./lsp-formatters")),
-	},
-	{
-		name: "LSP Manager & Modals",
-		key: "lsp-manager",
-		loader: () => runSuiteModule(() => import("./lsp-manager")),
-	},
-	{
 		name: "AST Fallback Extensions",
 		key: "ast-fallback",
 		loader: () => runSuiteModule(() => import("./ast-fallback")),
@@ -306,19 +276,9 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./end-to-end")),
 	},
 	{
-		name: "Epistemic Guard Mutation Continuity",
+		name: "Mutation Continuity & Lock Safety",
 		key: "mutation-continuity",
 		loader: () => runSuiteModule(() => import("./mutation-continuity")),
-	},
-	{
-		name: "LSP Clean Diagnostics & Reference Filtering",
-		key: "lsp-clean-and-filters",
-		loader: () => runSuiteModule(() => import("./lsp-clean-and-filters")),
-	},
-	{
-		name: "LSP Reference Snippets & Seam Tests",
-		key: "lsp-reference-snippets",
-		loader: () => runSuiteModule(() => import("./lsp-reference-snippets")),
 	},
 	{
 		name: "Hierarchical AST Search Formatter Suite",

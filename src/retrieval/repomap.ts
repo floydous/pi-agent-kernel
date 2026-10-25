@@ -628,9 +628,12 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 				/^(?:public|private|protected|internal|abstract|static|final|\s)*\s*(class|interface|enum)\s+([a-zA-Z0-9_]+)/,
 			);
 			if (jClass) {
+				let kind: "class" | "interface" | "enum" = "class";
+				if (jClass[1] === "interface") kind = "interface";
+				else if (jClass[1] === "enum") kind = "enum";
 				definitions.push({
 					name: jClass[2],
-					kind: jClass[1] === "interface" ? "interface" : jClass[1] === "enum" ? "enum" : "class",
+					kind,
 					signature: line.split("{")[0].trim(),
 					line: i + 1,
 				});
@@ -931,10 +934,12 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 			fileLineCounts.set(file, content.split("\n").length);
 
 			for (const def of tags.definitions) {
-				if (!defToFile.has(def.name)) {
-					defToFile.set(def.name, new Set());
+				let set = defToFile.get(def.name);
+				if (!set) {
+					set = new Set();
+					defToFile.set(def.name, set);
 				}
-				defToFile.get(def.name)!.add(file);
+				set.add(file);
 			}
 		} catch {
 			// Skip unreadable files
@@ -950,11 +955,12 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 	files.forEach((f, idx) => fileIndex.set(f, idx));
 
 	const inEdges: number[][] = Array.from({ length: N }, () => []);
-	const outDegree = new Array(N).fill(0);
+	const outDegree = new Float64Array(N);
 
 	for (let i = 0; i < N; i++) {
 		const fileA = files[i];
-		const tagsA = fileTagsMap.get(fileA)!;
+		const tagsA = fileTagsMap.get(fileA);
+		if (!tagsA) continue;
 		const referencedFiles = new Set<number>();
 
 		for (const ref of tagsA.references) {
@@ -977,10 +983,10 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 
 	// PageRank iteration (d = 0.85)
 	const d = 0.85;
-	let rank = new Array(N).fill(1 / N);
+	let rank = new Float64Array(N).fill(1 / N);
 
 	for (let iter = 0; iter < 15; iter++) {
-		const nextRank = new Array(N).fill((1 - d) / N);
+		const nextRank = new Float64Array(N).fill((1 - d) / N);
 		for (let i = 0; i < N; i++) {
 			let sum = 0;
 			for (const src of inEdges[i]) {
@@ -997,18 +1003,19 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 	// executable/router entry points visible on cold start while retaining the
 	// graph ranking for the rest of the repository.
 	const rankedFiles = files
-		.map((f, idx) => {
+		.flatMap((f, idx) => {
+			const tags = fileTagsMap.get(f);
+			if (!tags) return [];
 			const relPath = path.relative(rootDir, f).replace(/\\/g, "/");
-			const tags = fileTagsMap.get(f)!;
 			const anchorPriorities = tags.definitions
 				.map((def) => entryPointPriority(relPath, def))
 				.filter((priority): priority is number => priority !== null);
-			return {
+			return [{
 				file: f,
 				effectiveRank: rank[idx] * getPathDemotion(relPath),
 				tags,
 				anchorPriority: anchorPriorities.length > 0 ? Math.min(...anchorPriorities) : Number.POSITIVE_INFINITY,
-			};
+			}];
 		})
 		.sort((a, b) =>
 			a.anchorPriority - b.anchorPriority || b.effectiveRank - a.effectiveRank,
@@ -1045,8 +1052,7 @@ export function computeRepoMap(rootDir: string, tokenBudget = 1024): string {
 	}
 
 	if (charBudget >= 1024) {
-		const sizeList = files
-			.slice()
+		const sizeList = [...files]
 			.sort((a, b) => (fileLineCounts.get(b) || 0) - (fileLineCounts.get(a) || 0))
 			.slice(0, 12)
 			.map((file) => `${path.relative(rootDir, file).replace(/\\/g, "/")}(${fileLineCounts.get(file) || 0})`);

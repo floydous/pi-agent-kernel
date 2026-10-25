@@ -58,7 +58,7 @@ function formatReadLine(
 	numberWidth: number,
 	benchmarkMethod: string | undefined,
  ): string {
-	const line = lines[index]!;
+	const line = lines[index] ?? "";
 	if (useAnchors) {
 		return `${String(index + 1).padStart(numberWidth, " ")}#${computeLineHash(lines, index)}│${line}`;
 	}
@@ -103,17 +103,25 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const editMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
 	const benchmarkMethod = ["line-range", "search-replace", "hash-anchor", "adaptive"].includes(editMethod || "") ? editMethod : undefined;
 	const readMode = process.env.PI_READ_MODE?.toLowerCase();
+	let readToolDescription =
+		"Read file contents (plain text), extract a symbol via 'symbol', or read multiple files via 'paths'. Bounded at 2,000 lines or 50KB. Use 'offset'/'limit' for ranges.";
+	switch (benchmarkMethod) {
+		case "line-range":
+			readToolDescription = "Read source with line numbers for numeric line-range edits.";
+			break;
+		case "search-replace":
+			readToolDescription = "Read source text for exact search/replace edits.";
+			break;
+		case "adaptive":
+			readToolDescription = "Read source with line numbers. Prefer unique search/replace; use line ranges when needed.";
+			break;
+		default:
+			break;
+	}
 	const readToolDefinition: any = {
 		name: "read",
 		label: "Read File / Symbol",
-		description:
-			benchmarkMethod === "line-range"
-				? "Read source with line numbers for numeric line-range edits."
-				: benchmarkMethod === "search-replace"
-					? "Read source text for exact search/replace edits."
-					: benchmarkMethod === "adaptive"
-						? "Read source with line numbers. Prefer unique search/replace; use line ranges when needed."
-						: "Read file contents (plain text), extract a symbol via 'symbol', or read multiple files via 'paths'. Bounded at 2,000 lines or 50KB. Use 'offset'/'limit' for ranges.",
+		description: readToolDescription,
 		promptSnippet: "Read file contents, inspect line ranges, extract symbols, or read multiple files via 'paths'",
 		renderShell: "default",
 		parameters: Type.Object({
@@ -392,11 +400,12 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				const formatted = res.symbols
 					.map((s) => {
 						const header = `// ${(path.relative(ctx.cwd, s.filePath) || s.filePath).replace(/\\/g, "/")}:${s.startLine}-${s.endLine} [${s.kind}] ${s.name}`;
-						const body = useAnchors
-							? formatSmartAnchorLines(allFileLines, s.startLine, s.endLine)
-							: benchmarkMethod === "line-range"
-								? allFileLines.slice(s.startLine - 1, s.endLine).map((line, index) => `${String(s.startLine + index).padStart(String(s.endLine).length, " ")}│${line}`).join("\n")
-								: s.content;
+						let body = s.content;
+						if (useAnchors) {
+							body = formatSmartAnchorLines(allFileLines, s.startLine, s.endLine);
+						} else if (benchmarkMethod === "line-range") {
+							body = allFileLines.slice(s.startLine - 1, s.endLine).map((line, index) => `${String(s.startLine + index).padStart(String(s.endLine).length, " ")}│${line}`).join("\n");
+						}
 						return `${header}\n${body}`;
 					})
 					.join("\n\n");
@@ -568,8 +577,11 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				}
 				const isTruncated = oversizedFirstLine || hasMore || startIdx > 0;
 				if (isTruncated && hasMore && !oversizedFirstLine && hiddenLines === 0) {
-					const lastShown = visibleIndexes[visibleIndexes.length - 1]! + 1;
-					outputLines.push(`\n[Showing ${visibleIndexes.length} of ${totalLines} lines. Use offset=${lastShown + 1} to continue.]`);
+					const lastIdx = visibleIndexes[visibleIndexes.length - 1];
+					if (lastIdx !== undefined) {
+						const lastShown = lastIdx + 1;
+						outputLines.push(`\n[Showing ${visibleIndexes.length} of ${totalLines} lines. Use offset=${lastShown + 1} to continue.]`);
+					}
 				}
 				const coverageRanges = lineRanges(visibleIndexes);
 
@@ -609,7 +621,8 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					`${theme.fg("toolTitle", theme.bold("read"))} [${theme.fg("accent", pathsSummary)}]`,
 				);
 			}
-			const rawPath = args?.path || (Array.isArray(args?.paths) ? args.paths[0] : "") || "";
+			const path0 = Array.isArray(args?.paths) ? args.paths[0] : "";
+			const rawPath = args?.path || path0 || "";
 			const relPath = rawPath
 				? (path.relative(context.cwd, rawPath) || rawPath).replace(/\\/g, "/")
 				: "";
@@ -618,10 +631,12 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", args.symbol)} in ${theme.fg("dim", relPath)}`,
 				);
 			}
-			const range =
-				args?.offset || args?.limit
-					? `:${args.offset ?? 1}${args.limit ? `-${(args.offset ?? 1) + args.limit - 1}` : ""}`
-					: "";
+			let range = "";
+			if (args?.offset || args?.limit) {
+				const off = args.offset ?? 1;
+				const lim = args.limit ? `-${off + args.limit - 1}` : "";
+				range = `:${off}${lim}`;
+			}
 			return makeOutputText(
 				`${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", relPath)}${theme.fg("warning", range)}`,
 			);

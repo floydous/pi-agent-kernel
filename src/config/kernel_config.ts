@@ -33,17 +33,8 @@ export interface KernelConfigOverrides {
 	retrieval?: Partial<RetrievalConfig>;
 	safety?: Partial<SafetyConfig>;
 	editing?: Partial<EditingConfig>;
-	lsp?: Partial<LspConfig>;
 	ui?: Partial<UiConfig>;
 	instructions?: Partial<InstructionsConfig>;
-}
-
-export interface LspConfig {
-	idle_timeout_ms: number;
-	diagnostic_timeout_ms: number;
-	init_timeout_ms: number;
-	spinner_interval_ms: number;
-	disabled_servers: string[];
 }
 
 export interface UiConfig {
@@ -59,7 +50,6 @@ export interface KernelConfig {
 	retrieval: RetrievalConfig;
 	safety: SafetyConfig;
 	editing: EditingConfig;
-	lsp: LspConfig;
 	ui: UiConfig;
 	instructions: InstructionsConfig;
 }
@@ -85,13 +75,6 @@ const DEFAULT_CONFIG: KernelConfig = {
 		default_anchors: false,
 		read_mode: "plain",
 		syntax_gate: "warn",
-	},
-	lsp: {
-		idle_timeout_ms: 5 * 60 * 1000, // 5 minutes
-		diagnostic_timeout_ms: 8000, // 8s for type-checking on large workspaces
-		init_timeout_ms: 25000, // 25s for heavy servers like rust-analyzer/vtsls/gopls
-		spinner_interval_ms: 80,
-		disabled_servers: [],
 	},
 	ui: {
 		enable_pastel_footer: true,
@@ -121,13 +104,6 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 		"exec_timeout_ms",
 	]),
 	editing: new Set(["mode", "default_anchors", "read_mode", "syntax_gate"]),
-	lsp: new Set([
-		"idle_timeout_ms",
-		"diagnostic_timeout_ms",
-		"init_timeout_ms",
-		"spinner_interval_ms",
-		"disabled_servers",
-	]),
 	ui: new Set(["enable_pastel_footer"]),
 	instructions: new Set(["enabled", "pi_docs"]),
 };
@@ -187,20 +163,6 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 		requireEnum(config.editing.syntax_gate, "editing.syntax_gate", ["warn", "block"]);
 	}
 
-	requireSafeInt(config.lsp.idle_timeout_ms, "lsp.idle_timeout_ms", 1_000, 60 * 60 * 1_000);
-	requireSafeInt(config.lsp.diagnostic_timeout_ms, "lsp.diagnostic_timeout_ms", 100, 120_000);
-	requireSafeInt(config.lsp.init_timeout_ms, "lsp.init_timeout_ms", 100, 5 * 60 * 1_000);
-	requireSafeInt(config.lsp.spinner_interval_ms, "lsp.spinner_interval_ms", 16, 1_000);
-	if (
-		!Array.isArray(config.lsp.disabled_servers) ||
-		config.lsp.disabled_servers.length > 64 ||
-		config.lsp.disabled_servers.some(
-			(server) => typeof server !== "string" || !/^[a-z0-9._-]{1,64}$/i.test(server),
-		)
-	) {
-		throw new KernelConfigError("lsp.disabled_servers must be an array of up to 64 safe server keys");
-	}
-
 	requireBoolean(config.ui.enable_pastel_footer, "ui.enable_pastel_footer");
 	requireBoolean(config.instructions.enabled, "instructions.enabled");
 	requireBoolean(config.instructions.pi_docs, "instructions.pi_docs");
@@ -212,7 +174,9 @@ export function mergeKernelConfig(target: KernelConfig, source: unknown): Kernel
 	if (!source || typeof source !== "object" || Array.isArray(source)) {
 		throw new KernelConfigError("Configuration root must be a table");
 	}
+	const sanitizedSource: Record<string, unknown> = {};
 	for (const [section, value] of Object.entries(source as Record<string, unknown>)) {
+		if (section === "lsp") continue; // Deprecated legacy section: accepted and ignored
 		if (!ALLOWED_CONFIG_KEYS[section as keyof KernelConfig]) {
 			throw new KernelConfigError(`Unknown configuration section: ${section}`);
 		}
@@ -224,8 +188,9 @@ export function mergeKernelConfig(target: KernelConfig, source: unknown): Kernel
 				throw new KernelConfigError(`Unknown configuration key: ${configPath([section, key])}`);
 			}
 		}
+		sanitizedSource[section] = value;
 	}
-	mergeDeep(candidate, source);
+	mergeDeep(candidate, sanitizedSource);
 	validateKernelConfig(candidate);
 	for (const key of Object.keys(target) as Array<keyof KernelConfig>) {
 		delete (target as any)[key];
@@ -325,13 +290,13 @@ export function loadKernelConfig(
 	// 3. Environment Variable Overrides
 	if (process.env.PI_REPO_MAP_BUDGET) {
 		const b = parseInt(process.env.PI_REPO_MAP_BUDGET, 10);
-		if (!isNaN(b)) config.retrieval.repo_map_budget = b;
+		if (Number.isSafeInteger(b)) config.retrieval.repo_map_budget = b;
 	}
 
 	if (process.env.PI_RETRIEVAL_PROFILE) {
 		const p = process.env.PI_RETRIEVAL_PROFILE.toLowerCase();
 		if (p === "lean" || p === "hybrid" || p === "full") {
-			config.retrieval.default_profile = p as any;
+			config.retrieval.default_profile = p;
 		}
 	}
 
@@ -366,10 +331,11 @@ export function removeGlobalKernelConfigKey(section: string, key: string): void 
 	if (!fs.existsSync(globalPath)) return;
 
 	try {
-		const existing: any = parseToml(fs.readFileSync(globalPath, "utf-8"));
-		if (existing && existing[section] && existing[section][key] !== undefined) {
-			delete existing[section][key];
-			if (Object.keys(existing[section]).length === 0) {
+		const existing = parseToml(fs.readFileSync(globalPath, "utf-8"));
+		const sec = existing[section];
+		if (sec && typeof sec === "object" && !Array.isArray(sec) && (sec as Record<string, TomlValue>)[key] !== undefined) {
+			delete (sec as Record<string, TomlValue>)[key];
+			if (Object.keys(sec).length === 0) {
 				delete existing[section];
 			}
 			validateConfigDocument(existing);
@@ -384,11 +350,18 @@ export function removeGlobalKernelConfigKey(section: string, key: string): void 
 /**
  * Read raw global configuration TOML if it exists
  */
-export function getGlobalRawConfig(): Record<string, any> {
+export function getGlobalRawConfig(): Record<string, Record<string, TomlValue>> {
 	const globalPath = getGlobalConfigPath();
 	if (fs.existsSync(globalPath)) {
 		try {
-			return parseToml(fs.readFileSync(globalPath, "utf-8")) as any;
+			const parsed = parseToml(fs.readFileSync(globalPath, "utf-8"));
+			const result: Record<string, Record<string, TomlValue>> = {};
+			for (const [key, value] of Object.entries(parsed)) {
+				if (value && typeof value === "object" && !Array.isArray(value)) {
+					result[key] = value as Record<string, TomlValue>;
+				}
+			}
+			return result;
 		} catch (e) {
 			kernelDebug(e);
 		}

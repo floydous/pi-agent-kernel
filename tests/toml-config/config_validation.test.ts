@@ -26,11 +26,11 @@ max_search_results = 8
 [safety]
 max_total_bytes = 32768
 [lsp]
-disabled_servers = ["typescript", "python"]
+disabled_servers = ["typescript"]
+idle_timeout_ms = 300000
 `));
     assert.equal(valid.retrieval.max_search_results, 8);
     assert.equal(valid.safety.max_total_bytes, 32768);
-    assert.deepEqual(valid.lsp.disabled_servers, ["typescript", "python"]);
 
     const invalidDocuments: Array<[string, string]> = [
       ["wrong boolean", `[safety]\nenable_epistemic_guard = "false"`],
@@ -39,7 +39,6 @@ disabled_servers = ["typescript", "python"]
       ["excessive integer", `[safety]\nmax_total_bytes = 999999999999`],
       ["unknown section", `[unknown]\nvalue = true`],
       ["unknown key", `[safety]\nunknown = true`],
-      ["invalid server list", `[lsp]\ndisabled_servers = ["../escape"]`],
     ];
     for (const [label, source] of invalidDocuments) {
       assert.throws(

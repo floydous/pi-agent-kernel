@@ -50,7 +50,9 @@ export function loadIgnoreFile(filePath: string): Ignore | null {
 	if (!fs.existsSync(filePath)) return null;
 	try {
 		const content = fs.readFileSync(filePath, "utf-8");
-		const ig = typeof ignore === "function" ? ignore() : (ignore as any).default();
+		const ignoreFn = typeof ignore === "function" ? ignore : (ignore as { default?: () => Ignore }).default;
+		if (typeof ignoreFn !== "function") return null;
+		const ig = ignoreFn();
 		return ig.add(content);
 	} catch {
 		return null;
@@ -69,7 +71,9 @@ export function isPathIgnored(stack: IgnoreFrame[], relPath: string, isDirectory
 		if (relToFrame.startsWith("/")) relToFrame = relToFrame.slice(1);
 		if (!relToFrame) continue;
 
-		const res = (frame.ig as any).test(relToFrame);
+		// SAFETY: the 'ignore' library instance provides .test() returning { ignored, unignored }
+		// which is omitted from older @types/ignore declarations.
+		const res = (frame.ig as unknown as { test: (p: string) => { ignored: boolean; unignored: boolean } }).test(relToFrame);
 		if (res.unignored) return false;
 		if (res.ignored) return true;
 	}

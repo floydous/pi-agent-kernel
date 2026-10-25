@@ -62,17 +62,17 @@ function isOwnedRegularFile(filePath: string): boolean {
 function pruneSpillovers(directory: string, maxFiles: number, maxBytes: number): void {
 	const files = fs
 		.readdirSync(directory)
-		.filter((name) => name.startsWith(SPILL_PREFIX))
-		.map((name) => {
+		.flatMap((name) => {
+			if (!name.startsWith(SPILL_PREFIX)) return [];
 			const full = path.join(directory, name);
 			try {
 				const stat = fs.lstatSync(full);
-				return { full, size: stat.size, mtime: stat.mtimeMs, owned: isOwnedRegularFile(full) };
+				if (!isOwnedRegularFile(full)) return [];
+				return [{ full, size: stat.size, mtime: stat.mtimeMs }];
 			} catch {
-				return { full, size: 0, mtime: 0, owned: false };
+				return [];
 			}
 		})
-		.filter((item) => item.owned)
 		.sort((a, b) => a.mtime - b.mtime);
 	let totalBytes = files.reduce((sum, file) => sum + file.size, 0);
 	let remainingFiles = files.length;
@@ -240,7 +240,9 @@ export function clampCommandOutput(
 						if (!lstat.isSymbolicLink() && lstat.isFile()) {
 							priorSpilloverPath = path.resolve(cleanCandidate);
 						}
-					} catch {}
+					} catch (e) {
+						kernelDebug(e);
+					}
 				}
 			}
 		}
@@ -250,11 +252,15 @@ export function clampCommandOutput(
 	if (hostSpilloverPath) {
 		try {
 			originalBytes = fs.statSync(hostSpilloverPath).size;
-		} catch {}
+		} catch (e) {
+			kernelDebug(e);
+		}
 	} else if (priorSpilloverPath) {
 		try {
 			originalBytes = fs.statSync(priorSpilloverPath).size;
-		} catch {}
+		} catch (e) {
+			kernelDebug(e);
+		}
 	}
 
 	// If the entire output is small, within bounds, and host did not truncate, return as-is

@@ -121,7 +121,7 @@ export class BM25Engine {
 	 */
 	public removeFile(filePath: string): void {
 		const prefix = `${filePath}:`;
-		for (const chunkId of Array.from(this.docTermFreqs.keys())) {
+		for (const chunkId of [...this.docTermFreqs.keys()]) {
 			if (chunkId.startsWith(prefix)) {
 				const tfMap = this.docTermFreqs.get(chunkId);
 				if (tfMap) {
@@ -204,7 +204,9 @@ export class BM25Engine {
 			.map(([chunkId, data]) => ({ chunkId, score: data.score, matches: data.matches }))
 			.sort((a, b) => {
 				if (b.score !== a.score) return b.score - a.score;
-				return a.chunkId < b.chunkId ? -1 : a.chunkId > b.chunkId ? 1 : 0;
+				if (a.chunkId < b.chunkId) return -1;
+				if (a.chunkId > b.chunkId) return 1;
+				return 0;
 			})
 			.slice(0, limit);
 	}

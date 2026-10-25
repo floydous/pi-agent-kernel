@@ -196,11 +196,64 @@ export function testSessionContinuity(): void {
 			// Windows non-admin may throw on symlink creation; skip gracefully if unprivileged
 		}
 
+		// Test 10: Malicious or invalid records validation
+		const invalidSession = "invalid-records-session";
+		const invalidStatePath = getInspectionStateFilePath(invalidSession, tempDir);
+		fs.mkdirSync(path.dirname(invalidStatePath), { recursive: true });
+		fs.writeFileSync(
+			invalidStatePath,
+			JSON.stringify({
+				version: 1,
+				workspace: tempDir,
+				records: {
+					"safe.ts": {
+						kind: "unknown_kind", // invalid kind
+						fingerprint: safeFingerprint,
+					},
+					"config.ts": {
+						kind: "search",
+						fingerprint: crypto.createHash("sha256").update(originalContent).digest("hex"),
+						coverage: { complete: true, ranges: [] }, // search must never inherit complete coverage
+					},
+				},
+			}),
+			"utf8",
+		);
+		const invalidLoaded = loadSessionInspectionState(invalidSession, tempDir);
+		assertPass("Record with invalid kind is rejected", !invalidLoaded.has(expectedSafeKey));
+		const configKey = process.platform === "win32" ? testFile.toLowerCase() : testFile;
+		const configEvidence = invalidLoaded.get(configKey);
+		assertPass("Search kind cannot manufacture complete coverage", configEvidence?.coverage.complete === false);
+		logPass("Untrusted inspection record runtime validation");
+
+		// Test 11: Oversized record count (>1000 entries) fails closed
+		const floodSession = "flood-records-session";
+		const floodStatePath = getInspectionStateFilePath(floodSession, tempDir);
+		fs.mkdirSync(path.dirname(floodStatePath), { recursive: true });
+		const floodedRecords: Record<string, any> = {};
+		for (let i = 0; i < 1005; i++) {
+			floodedRecords[`f_${i}.ts`] = {
+				kind: "read",
+				fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				coverage: { complete: false, ranges: [] },
+			};
+		}
+		fs.writeFileSync(
+			floodStatePath,
+			JSON.stringify({ version: 1, workspace: tempDir, records: floodedRecords }),
+			"utf8",
+		);
+		const floodLoaded = loadSessionInspectionState(floodSession, tempDir);
+		assertPass("Flooded record count (>1000) fails closed", floodLoaded.size === 0);
+		logPass("Flooded record count boundary protection");
+
 		console.log("✓ All Session Continuity tests passed successfully!\n");
 	} finally {
 		try {
 			fs.rmSync(tempDir, { recursive: true, force: true });
-		} catch {}
+		} catch (e) {
+			void e;
+		}
 	}
 }
 

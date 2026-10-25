@@ -3,8 +3,6 @@ import * as path from "node:path";
 import { HybridSearchIndex, getSearchCacheDir } from "../../src/retrieval/search_index";
 import { LocalEmbedder } from "../../src/retrieval/search_embedder";
 import { getSearchConfig } from "../../src/retrieval/search_config";
-import { formatDocumentSymbols } from "../../src/lsp/lsp_formatter";
-import { LspSymbolKind } from "../../src/lsp/lsp_types";
 
 async function runIntensiveTests() {
   console.log("=== STARTING INTENSIVE CACHE & RETRIEVAL VERIFICATION ===");
@@ -98,38 +96,6 @@ async function runIntensiveTests() {
       fs.rmSync(testWorkspaceDir, { recursive: true, force: true });
     }
   }
-
-  // 2. TEST BOUNDED DOCUMENT SYMBOLS FORMATTER
-  console.log("\n[2. Testing Bounded Document Symbols Formatter]");
-  
-  // Test empty
-  assert(formatDocumentSymbols(null) === "No symbols found.", "Handles null symbols");
-  assert(formatDocumentSymbols([]) === "No symbols found.", "Handles empty symbols array");
-
-  // Test normal small set
-  const smallSymbols: any[] = [
-    { name: "MyClass", kind: LspSymbolKind.Class, range: { start: { line: 0, character: 0 } } },
-    { name: "myMethod", kind: LspSymbolKind.Method, range: { start: { line: 5, character: 2 } } },
-  ];
-  const formattedSmall = formatDocumentSymbols(smallSymbols);
-  assert(formattedSmall.includes("1: [class] MyClass"), "Formats class symbol correctly");
-  assert(formattedSmall.includes("6: [method] myMethod"), "Formats method symbol with 1-based index");
-  assert(!formattedSmall.includes("Truncated"), "Small symbol list is not truncated");
-
-  // Test large monolithic set (>100 symbols)
-  const largeSymbols: any[] = [];
-  for (let i = 0; i < 150; i++) {
-    largeSymbols.push({
-      name: `func_${i}`,
-      kind: LspSymbolKind.Function,
-      range: { start: { line: i * 2, character: 0 } },
-      detail: `fn() -> i32`,
-    });
-  }
-  const formattedLarge = formatDocumentSymbols(largeSymbols);
-  assert(formattedLarge.includes("[Truncated: 100/150 symbols shown]"), "Truncates output when >100 symbols");
-  const symbolLines = formattedLarge.split("\n").filter((l) => l.includes("[function]"));
-  assert(symbolLines.length === 100, `Outputs exactly 100 symbols before truncation notice (got ${symbolLines.length})`);
 
   console.log("\n=== TEST RESULTS SUMMARY ===");
   if (failed === 0) {

@@ -1,5 +1,5 @@
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { extractFileTags, SymbolDef } from "./repomap";
 
 export interface SymbolLocation {
@@ -21,6 +21,9 @@ export function extractSymbolContent(
 	options: { surroundingLines?: number } = {},
 	fileContentOverride?: string,
 ): { found: boolean; symbols: SymbolLocation[]; error?: string } {
+	if (!targetSymbol || !targetSymbol.trim() || targetSymbol.length > 256) {
+		return { found: false, symbols: [], error: "Invalid symbol name" };
+	}
 	const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(process.cwd(), filePath);
 
 	if (!fs.existsSync(resolvedPath)) {

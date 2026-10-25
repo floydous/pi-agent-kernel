@@ -53,10 +53,12 @@ function diagnosticValue(result: DiagnosticVerification): string {
 		counts.set(severity, (counts.get(severity) || 0) + 1);
 	}
 	return Array.from(counts.entries())
-		.map(
-			([severity, count]) =>
-				`${count} ${severity === "warning" ? "warn" : severity === "info" ? "info" : "err"}`,
-		)
+		.map(([severity, count]) => {
+			let label = "err";
+			if (severity === "warning") label = "warn";
+			else if (severity === "info") label = "info";
+			return `${count} ${label}`;
+		})
 		.join(",");
 }
 
@@ -128,12 +130,12 @@ export function renderPostEditVerification(
 		const header = hasDiagnosticError ? "Diagnostics (errors):" : "Diagnostics (warnings):";
 		lines.push(header);
 		for (const finding of result.diagnostic.findings.slice(0, 5)) {
-			const pos =
-				finding.line !== undefined
-					? finding.column !== undefined
-						? `[${finding.line}:${finding.column}] `
-						: `[${finding.line}] `
-					: "";
+			let pos = "";
+			if (finding.line !== undefined) {
+				pos = finding.column !== undefined
+					? `[${finding.line}:${finding.column}] `
+					: `[${finding.line}] `;
+			}
 			lines.push(`  - ${pos}${compactMessage(finding.message)}`);
 		}
 		if (result.diagnostic.findings.length > 5) {

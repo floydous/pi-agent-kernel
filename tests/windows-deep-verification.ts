@@ -7,8 +7,6 @@ import { applySurgicalPatch, applyMultiBlockPatch } from "../src/editing/patch";
 import { registerEditTool } from "../src/tools/edit_tool";
 import { registerReadTool } from "../src/tools/read_tool";
 import { globalEpistemicGuard, extractInspectedFilesFromCommand } from "../src/safety/epistemic_guard";
-import { pathToUri, uriToPath } from "../src/lsp/lsp_formatter";
-import { findExecutable } from "../src/lsp/lsp_registry";
 import { clampCommandOutput } from "../src/safety/output_clamper";
 import { writeFileSyncAtomic } from "../src/safety/atomic_write";
 import unifiedHybridExtension from "../src/index";
@@ -180,46 +178,9 @@ export async function run(): Promise<void> {
 			console.log("  ✓ Read and edit tools display POSIX forward slashes on Windows");
 		}
 
-		// 5. Windows URI Round-Tripping with Drive Letters
+		// 5. PowerShell Hook Interception, Output Clamping & Epistemic Tracking
 		{
-			console.log("[5. Verifying Windows file:// URI Round-Tripping]");
-			if (isWindows) {
-				const winPath = "C:\\Users\\brat\\project\\index.ts";
-				const uri = pathToUri(winPath);
-				assert.strictEqual(uri.startsWith("file:///c:/") || uri.startsWith("file:///C:/"), true, "URI must start with file:///c:/");
-				assert.strictEqual(uri.includes("\\"), false, "URI must never contain backslashes");
-
-				const roundTrip = uriToPath(uri);
-				assert.strictEqual(roundTrip.toLowerCase(), winPath.toLowerCase(), "Path must round-trip accurately");
-				assert.match(roundTrip, /^[A-Z]:\\/, "Windows path must have uppercase drive letter and backslashes");
-			} else {
-				const posixPath = "/home/user/project/index.ts";
-				const uri = pathToUri(posixPath);
-				const roundTrip = uriToPath(uri);
-				assert.strictEqual(roundTrip, posixPath);
-			}
-			console.log("  ✓ file:// URI conversion is lossless and robust cross-platform");
-		}
-
-		// 6. Safe Executable Discovery on Windows (.cmd, .bat, .exe, PATHEXT)
-		{
-			console.log("[6. Verifying PATHEXT & Executable Resolution]");
-			const nodeExe = findExecutable("node");
-			assert.notStrictEqual(nodeExe, null, "Must resolve 'node' executable");
-			assert.strictEqual(fs.existsSync(nodeExe!), true, "Resolved path must exist physically");
-
-			if (isWindows) {
-				const npmCmd = findExecutable("npm");
-				assert.notStrictEqual(npmCmd, null, "Must resolve 'npm.cmd' or 'npm.exe' on Windows");
-				assert.strictEqual(fs.existsSync(npmCmd!), true);
-				assert.match(npmCmd!, /\.(cmd|exe|bat)$/i, "Must have valid Windows executable extension");
-				console.log(`  ✓ Successfully resolved Windows executable: ${npmCmd}`);
-			}
-		}
-
-		// 7. PowerShell Hook Interception, Output Clamping & Epistemic Tracking
-		{
-			console.log("[7. Verifying PowerShell Hook Clamping & Command Inspection]");
+			console.log("[5. Verifying PowerShell Hook Clamping & Command Inspection]");
 			const registeredHooks: Record<string, Function[]> = {};
 			const mockExtensionHost: any = {
 				on: (event: string, handler: Function) => {
@@ -265,9 +226,9 @@ export async function run(): Promise<void> {
 			console.log("  ✓ PowerShell commands and outputs correctly clamped and tracked in epistemic ledger");
 		}
 
-		// 8. Atomic File Overwrite on Windows
+		// 6. Atomic Write Overwrite Safety
 		{
-			console.log("[8. Verifying writeFileSyncAtomic Overwrite on Windows]");
+			console.log("[6. Verifying writeFileSyncAtomic Overwrite on Windows]");
 			const atomicTarget = path.join(tempDir, "atomic_test.json");
 			writeFileSyncAtomic(atomicTarget, JSON.stringify({ version: 1 }));
 			assert.strictEqual(fs.existsSync(atomicTarget), true);

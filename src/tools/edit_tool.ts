@@ -3,12 +3,10 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 import {
 	applySurgicalPatch,
 	applyMultiBlockPatch,
-	findSurgicalPatchTargetRange,
 	preflightSurgicalPatchBlock,
 } from "../editing/patch";
 import {
@@ -22,7 +20,6 @@ import {
 	renderPostEditVerification,
 	verifyEditedFile,
 } from "../editing/post_edit_verification";
-import { LspManager } from "../lsp";
 import {
 	globalEpistemicGuard,
 	resolveUserPath,
@@ -40,7 +37,7 @@ export async function withFileMutationLocks<T>(
 	operation: () => Promise<T>,
 ): Promise<T> {
 	const { withFileMutationQueue } = await import("@earendil-works/pi-coding-agent");
-	const keys = [...new Set(filePaths.map(mutationLockKey))].sort();
+	const keys = [...new Set(filePaths.map(mutationLockKey))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	const run = (index: number): Promise<T> =>
 		index >= keys.length
 			? operation()
@@ -297,38 +294,7 @@ async function applyPreparedEdit(
 
 	await deps.invalidateSearchFile?.(ctx.cwd, resolvedPath);
 
-	const readyLsp = LspManager.getInstance().getReadyClientForFile(resolvedPath, ctx.cwd);
-	if (readyLsp && readyLsp.getState() === "ready") {
-		try {
-			await readyLsp.changeDocument(resolvedPath, diskContent);
-			await readyLsp.saveDocument(resolvedPath, diskContent);
-		} catch (err) {
-			kernelDebug(err);
-		}
-	}
-
-	const verification = await verifyEditedFile(
-		resolvedPath,
-		readyLsp
-			? async () => {
-					const result = await readyLsp.getDiagnosticsResult(resolvedPath);
-					return {
-						state: result.status,
-						findings: result.diagnostics.map((finding) => ({
-							line: finding.range.start.line + 1,
-							column: finding.range.start.character + 1,
-							message: finding.message,
-							severity:
-								finding.severity === 1
-									? ("error" as const)
-									: finding.severity === 2
-										? ("warning" as const)
-										: ("info" as const),
-						})),
-					};
-				}
-			: undefined,
-	);
+	const verification = await verifyEditedFile(resolvedPath);
 
 	const statusText = renderPostEditVerification(verification, undefined, relPath);
 	return {
@@ -344,84 +310,94 @@ async function applyPreparedEdit(
 export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	// 7. Tool: `edit` (Unified Surgical Diff, Smart Anchor, & Multi-Block Editor - Replaces stock edit tool)
 	const benchmarkMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
-	const editToolParameters = benchmarkMethod === "line-range"
-		? Type.Object({
+	let editToolParameters: any;
+	let editToolDescription =
+		"Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Valid after read or exact rg search.";
+
+	switch (benchmarkMethod) {
+		case "line-range":
+			editToolParameters = Type.Object({
 				path: Type.String({ description: "File path to edit" }),
 				start_line: Type.Number({ description: "First 1-based line to replace" }),
 				end_line: Type.Optional(Type.Number({ description: "Last 1-based line to replace, inclusive" })),
 				lines: Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" }),
-			})
-		: benchmarkMethod === "hash-anchor"
-			? Type.Object({
-					path: Type.String({ description: "File path to edit" }),
-					pos: Type.String({ description: "Start anchor copied from read output, e.g. '288#ZH'" }),
-					end: Type.Optional(Type.String({ description: "End anchor copied from read output, e.g. '294#VN'" })),
-					lines: Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" }),
-				})
-				: benchmarkMethod === "search-replace"
-				? Type.Object({
-						path: Type.String({ description: "File path to edit" }),
-						search: Type.String({ description: "Unique exact source block to replace" }),
-						replace: Type.String({ description: "Replacement source block" }),
-					})
-				: benchmarkMethod === "adaptive"
-					? Type.Object({
-							path: Type.String({ description: "File path to edit" }),
-							search: Type.Optional(Type.String({ description: "Unique exact source block to replace" })),
-							replace: Type.Optional(Type.String({ description: "Replacement source block" })),
-							start_line: Type.Optional(Type.Number({ description: "First 1-based line to replace" })),
-							end_line: Type.Optional(Type.Number({ description: "Last 1-based line to replace, inclusive" })),
-							pos: Type.Optional(Type.String({ description: "LINE#HASH anchor copied from read output" })),
-							end: Type.Optional(Type.String({ description: "Ending LINE#HASH anchor" })),
-							lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" })),
-						})
-					: Type.Object({
-							path: Type.Optional(Type.String({ description: "Path to file to edit" })),
-							search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-							replace: Type.Optional(Type.String({ description: "Replacement text" })),
-							line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguation" })),
-							edits: Type.Optional(
-								Type.Array(
-									Type.Object(
-										{
-											search: Type.Optional(Type.String()),
-											replace: Type.Optional(Type.String()),
-											line_hint: Type.Optional(Type.Number()),
-										},
-										{ additionalProperties: true },
-									),
-									{ description: "Targeted replacements" },
-								),
+			});
+			editToolDescription = "Edit code with numeric line ranges only: start_line, optional end_line, and replacement lines.";
+			break;
+		case "hash-anchor":
+			editToolParameters = Type.Object({
+				path: Type.String({ description: "File path to edit" }),
+				pos: Type.String({ description: "Start anchor copied from read output, e.g. '288#ZH'" }),
+				end: Type.Optional(Type.String({ description: "End anchor copied from read output, e.g. '294#VN'" })),
+				lines: Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" }),
+			});
+			editToolDescription = "Edit code with LINE#HASH anchors only, copied from read output.";
+			break;
+		case "search-replace":
+			editToolParameters = Type.Object({
+				path: Type.String({ description: "File path to edit" }),
+				search: Type.String({ description: "Unique exact source block to replace" }),
+				replace: Type.String({ description: "Replacement source block" }),
+			});
+			editToolDescription = "Edit code with a unique exact search block and replacement block only.";
+			break;
+		case "adaptive":
+			editToolParameters = Type.Object({
+				path: Type.String({ description: "File path to edit" }),
+				search: Type.Optional(Type.String({ description: "Unique exact source block to replace" })),
+				replace: Type.Optional(Type.String({ description: "Replacement source block" })),
+				start_line: Type.Optional(Type.Number({ description: "First 1-based line to replace" })),
+				end_line: Type.Optional(Type.Number({ description: "Last 1-based line to replace, inclusive" })),
+				pos: Type.Optional(Type.String({ description: "LINE#HASH anchor copied from read output" })),
+				end: Type.Optional(Type.String({ description: "Ending LINE#HASH anchor" })),
+				lines: Type.Optional(Type.Array(Type.String(), { description: "Replacement lines (empty to delete)" })),
+			});
+			editToolDescription = "Edit code with search/replace or line range; use search first.";
+			break;
+		default:
+			editToolParameters = Type.Object(
+				{
+					path: Type.Optional(Type.String({ description: "Path to file to edit" })),
+					search: Type.Optional(Type.String({ description: "Exact block to replace" })),
+					replace: Type.Optional(Type.String({ description: "Replacement text" })),
+					line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguation" })),
+					edits: Type.Optional(
+						Type.Array(
+							Type.Object(
+								{
+									search: Type.Optional(Type.String()),
+									replace: Type.Optional(Type.String()),
+									line_hint: Type.Optional(Type.Number()),
+								},
+								{ additionalProperties: true },
 							),
-							files: Type.Optional(
-								Type.Array(
-									Type.Object(
-										{
-											path: Type.String(),
-											search: Type.Optional(Type.String()),
-											replace: Type.Optional(Type.String()),
-											line_hint: Type.Optional(Type.Number()),
-											edits: Type.Optional(Type.Array(Type.Any())),
-										},
-										{ additionalProperties: true },
-									),
-									{ description: "Multi-file edits" },
-								),
+							{ description: "Targeted replacements" },
+						),
+					),
+					files: Type.Optional(
+						Type.Array(
+							Type.Object(
+								{
+									path: Type.String(),
+									search: Type.Optional(Type.String()),
+									replace: Type.Optional(Type.String()),
+									line_hint: Type.Optional(Type.Number()),
+									edits: Type.Optional(Type.Array(Type.Any())),
+								},
+								{ additionalProperties: true },
 							),
-						}, { additionalProperties: true });
+							{ description: "Multi-file edits" },
+						),
+					),
+				},
+				{ additionalProperties: true },
+			);
+			break;
+	}
 	const editToolDefinition: any = {
 		name: "edit",
 		label: "Code Editor",
-		description:
-			benchmarkMethod === "line-range"
-				? "Edit code with numeric line ranges only: start_line, optional end_line, and replacement lines."
-				: benchmarkMethod === "hash-anchor"
-					? "Edit code with LINE#HASH anchors only, copied from read output."
-					: benchmarkMethod === "search-replace"
-						? "Edit code with a unique exact search block and replacement block only."
-						: benchmarkMethod === "adaptive"
-							? "Edit code with search/replace or line range; use search first."
-						: "Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Valid after read or exact rg search.",
+		description: editToolDescription,
 		promptSnippet: "Edit code using search/replace (optional line_hint), multi-block 'edits', or multi-file 'files'",
 		renderShell: "default",
 		parameters: editToolParameters,
@@ -564,15 +540,6 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					} catch (indexErr) {
 						rollbackFailures.push(`${path.basename(mutated)} index: ${indexErr instanceof Error ? indexErr.message : String(indexErr)}`);
 					}
-					try {
-						const client = LspManager.getInstance().getReadyClientForFile(mutated, ctx.cwd);
-						if (client?.getState() === "ready") {
-							await client.changeDocument(mutated, backup);
-							await client.saveDocument(mutated, backup);
-						}
-					} catch (lspErr) {
-						rollbackFailures.push(`${path.basename(mutated)} LSP: ${lspErr instanceof Error ? lspErr.message : String(lspErr)}`);
-					}
 				}
 				if (rollbackFailures.length > 0) {
 					return {
@@ -582,7 +549,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					};
 				}
 				return {
-					content: [{ type: "text", text: `[EDIT FAILED - ROLLED BACK] Multi-file edit aborted and all file/index/LSP/guard state restored: ${failureReason}` }],
+					content: [{ type: "text", text: `[EDIT FAILED - ROLLED BACK] Multi-file edit aborted and all file/index/guard state restored: ${failureReason}` }],
 					details: { rolledBack: true },
 					isError: true,
 				};

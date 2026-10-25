@@ -139,7 +139,8 @@ function applyBudget(
 	let truncated = false;
 
 	for (let index = 0; index < entries.length; index++) {
-		const entry = entries[index]!;
+		const entry = entries[index];
+		if (!entry) continue;
 		const separator = selected.length > 0 ? "\n\n" : "";
 		const candidateLength = separator.length + entry.text.length;
 		if (used + candidateLength <= budget) {

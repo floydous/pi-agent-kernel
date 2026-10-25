@@ -78,7 +78,7 @@ export function getUnclosedDelimiters(text: string): string[] {
 	}
 
 	const map: Record<string, string> = { "{": "}", "(": ")", "[": "]" };
-	return stack.reverse().map((ch) => map[ch]);
+	return [...stack].reverse().map((ch) => map[ch] ?? "");
 }
 
 /**

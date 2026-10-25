@@ -34,7 +34,7 @@ export async function run(): Promise<void> {
 
     assert.equal(registered.includes("read"), false, "earlier extension read must win");
     assert.equal(registered.includes("ast_search"), false, "earlier extension ast_search must win");
-    for (const expected of ["edit", "code_search", "get_repo_map", "lsp"]) {
+    for (const expected of ["edit", "code_search", "get_repo_map"]) {
       assert.equal(registered.includes(expected), true, `${expected} should register when unclaimed`);
     }
     // Regression: pi built-ins must not be mistaken for extension collisions. A real builtin

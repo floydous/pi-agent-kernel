@@ -34,14 +34,6 @@ Settings can be managed via the `/agent-kernel` interactive modal or CLI subcomm
 - `dedup_min_bytes`: minimum rendered byte size for tool output deduplication side storage.
 - `dedup_max_entries_per_session`: maximum LRU capacity for deduplicated tool results per session.
 
-### `[lsp]`
-
-- `idle_timeout_ms`: idle language-server shutdown delay.
-- `diagnostic_timeout_ms`: timeout for diagnostic publishing and pull requests.
-- `init_timeout_ms`: cold-start LSP initialization timeout.
-- `spinner_interval_ms`: LSP modal spinner interval.
-- `disabled_servers`: language identifiers to disable.
-
 ### `[ui]`
 
 - `enable_pastel_footer`: enable the TrueColor footer when supported.

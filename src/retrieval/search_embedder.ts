@@ -344,8 +344,9 @@ export class LocalEmbedder {
 		this.queryLruCache.clear();
 
 		try {
-			if (typeof (global as any).gc === "function") {
-				(global as any).gc();
+			const globalWithGc = globalThis as typeof globalThis & { gc?: () => void };
+			if (typeof globalWithGc.gc === "function") {
+				globalWithGc.gc();
 			}
 		} catch (e) {
 			kernelDebug(e);

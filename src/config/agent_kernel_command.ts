@@ -215,7 +215,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					}
 					case "max_lines": {
 						const num = parseInt(val, 10);
-						if (!isNaN(num) && num >= 10 && num <= 1000) {
+						if (Number.isSafeInteger(num) && num >= 10 && num <= 1000) {
 							updates.safety = { max_lines: num };
 							desc = `Output clamping lines set to ${num}`;
 						} else {
@@ -285,19 +285,19 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					if (id === "tools") {
 						const enable = value.startsWith("all");
 						patch.retrieval = { enable_tools: enable };
-						desc = `Passive Shield tools = ${enable ? "all (6 tools)" : "gated (core 3)"}`;
+						desc = `Passive Shield tools = ${enable ? "all (5 tools)" : "gated (core 3)"}`;
 					} else if (id === "profile") {
-						patch.retrieval = { default_profile: value as any };
+						patch.retrieval = { default_profile: value as "auto" | "lean" | "hybrid" | "full" | "off" };
 						desc = `Retrieval profile = ${value}`;
 					} else if (id === "epistemic") {
 						const enable = value === "enabled";
 						patch.safety = { enable_epistemic_guard: enable };
 						desc = `Epistemic Guard = ${enable ? "enabled" : "disabled"}`;
 					} else if (id === "editing") {
-						patch.editing = { mode: value as any };
+						patch.editing = { mode: value as "smart_anchor" | "standard" };
 						desc = `Editing mode = ${value}`;
 					} else if (id === "read_mode") {
-						patch.editing = { read_mode: value as any };
+						patch.editing = { read_mode: value as "auto" | "plain" | "anchored" };
 						desc = `Reading anchor protocol = ${value}`;
 					} else if (id === "guidance") {
 						const enable = value === "enabled";
@@ -313,7 +313,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						desc = `Pastel status footer = ${enable ? "enabled" : "disabled"}`;
 					} else if (id === "max_lines") {
 						const num = parseInt(value, 10);
-						if (!isNaN(num)) {
+						if (Number.isSafeInteger(num)) {
 							patch.safety = { max_lines: num };
 							desc = `Output clamping = ${num} lines`;
 						}
@@ -352,14 +352,14 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						category: "Retrieval & Exploration",
 						id: "tools",
 						label: "Passive Shield (Tool Gating)",
-						currentValue: currentConfig.retrieval.enable_tools ? "all (6 tools)" : "gated (core 3)",
-						values: ["gated (core 3)", "all (6 tools)"],
+						currentValue: currentConfig.retrieval.enable_tools ? "all (5 tools)" : "gated (core 3)",
+						values: ["gated (core 3)", "all (5 tools)"],
 						isGlobal: checkIsGlobal("tools"),
 						descriptions: {
 							"gated (core 3)":
 								"Passive Shield active: Only core tools (read, edit, code_search) are exposed. Gates exploratory tools to save ~3,400 prompt tokens per turn.",
-							"all (6 tools)":
-								"Passive Shield disabled: All 6 tools (including ast_search, get_repo_map, lsp) are exposed simultaneously. Higher token overhead.",
+							"all (5 tools)":
+								"Passive Shield disabled: All retrieval tools (including ast_search, get_repo_map) are exposed simultaneously. Higher token overhead.",
 						},
 					},
 					{
@@ -524,7 +524,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						for (const item of items) {
 							this.initialStates.set(item.id, {
 								value: item.currentValue,
-								isGlobal: !!item.isGlobal,
+								isGlobal: Boolean(item.isGlobal),
 							});
 						}
 					}
@@ -583,7 +583,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							if (!initial) continue;
 
 							const valueChanged = item.currentValue !== initial.value;
-							const scopeChanged = !!item.isGlobal !== initial.isGlobal;
+							const scopeChanged = Boolean(item.isGlobal) !== Boolean(initial.isGlobal);
 
 							if (valueChanged || scopeChanged) {
 								hasChanges = true;

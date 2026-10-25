@@ -184,11 +184,14 @@ export function findSymbolReferences(
 	if (!symbolName || !symbolName.trim()) return results;
 
 	// Strip potential module prefixes if passed
-	const cleanSym = symbolName.includes("::")
-		? symbolName.split("::").pop()!.trim()
-		: symbolName.includes(".")
-			? symbolName.split(".").pop()!.trim()
-			: symbolName.trim();
+	let cleanSym = symbolName.trim();
+	if (symbolName.includes("::")) {
+		const parts = symbolName.split("::");
+		cleanSym = (parts[parts.length - 1] ?? "").trim();
+	} else if (symbolName.includes(".")) {
+		const parts = symbolName.split(".");
+		cleanSym = (parts[parts.length - 1] ?? "").trim();
+	}
 	if (!cleanSym || RESERVED_KEYWORDS.has(cleanSym.toLowerCase())) return results;
 
 	const escaped = cleanSym.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -716,10 +719,11 @@ export function searchAstSymbols(
 
 	// If query.name contains dots or colons (e.g. "crate::state::KeyUsage" or "webshocket.WebSocketClient"), extract leaf
 	const cleanQueryName = query.name ? query.name.replace(/::/g, ".") : undefined;
-	const queryLeaf =
-		cleanQueryName && cleanQueryName.includes(".")
-			? cleanQueryName.split(".").pop()!
-			: cleanQueryName;
+	let queryLeaf = cleanQueryName;
+	if (cleanQueryName && cleanQueryName.includes(".")) {
+		const parts = cleanQueryName.split(".");
+		queryLeaf = parts[parts.length - 1];
+	}
 	const includeBody = query.includeBody ?? false;
 
 	walkWorkspaceFiles({
@@ -940,20 +944,21 @@ export function findSymbolSuggestions(
 
 	if (hits.length === 0) return [];
 
-	const maxDistance =
-		qLower.length <= 3 ? 1 : qLower.length <= 6 ? 2 : Math.max(3, Math.floor(qLower.length * 0.35));
+	let maxDistance = Math.max(3, Math.floor(qLower.length * 0.35));
+	if (qLower.length <= 3) {
+		maxDistance = 1;
+	} else if (qLower.length <= 6) {
+		maxDistance = 2;
+	}
 
 	const scored = hits
-		.filter((h) => {
+		.flatMap((h) => {
 			const nameLower = h.name.toLowerCase();
-			if (nameLower === qLower) return true;
-			if (nameLower.includes(qLower) || qLower.includes(nameLower)) return true;
+			const isExact = nameLower === qLower;
+			const isSubstring = nameLower.includes(qLower) || qLower.includes(nameLower);
 			const dist = levenshteinDistance(qLower, nameLower);
-			return dist <= maxDistance;
-		})
-		.map((h) => {
-			const nameLower = h.name.toLowerCase();
-			const dist = levenshteinDistance(qLower, nameLower);
+			if (!isExact && !isSubstring && dist > maxDistance) return [];
+
 			const normHitPath = h.filePath.replace(/\\/g, "/");
 			const isWindows = process.platform === "win32";
 			const r1 = path.resolve(cwd, normHitPath);
@@ -962,13 +967,13 @@ export function findSymbolSuggestions(
 				normHitPath === relTarget ||
 				(isWindows ? r1.toLowerCase() === r2.toLowerCase() : r1 === r2);
 			const exactCaseSub = h.name.includes(qTrim);
-			return {
+			return [{
 				hit: h,
 				dist,
 				isSameFile,
 				exactCaseSub,
 				lengthDiff: Math.abs(h.name.length - qTrim.length),
-			};
+			}];
 		})
 		.sort((a, b) => {
 			if (a.isSameFile !== b.isSameFile) return a.isSameFile ? -1 : 1;

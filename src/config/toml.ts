@@ -77,7 +77,12 @@ export function parseToml(tomlStr: string): Record<string, TomlValue> {
 		// Strip inline comment if not inside quote
 		rawValue = stripInlineComment(rawValue);
 
-		currentTable[key] = parseTomlValue(rawValue);
+		Object.defineProperty(currentTable, cleanKey, {
+			value: parseTomlValue(rawValue),
+			writable: true,
+			enumerable: true,
+			configurable: true,
+		});
 	}
 
 	return root;

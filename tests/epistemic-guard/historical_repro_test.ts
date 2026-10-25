@@ -48,7 +48,7 @@ export function testHistoricalSessionReproductions(): void {
 
 	try {
 		const upstreamRs = createSourceFile("src/upstream.rs", 800);
-		const lspToolTs = createSourceFile("src/tools/lsp_tool.ts", 700);
+		const editToolTs = createSourceFile("src/tools/edit_tool.ts", 700);
 
 		const guard = new EpistemicGuard();
 		const session = "historical-session-repro";
@@ -125,7 +125,7 @@ export function testHistoricalSessionReproductions(): void {
 		// HISTORICAL ROOT CAUSE 2: AMBIGUOUS DUPLICATE SEARCH BLOCK (Session 01a07f1d)
 		// Agent edits `if (localHover)` which appears at line 344 AND line 671!
 		// -------------------------------------------------------------------------
-		guard.recordFileRead(lspToolTs, session, tmpDir, undefined, {
+		guard.recordFileRead(editToolTs, session, tmpDir, undefined, {
 			coverage: { complete: false, ranges: [{ startLine: 340, endLine: 350 }] },
 			provenance: "read",
 		});
@@ -133,7 +133,7 @@ export function testHistoricalSessionReproductions(): void {
 		const duplicateBlock = `						if (localHover) {
 							return { content: [{ type: "text", text: localHover }] };
 						}`;
-		const preDup = preflightSurgicalPatchBlock(lspToolTs, duplicateBlock);
+		const preDup = preflightSurgicalPatchBlock(editToolTs, duplicateBlock);
 		assertPass(
 			"FIXED HISTORICAL BUG 2: preflight accurately flags duplicate match as ambiguous",
 			!preDup.success && preDup.isAmbiguous === true && (preDup.error || "").includes("ambiguous"),
@@ -145,11 +145,11 @@ export function testHistoricalSessionReproductions(): void {
 						if (localHover) {
 							return { content: [{ type: "text", text: localHover }] };
 						}`;
-		const preDisambiguated = preflightSurgicalPatchBlock(lspToolTs, disambiguatedBlock);
+		const preDisambiguated = preflightSurgicalPatchBlock(editToolTs, disambiguatedBlock);
 		assertPass("Disambiguated block locates uniquely", preDisambiguated.success, { preDisambiguated });
 
 		const resDisambiguated = guard.checkReadPrecondition(
-			lspToolTs,
+			editToolTs,
 			"edit",
 			session,
 			tmpDir,

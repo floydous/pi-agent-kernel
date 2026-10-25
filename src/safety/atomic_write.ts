@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
-import { kernelDebug } from "./kernel_debug";
+import { kernelDebug } from "./kernel_debug.js";
 
 function syncDirectory(directory: string): void {
   if (process.platform === "win32") return;

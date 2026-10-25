@@ -243,11 +243,12 @@ export class SearchControlModal implements Focusable {
 				const cursor = isSelected ? `${fgTitle} > ` : "   ";
 				const radio = isCurrentProfile ? `${fgSelected}[x]` : `${fgDim}[ ]`;
 
-				const labelText = isSelected
-					? `${fgActive}${item.label}`
-					: isCurrentProfile
-					? `${fgSelected}${item.label}`
-					: `${fgMuted}${item.label}`;
+				let labelText = `${fgMuted}${item.label}`;
+				if (isSelected) {
+					labelText = `${fgActive}${item.label}`;
+				} else if (isCurrentProfile) {
+					labelText = `${fgSelected}${item.label}`;
+				}
 
 				let descExtra = "";
 				if (item.profile === "hybrid" || item.profile === "full") {
@@ -296,9 +297,7 @@ export class SearchControlModal implements Focusable {
 		cardLines.push(bgCard + fgBorder + `╰${"─".repeat(innerW)}╯` + reset);
 
 		// Terminal height resolution for full-viewport coverage
-		const termHeight =
-			this.tui?.terminal?.rows ||
-			(process.stdout && process.stdout.rows ? process.stdout.rows : 24);
+		const termHeight = this.tui?.terminal?.rows || process.stdout?.rows || 24;
 
 		// Layout calculations for full-screen backdrop framing
 		const leftPad = Math.max(0, Math.floor((width - cardWidth) / 2));

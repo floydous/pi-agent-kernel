@@ -63,7 +63,7 @@ export const Pastel = {
  * Format numbers into compact token strings (e.g. 1.2k, 45k, 1.2M)
  */
 export function formatTokens(count: number): string {
-	if (isNaN(count) || count < 0) return "0";
+	if (!Number.isFinite(count) || count < 0) return "0";
 	if (count < 1000) return count.toString();
 	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
 	if (count < 1000000) return `${Math.round(count / 1000)}k`;
@@ -280,12 +280,12 @@ export function renderFooter(
 
 	// If retrieval is not yet recorded in extension statuses but searchIndex is provided, include it
 	if (searchIndex && !extEntries.some(([key]) => key === "retrieval")) {
-		const eff =
-			typeof searchIndex.getEffectiveProfile === "function"
-				? searchIndex.getEffectiveProfile()
-				: typeof searchIndex === "string"
-					? searchIndex
-					: "lean";
+		let eff = "lean";
+		if (typeof searchIndex.getEffectiveProfile === "function") {
+			eff = searchIndex.getEffectiveProfile();
+		} else if (typeof searchIndex === "string") {
+			eff = searchIndex;
+		}
 		if (eff !== "off") {
 			const tag = formatSearchEngineTag(searchIndex, true);
 			extEntries.push(["retrieval", tag]);

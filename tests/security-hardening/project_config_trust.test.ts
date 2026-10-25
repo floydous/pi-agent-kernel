@@ -107,7 +107,7 @@ export async function run(): Promise<void> {
       false,
       "trusted project setting must be applied after session trust is known",
     );
-    assert.deepEqual(tools, ["read", "edit", "code_search", "get_repo_map", "ast_search", "lsp"]);
+    assert.deepEqual(tools, ["read", "edit", "code_search", "get_repo_map", "ast_search"]);
 
     console.log("✓ Untrusted project config is ignored; trusted .pi config alone is applied!");
   } finally {

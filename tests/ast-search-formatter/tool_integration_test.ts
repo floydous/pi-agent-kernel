@@ -33,7 +33,7 @@ export async function testToolIntegrationWithEpistemicGuard(): Promise<void> {
 	// Run the tool against a known file
 	const res = await registeredTool.execute(
 		"call-s38",
-		{ filePattern: "src/lsp/lsp_formatter.ts", kind: "function" },
+		{ filePattern: "src/safety/output_clamper.ts", kind: "function" },
 		undefined,
 		() => {},
 		ctx
@@ -41,8 +41,8 @@ export async function testToolIntegrationWithEpistemicGuard(): Promise<void> {
 
 	assert.ok(res.content && res.content[0]);
 	const text = res.content[0].text;
-	assert.ok(text.startsWith("src/lsp/lsp_formatter.ts"));
-	assert.strictEqual((text.match(/src\/lsp\/lsp_formatter\.ts/g) || []).length, 1);
+	assert.ok(text.startsWith("src/safety/output_clamper.ts"));
+	assert.strictEqual((text.match(/src\/safety\/output_clamper\.ts/g) || []).length, 1);
 	assert.ok(text.includes("[function]"));
 	assert.ok(res.details.count > 0);
 

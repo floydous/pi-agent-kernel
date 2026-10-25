@@ -1,4 +1,4 @@
-import * as path from "path";
+import * as path from "node:path";
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { computeRepoMap } from "./retrieval/repomap";
@@ -18,7 +18,6 @@ import { speculativeToolsEnabled } from "./tools/context";
 import { registerCodeSearchTool } from "./tools/code_search_tool";
 import { registerReadTool } from "./tools/read_tool";
 import { registerEditTool } from "./tools/edit_tool";
-import { registerLspTool } from "./tools/lsp_tool";
 import { TreeSitterEngine } from "./retrieval/tree_sitter_engine";
 
 /**
@@ -106,7 +105,7 @@ function loadKernelGuidance(
 		rendered,
 		"",
 		"## Tool Integration Notice",
-		`Pi reports that another extension already owns: ${[...toolCollisions].sort().join(", ")}. Agent Kernel did not replace those tools. Kernel-specific output limits, read-before-write checks, or edit verification may not apply to them.`,
+		`Pi reports that another extension already owns: ${[...toolCollisions].sort((a, b) => a.localeCompare(b)).join(", ")}. Agent Kernel did not replace those tools. Kernel-specific output limits, read-before-write checks, or edit verification may not apply to them.`,
 	].filter(Boolean).join("\n");
 }
 
@@ -123,15 +122,6 @@ function appendKernelGuidance(systemPrompt: string, guidance: string): string {
 import { clampCommandOutput, getSpilloverRoot } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { formatSearchEngineTag, renderFooter } from "./ui/footer";
-import {
-	LspManager,
-	LspControlModal,
-	LspDownloadModal,
-	formatDiagnostics,
-	installLanguageServer,
-	LSP_SERVERS,
-	findExecutable,
-} from "./lsp";
 
 export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// Initialize TreeSitter WASM engine eagerly in background
@@ -139,7 +129,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		kernelDebug(`TreeSitter background init error: ${err}`);
 	});
 
-	// 3. Slash Commands: /repomap, /engine, /lsp, /pi-docs
+	// 3. Slash Commands: /repomap, /engine, /pi-docs
 	let activeTui: any = null;
 	let projectTrusted = false;
 	const configByWorkspace = new Map<
@@ -217,7 +207,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		);
 
 		const runSync = async () => {
-			return await index.syncWorkspace(
+			return index.syncWorkspace(
 				isFullSync,
 				(msg: string) => {
 					if (currentGeneration !== activeIndexingGeneration) return;
@@ -609,129 +599,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// Slash Command: /lsp (Inspect language servers, active daemons, or install language servers)
-	pi.registerCommand("lsp", {
-		description:
-			"Inspect language servers, active daemons, or install servers (/lsp, /lsp install <lang>)",
-		getArgumentCompletions: (prefix: string) => {
-			const options = [
-				{
-					value: "status",
-					label: "status - View LSP status and active daemon processes",
-				},
-				{ value: "stop", label: "stop - Stop all active LSP daemon processes" },
-				{
-					value: "install",
-					label:
-						"install - Install an LSP server (e.g. pyright, typescript-language-server, gopls, rust-analyzer, clangd)",
-				},
-			];
-			const filtered = options.filter((o) =>
-				o.value.startsWith(prefix.toLowerCase()),
-			);
-			return filtered.length > 0 ? filtered : null;
-		},
-		async handler(args: string, ctx: any) {
-			const sub = args.trim().split(/\s+/);
-			const lspMgr = LspManager.getInstance();
-
-			if (sub[0] === "install" && sub[1]) {
-				const target = sub[1];
-				if (ctx.hasUI && ctx.ui?.notify) {
-					ctx.ui.notify(`Installing LSP server for ${target}...`, "info");
-				}
-				const res = await installLanguageServer(target, (msg) => {
-					if (ctx.hasUI && ctx.ui?.notify) {
-						ctx.ui.notify(msg, "info");
-					}
-				});
-				if (res.success) {
-					ctx.ui?.notify?.(res.message, "info");
-				} else {
-					ctx.ui?.notify?.(res.message, "error");
-				}
-				return;
-			}
-
-			if (sub[0] === "stop" || sub[0] === "kill") {
-				await lspMgr.stopAll();
-				ctx.ui?.notify?.("All active LSP servers stopped.", "info");
-				return;
-			}
-
-			// Interactive centered modal dialog with full-viewport backdrop scrim
-			if (ctx.hasUI && ctx.ui?.custom) {
-				const res: any = await ctx.ui.custom(
-					(tui: any, theme: any, _keybindings: any, done: any) =>
-						new LspControlModal(tui, lspMgr, theme, done),
-					{
-						overlay: true,
-						overlayOptions: {
-							anchor: "center",
-							width: "100%",
-						},
-					},
-				);
-
-				if (res) {
-					if (res.action === "stop") {
-						await lspMgr.stopAll();
-						ctx.ui?.notify?.("All active LSP servers stopped.", "info");
-					} else if (res.installTargets && res.installTargets.length > 0) {
-						// Spawn animated ASCII loading spinner modal
-						await ctx.ui.custom(
-							(tui: any, theme: any, _keybindings: any, done: any) =>
-								new LspDownloadModal(tui, res.installTargets, theme, done),
-							{
-								overlay: true,
-								overlayOptions: {
-									anchor: "center",
-									width: "100%",
-								},
-							},
-						);
-					}
-				}
-				return;
-			}
-
-			const activeClients = lspMgr.getStatus();
-			if (ctx.hasUI && ctx.ui?.select) {
-				const lines = [
-					`── Active LSP Daemons (${activeClients.length}) ────────────────`,
-					...activeClients.map(
-						(c) =>
-							`[Active] ${c.languageId.toUpperCase()} (State: ${c.state}, Idle: ${c.idleSeconds}s)`,
-					),
-					`── Installed / Available Servers ─────────────────────────────`,
-					...Object.entries(LSP_SERVERS)
-						.slice(0, 10)
-						.map(([k, cfg]) => {
-							const primaryBin = cfg.commands[0]?.bin;
-							const found = findExecutable(primaryBin);
-							return `[${found ? "✓" : "✗"}] ${k.padEnd(12)} → ${primaryBin} ${found ? `(${found})` : "(not installed)"}`;
-						}),
-					`── Actions ───────────────────────────────────────────────────`,
-					`Stop all active LSP daemons`,
-				];
-
-				const choice = await ctx.ui.select("LSP Server Status & Management", lines);
-				if (choice?.includes("Stop all active")) {
-					await lspMgr.stopAll();
-					ctx.ui.notify("All active LSP servers stopped.", "info");
-				}
-				return;
-			}
-
-			// Console fallback
-			let out = `=== LSP Status ===\nActive Daemons: ${activeClients.length}\n`;
-			for (const c of activeClients) {
-				out += `  • ${c.languageId}: ${c.state} (idle: ${c.idleSeconds}s, root: ${c.rootDir})\n`;
-			}
-			console.log(out);
-		},
-	});
-
 	// Background workspace auto-indexer on session startup + setup integrated footer
 	pi.on("session_start", async (_event: any, ctx: any) => {
 		projectTrusted = ctx.isProjectTrusted?.() === true;
@@ -749,19 +616,14 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		}
 	});
 
-	// 2. Per-session cleanup of the epistemic guard's inspection state and LSP processes.
+	// 2. Per-session cleanup of the epistemic guard's inspection state.
 	// Without this, Map<sessionId, Set<filePath>> grows unbounded over a
 	// long-lived process hosting many sessions (e.g. RPC mode). On session
-	// shutdown we drop only this session's entry and stop running LSP daemons.
+	// shutdown we drop only this session's entry.
 	pi.on("session_shutdown", async (_event: any, ctx: any) => {
 		const sessionId = getSessionId(ctx);
 		piDocsEnabledBySession.delete(sessionId);
 		globalEpistemicGuard.resetSession(sessionId);
-		try {
-			await LspManager.getInstance().stopAll();
-		} catch (e) {
-			kernelDebug(e);
-		}
 		// Flush any debounced search index writes to disk on shutdown and halt further admissions
 		for (const index of searchIndexes.values()) {
 			try {
@@ -827,7 +689,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			if (canRegister("ast_search")) {
 				registerAstSearchTool(pi, { getSessionId, getConfig });
 			}
-			if (canRegister("lsp")) registerLspTool(pi, { getSessionId, getConfig });
 		}
 	};
 
@@ -839,7 +700,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 			const sessionId = getSessionId(ctx);
 			if (event.toolName !== "write") return;
-			const targetPath = (event.input as any)?.path;
+			const targetPath = (event.input as Record<string, unknown> | undefined)?.path;
 			if (typeof targetPath !== "string" || !targetPath.trim()) {
 				return {
 					block: true,
@@ -886,7 +747,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 		// 9a. Intercept bash & powershell output to clamp minified lines & massive match floods
 		if (toolName === "bash" || toolName === "powershell") {
-			const command = (event.input as any)?.command || "";
+			const command = String((event.input as Record<string, unknown> | undefined)?.command || "");
 			const outputConfig = getConfig(
 				ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd(),
 			);
@@ -916,8 +777,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				getSessionId(ctx),
 				bashOutputComplete,
 				(resultContent || [])
-					.filter((c: any) => c.type === "text" && typeof c.text === "string")
-					.map((c: any) => c.text)
+					.flatMap((c: any) => (c?.type === "text" && typeof c?.text === "string" ? [c.text] : []))
 					.join(""),
 			);
 			if (event.isError) {
@@ -929,10 +789,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 		// 9b. Preserve the host write-tool compatibility path. The custom edit
 		// tool owns its complete verification lifecycle; intercepting edit results
-		// here would duplicate syntax/LSP work.
+		// here would duplicate syntax verification work.
 		if (toolName === "write") {
-			const input = event.input as any;
-			const targetPath = input?.path;
+			const input = event.input as Record<string, unknown> | undefined;
+			const targetPath = typeof input?.path === "string" ? input.path : undefined;
 
 			// The harness does not reliably propagate result-level isError to this
 			// hook, so a failed edit can still reach here. Detect the edit tool's
@@ -980,39 +840,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					resultContent = event.content.map((c: any) =>
 						c.type === "text" ? { ...c, text: c.text + warning } : c,
 					);
-				} else {
-					// Synchronize with active LSP daemon and fetch post-edit diagnostics if available
-					let lspNotice = "";
-					try {
-						const lspMgr = LspManager.getInstance();
-						const client = lspMgr.getReadyClientForFile(resolvedPath, resultCwd);
-						if (client && client.getState() === "ready") {
-							const fileContent = fs.readFileSync(resolvedPath, "utf8");
-							await client.changeDocument(resolvedPath, fileContent);
-							await client.saveDocument(resolvedPath, fileContent);
-
-							// Allow LSP server brief window to compute diagnostics
-							const diagnostics = await client.getDiagnosticsResult(resolvedPath);
-							if (diagnostics.diagnostics.length > 0) {
-								const formattedDiags = formatDiagnostics(
-									diagnostics.diagnostics,
-									resolvedPath,
-									resultCwd,
-								);
-								lspNotice = `\n\n[LSP Diagnostics]\n${formattedDiags}`;
-							} else if (diagnostics.status !== "clean") {
-								lspNotice = `\n\n[LSP ${diagnostics.status.toUpperCase()}] No definitive diagnostics result.`;
-							}
-						}
-					} catch (e) {
-						kernelDebug(e);
-					}
-
-					if (lspNotice) {
-						resultContent = event.content.map((c: any) =>
-							c.type === "text" ? { ...c, text: c.text + lspNotice } : c,
-						);
-					}
 				}
 			}
 		}
@@ -1076,11 +903,13 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			? loadKernelGuidance(toolCollisions, promptToolNames)
 			: "";
 		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
-		const shouldAppendRuntime = runtimeContext && !guidedPrompt.includes(runtimeContext.trim());
-		return {
-			systemPrompt: guidedPrompt
-				? (shouldAppendRuntime ? `${guidedPrompt}\n\n${runtimeContext}` : guidedPrompt)
-				: runtimeContext,
-		};
+		const shouldAppendRuntime = Boolean(runtimeContext && !guidedPrompt.includes(runtimeContext.trim()));
+		let finalPrompt = guidedPrompt;
+		if (guidedPrompt && shouldAppendRuntime) {
+			finalPrompt = `${guidedPrompt}\n\n${runtimeContext}`;
+		} else if (!guidedPrompt) {
+			finalPrompt = runtimeContext;
+		}
+		return { systemPrompt: finalPrompt };
 	});
 }

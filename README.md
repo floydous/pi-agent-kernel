@@ -8,20 +8,20 @@ Coding agents waste context when they read entire files to inspect one function,
 
 ## Benchmarks
 
-Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`) with `cx/gpt-5.6-luna:high`:
+Evaluating 6 coding agent harnesses across 8 bug fixes (`hono`, `ky`, `zod`, `ufo`, `picomatch`, `fastify`, `uuid`, `p-limit`) with `cx/gpt-6-luna-high` (OmniRoute, concurrency 4, 360s timeout). Pi harnesses report mean values across 3 repeated runs (N=3):
 
-| Harness | Solved | Success | Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
+| Harness | Solved | Success | Aggregate Task Time | Input Tokens | Output Tokens | Total Turn Tokens | Tool Calls |
 |---|:---:|:---:|---:|---:|---:|---:|:---:|
-| Pi + Agent-Kernel | 8 / 8 | 100% | 10m 00s | 270k | 13.5k | 861k | 107 |
-| Pi (Vanilla) | 8 / 8 | 100% | 20m 24s | 709k | 32.3k | 1.54M | 149 |
-| Codex CLI | 8 / 8 | 100% | 20m 28s | 3.24M | 40.1k | 3.28M | 102 |
-| OpenCode | 8 / 8 | 100% | 25m 57s | 1.42M | 23.0k | 3.61M | 229 |
-| OMP | 7 / 8 | 87.5% | 19m 24s | 906k | 29.8k | 4.16M | 384 |
-| Claude Code | 6 / 8 | 75.0% | 36m 00s | 4.39M | 85.8k | 4.48M | 183 |
+| Pi + Agent-Kernel (N=3) | 8 / 8 | 100% | 7m 43s | 555k | 14.7k | 759k | 104 |
+| Pi (Vanilla) (N=3) | 7.7 / 8 | 95.8% | 8m 20s | 786k | 15.9k | 1.07M | 94 |
+| OpenCode | 8 / 8 | 100% | 13m 49s | 555k | 14.6k | 3.06M | 152 |
+| OMP | 8 / 8 | 100% | 16m 14s | 2.37M | 27.3k | 7.24M | 342 |
+| Claude Code | 8 / 8 | 100% | 19m 39s | 6.38M | 129.4k | 6.51M | 189 |
+| Codex CLI | 8 / 8 | 100% | 28m 56s | 4.17M | 47.5k | 4.22M | 155 |
 
 ![Benchmark Comparison](static/benchmark-comparison.png)
 
-*Prompts describe symptoms and expected behavior without providing the fix. Token totals reflect each tool's reported telemetry. In Claude Code, 1 additional task passed test verification after timing out.*
+*Prompts describe symptoms and expected behavior without providing the fix. Aggregate Task Time reflects the sum of per-task runtimes under concurrency 4. Total tokens and tool calls reflect harness-reported telemetry across all conversational turns. Pi + Agent-Kernel solved 24/24 trials (100%), while Pi Vanilla solved 23/24 trials (95.8%).*
 
 ---
 
@@ -94,22 +94,7 @@ You can also manage settings from the command line:
 
 ---
 
-### 4. Language servers (`/lsp`)
-
-Run `/lsp` to check detected languages, connection states, and installation status:
-
-```text
-/lsp
-```
-
-To install a server directly:
-```text
-/lsp install <language>    # e.g. python, typescript, rust, go, csharp
-```
-
----
-
-### 5. Disable Pi documentation for external projects
+### 4. Disable Pi documentation for external projects
 
 Pi injects reference documentation for building Pi extensions into every session. When working on ordinary codebases, you can hide those docs to save prompt space:
 
@@ -132,7 +117,7 @@ Use `/pi-docs on` when returning to work on Pi extensions.
 | `code_search` | Combines AST BM25 keyword matching and semantic embeddings with symbol breadcrumbs. |
 
 > [!NOTE]
-> Exploratory tools (`ast_search`, `get_repo_map`, `lsp`) are disabled by default (`enable_tools = false`) to reduce per-turn token overhead. You can enable them with `/agent-kernel set tools all` or by setting `PI_ENABLE_ALL_RETRIEVAL_TOOLS=1`.
+> Exploratory tools (`ast_search`, `get_repo_map`) are disabled by default (`enable_tools = false`) to reduce per-turn token overhead. You can enable them with `/agent-kernel set tools all` or by setting `PI_ENABLE_ALL_RETRIEVAL_TOOLS=1`.
 
 ---
 

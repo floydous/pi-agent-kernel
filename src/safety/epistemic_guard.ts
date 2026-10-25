@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { kernelDebug } from "./kernel_debug";
+import { writeFileSyncAtomic } from "./atomic_write";
 import { getPiHomeDir } from "../config/kernel_config";
 
 /**
@@ -575,6 +576,78 @@ export function getInspectionStateFilePath(sessionId: string, cwd = process.cwd(
 	return path.join(baseDir, "inspection-state.json");
 }
 
+interface PersistedSearchHit {
+	line: number;
+}
+
+interface PersistedInspectionRecord {
+	kind: "read" | "search";
+	fingerprint: string;
+	coverage?: unknown;
+	provenance?: string;
+	query?: string;
+	searchHits?: PersistedSearchHit[];
+}
+
+function isSafeWorkspaceRelPath(rel: string): boolean {
+	const normalized = rel.replace(/\\/g, "/");
+	return normalized !== ".." && !normalized.startsWith("../") && !path.isAbsolute(normalized);
+}
+
+function isSafePersistedRecord(rec: unknown): rec is PersistedInspectionRecord {
+	if (!rec || typeof rec !== "object" || Array.isArray(rec)) return false;
+	const r = rec as Record<string, unknown>;
+	if (r.kind !== "read" && r.kind !== "search") return false;
+	if (typeof r.fingerprint !== "string" || !/^[0-9a-f]{64}$/i.test(r.fingerprint)) return false;
+	if (r.provenance !== undefined && (typeof r.provenance !== "string" || r.provenance.length > 128)) return false;
+	if (r.query !== undefined && (typeof r.query !== "string" || r.query.length > 1024)) return false;
+	if (r.searchHits !== undefined) {
+		if (!Array.isArray(r.searchHits) || r.searchHits.length > 1000) return false;
+		for (const h of r.searchHits) {
+			if (!h || typeof h !== "object" || typeof (h as any).line !== "number" || !Number.isSafeInteger((h as any).line) || (h as any).line < 1) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+function parsePersistedCoverage(coverage: unknown, kind: "read" | "search"): EvidenceCoverage {
+	if (!coverage || typeof coverage !== "object") {
+		return { complete: false, ranges: [] };
+	}
+	const c = coverage as Record<string, unknown>;
+	const complete = kind === "read" && c.complete === true;
+	const totalLines =
+		typeof c.totalLines === "number" && Number.isSafeInteger(c.totalLines) && c.totalLines >= 0
+			? c.totalLines
+			: undefined;
+	const rawRanges = Array.isArray(c.ranges) ? c.ranges : [];
+	const validRanges: EvidenceRange[] = [];
+	for (const r of rawRanges.slice(0, 1000)) {
+		if (
+			r &&
+			typeof r === "object" &&
+			typeof (r as any).startLine === "number" &&
+			typeof (r as any).endLine === "number" &&
+			Number.isSafeInteger((r as any).startLine) &&
+			Number.isSafeInteger((r as any).endLine) &&
+			(r as any).startLine >= 1 &&
+			(r as any).endLine >= (r as any).startLine
+		) {
+			validRanges.push({
+				startLine: (r as any).startLine,
+				endLine: (r as any).endLine,
+			});
+		}
+	}
+	return {
+		complete,
+		ranges: normalizeRanges(validRanges, totalLines),
+		...(totalLines !== undefined ? { totalLines } : {}),
+	};
+}
+
 export function saveSessionInspectionState(
 	sessionId: string,
 	evidenceMap: Map<string, InspectionEvidence>,
@@ -587,10 +660,10 @@ export function saveSessionInspectionState(
 		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 
 		const canonicalWorkspace = fs.existsSync(cwd) ? fs.realpathSync(cwd) : path.resolve(cwd);
-		const records: Record<string, any> = {};
+		const records: Record<string, PersistedInspectionRecord> = {};
 		for (const [absPath, ev] of evidenceMap.entries()) {
 			const rel = path.relative(canonicalWorkspace, absPath).replace(/\\/g, "/");
-			if (rel.startsWith("..") || path.isAbsolute(rel)) continue;
+			if (!isSafeWorkspaceRelPath(rel)) continue;
 			records[rel] = {
 				kind: ev.kind,
 				fingerprint: ev.fingerprint,
@@ -601,13 +674,10 @@ export function saveSessionInspectionState(
 			};
 		}
 
-		const tmpPath = `${filePath}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-		fs.writeFileSync(
-			tmpPath,
+		writeFileSyncAtomic(
+			filePath,
 			JSON.stringify({ version: 1, workspace: canonicalWorkspace, records }, null, 2),
-			{ encoding: "utf8", mode: 0o600 },
 		);
-		fs.renameSync(tmpPath, filePath);
 	} catch (err) {
 		kernelDebug(err);
 	}
@@ -626,44 +696,51 @@ export function loadSessionInspectionState(
 		if (!stat.isFile() || stat.size > 2 * 1024 * 1024) return result;
 
 		const raw = fs.readFileSync(filePath, "utf8");
-		let data: any;
+		let data: { version?: unknown; records?: unknown };
 		try {
 			data = JSON.parse(raw);
 		} catch {
 			return result;
 		}
-		if (!data || data.version !== 1 || !data.records || typeof data.records !== "object") return result;
+		if (!data || data.version !== 1 || !data.records || typeof data.records !== "object" || Array.isArray(data.records)) {
+			return result;
+		}
+
+		const entries = Object.entries(data.records as Record<string, unknown>);
+		if (entries.length > 1000) return result;
 
 		const canonicalWorkspace = fs.existsSync(cwd) ? fs.realpathSync(cwd) : path.resolve(cwd);
-		for (const [relPath, rec] of Object.entries(data.records as Record<string, any>)) {
-			if (!relPath || typeof relPath !== "string" || relPath.includes("\0")) continue;
+		for (const [relPath, rawRec] of entries) {
+			if (!relPath || typeof relPath !== "string" || relPath.length > 512 || relPath.includes("\0")) continue;
+			if (!isSafeWorkspaceRelPath(relPath)) continue;
+			if (!isSafePersistedRecord(rawRec)) continue;
+
 			const absPath = path.resolve(canonicalWorkspace, relPath);
-			const relCheck = path.relative(canonicalWorkspace, absPath).replace(/\\/g, "/");
-			if (relCheck.startsWith("..") || path.isAbsolute(relCheck)) continue;
+			const relCheck = path.relative(canonicalWorkspace, absPath);
+			if (!isSafeWorkspaceRelPath(relCheck)) continue;
 
 			if (!fs.existsSync(absPath) || !fs.statSync(absPath).isFile()) continue;
 			// Ensure symlinks pointing outside workspace root are rejected
 			const canonicalFile = fs.realpathSync(absPath);
-			const realRelCheck = path.relative(canonicalWorkspace, canonicalFile).replace(/\\/g, "/");
-			if (realRelCheck.startsWith("..") || path.isAbsolute(realRelCheck)) continue;
+			const realRelCheck = path.relative(canonicalWorkspace, canonicalFile);
+			if (!isSafeWorkspaceRelPath(realRelCheck)) continue;
 
 			const content = fs.readFileSync(absPath);
 			const currentFingerprint = crypto.createHash("sha256").update(content).digest("hex");
-			if (currentFingerprint !== rec.fingerprint) continue;
+			if (currentFingerprint !== rawRec.fingerprint) continue;
 
 			const normalized = process.platform === "win32" ? absPath.toLowerCase() : absPath;
-			const hits = Array.isArray(rec.searchHits)
-				? rec.searchHits
-						.filter((h: any) => h && typeof h.line === "number" && Number.isFinite(h.line) && h.line >= 1)
-						.map((h: any) => ({ line: Math.floor(h.line) }))
+			if (result.has(normalized)) continue; // Prevent later duplicate entries from weakening prior verified evidence
+			const hits = Array.isArray(rawRec.searchHits)
+				? rawRec.searchHits.map((h) => ({ line: Math.floor(h.line) }))
 				: undefined;
 
 			result.set(normalized, {
-				kind: rec.kind === "read" ? "read" : "search",
-				fingerprint: rec.fingerprint,
-				coverage: normalizeCoverage(rec.coverage),
-				provenance: rec.provenance || "read",
-				query: rec.query,
+				kind: rawRec.kind,
+				fingerprint: rawRec.fingerprint,
+				coverage: parsePersistedCoverage(rawRec.coverage, rawRec.kind),
+				provenance: (rawRec.provenance || "read") as any,
+				query: rawRec.query,
 				searchHits: hits,
 			});
 		}
@@ -937,9 +1014,6 @@ export class EpistemicGuard {
 		outputComplete: boolean,
 		outputText = "",
 	): void {
-		const isGrepOrRg =
-			/^\s*(?:grep|rg)(?:\.exe)?(?:\s|$)/i.test(command) ||
-			/\b(grep|rg)\b/i.test(command);
 		const isPaging = /\b(head|tail|sed)\b/i.test(command);
 		const isCat = /\bcat\b/i.test(command);
 
@@ -1213,7 +1287,9 @@ export class EpistemicGuard {
 								ranges: [range],
 							});
 							isAuthorized = true;
-						} catch {}
+						} catch (err) {
+							kernelDebug(err);
+						}
 					}
 				}
 

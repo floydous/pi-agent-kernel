@@ -9,9 +9,7 @@ to `src/editing/patch.ts`.
 2. Apply one search/replace block or multiple disjoint blocks.
 3. Enforce the read-before-write guard for existing files when enabled. Successful edits update the epistemic ledger to maintain continuity across sequential edits without redundant reads.
 4. Validate the complete candidate content with the bounded local syntax gate; the target is written only after validation succeeds.
-5. Reuse an already-ready LSP client when one exists; verification does not
-   start a new language server or trigger broad analysis.
-6. Return compact status text and structured verification details.
+5. Return compact status text and structured verification details.
 
 The patch engine tries exact and normalized matching strategies and refuses an
 ambiguous or missing match rather than guessing.

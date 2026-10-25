@@ -1,4 +1,4 @@
-import * as fs from "fs";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveUserPath } from "../safety/epistemic_guard";
 import * as diff from "diff";
@@ -10,7 +10,7 @@ import { getUnclosedDelimiters, healJsonContent } from "./auto_heal";
  *
  * `success: true` means the requested block was located, the complete
  * candidate content passed the local syntax gate, and the target was written.
- * It does not imply type correctness, semantic correctness, or clean LSP
+ * It does not imply type correctness, semantic correctness, or project-wide
  * diagnostics; those checks remain the caller's responsibility.
  */
 export interface PatchResult {
@@ -337,7 +337,7 @@ export function preflightSurgicalPatchBlock(
 	const resolvedPath = resolvePatchPath(filePath);
 	const target = readPatchTarget(resolvedPath);
 	if ("error" in target) {
-		const err = (target.error as any).error || "Could not read target file";
+		const err = target.error.error || "Could not read target file";
 		return { success: false, error: err };
 	}
 	const result = applySingleBlock(target.content, search, "", options);
@@ -515,11 +515,12 @@ export function applySurgicalPatch(
 		return writeError;
 	}
 
-	const finalStrategy = autoHealed
-		? `${result.strategy} (auto-healed syntax)`
-		: !syntax.valid
-			? `${result.strategy} (applied with syntax warning)`
-			: result.strategy;
+	let finalStrategy = result.strategy;
+	if (autoHealed) {
+		finalStrategy = `${result.strategy} (auto-healed syntax)`;
+	} else if (!syntax.valid) {
+		finalStrategy = `${result.strategy} (applied with syntax warning)`;
+	}
 
 	return {
 		success: true,
@@ -588,10 +589,19 @@ export function applyMultiBlockPatch(
 			};
 		}
 
+		const targetRange = located.targetRange;
+		if (!targetRange) {
+			return {
+				success: false,
+				filePath: resolvedPath,
+				strategy: "none",
+				error: `Block ${i + 1}/${blocks.length} missing target range in ${resolvedPath}`,
+			};
+		}
 		const overlaps = plannedRanges.some(
 			(range) =>
-				range.startLine <= located.targetRange!.endLine &&
-				located.targetRange!.startLine <= range.endLine,
+				range.startLine <= targetRange.endLine &&
+				targetRange.startLine <= range.endLine,
 		);
 		if (overlaps) {
 			return {
@@ -601,7 +611,7 @@ export function applyMultiBlockPatch(
 				error: `Block ${i + 1}/${blocks.length} overlaps another patch target in ${resolvedPath}.`,
 			};
 		}
-		plannedRanges.push({ ...located.targetRange });
+		plannedRanges.push({ ...targetRange });
 	}
 
 	let currentContent = originalContent;
@@ -671,11 +681,12 @@ export function applyMultiBlockPatch(
 		return writeError;
 	}
 
-	const finalStrategy = autoHealed
-		? `${appliedStrategies.join(", ")} (auto-healed syntax)`
-		: !syntax.valid
-			? `${appliedStrategies.join(", ")} (applied with syntax warning)`
-			: appliedStrategies.join(", ");
+	let finalStrategy = appliedStrategies.join(", ");
+	if (autoHealed) {
+		finalStrategy = `${appliedStrategies.join(", ")} (auto-healed syntax)`;
+	} else if (!syntax.valid) {
+		finalStrategy = `${appliedStrategies.join(", ")} (applied with syntax warning)`;
+	}
 
 	return {
 		success: true,

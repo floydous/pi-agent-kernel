@@ -92,9 +92,19 @@ export class TreeSitterEngine {
 
 		this.initPromise = (async () => {
 			try {
-				const wts = await import("web-tree-sitter");
-				this.ParserClass = (wts as any).Parser || (wts as any).default?.Parser || wts;
-				this.LanguageClass = (wts as any).Language || (wts as any).default?.Language;
+				interface WtsModule {
+					Parser?: any;
+					Language?: any;
+					default?: {
+						Parser?: any;
+						Language?: any;
+					};
+				}
+				// SAFETY: web-tree-sitter exports its Parser and Language classes either directly
+				// or on the default export depending on whether it is imported via CJS or ESM loader.
+				const wts = (await import("web-tree-sitter")) as unknown as WtsModule;
+				this.ParserClass = wts.Parser || wts.default?.Parser || wts;
+				this.LanguageClass = wts.Language || wts.default?.Language;
 
 				let wtsDir = getGrammarsDir();
 				const localWtsWasm = path.join(wtsDir, "web-tree-sitter.wasm");
@@ -265,7 +275,8 @@ export class TreeSitterEngine {
 					}
 					// Stop traversal into function body
 					return;
-				} else if (type === "class_declaration" || type === "abstract_class_declaration") {
+				}
+				if (type === "class_declaration" || type === "abstract_class_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -284,13 +295,15 @@ export class TreeSitterEngine {
 						}
 					}
 					return;
-				} else if (type === "ambient_declaration") {
+				}
+				if (type === "ambient_declaration") {
 					// Unwrap ambient_declaration (e.g. declare function foo(), declare const X)
 					for (const child of node.namedChildren) {
 						visit(child, inFunctionScope);
 					}
 					return;
-				} else if (type === "function_signature") {
+				}
+				if (type === "function_signature") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -302,7 +315,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "interface_declaration") {
+				}
+				if (type === "interface_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -320,7 +334,8 @@ export class TreeSitterEngine {
 						}
 					}
 					return;
-				} else if (type === "method_signature" || type === "abstract_method_signature") {
+				}
+				if (type === "method_signature" || type === "abstract_method_signature") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -332,7 +347,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "type_alias_declaration") {
+				}
+				if (type === "type_alias_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -344,7 +360,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "enum_declaration") {
+				}
+				if (type === "enum_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -356,7 +373,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "method_definition") {
+				}
+				if (type === "method_definition") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -369,7 +387,8 @@ export class TreeSitterEngine {
 					}
 					// Method definition has been recorded; do not traverse inside method body
 					return;
-				} else if ((type === "lexical_declaration" || type === "variable_declaration") && (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs")) {
+				}
+				if ((type === "lexical_declaration" || type === "variable_declaration") && (ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cjs")) {
 					// Only top-level variable declarations (in program or export statement)
 					const isTopLevel = node.parent?.type === "program" || node.parent?.type === "export_statement";
 					if (isTopLevel) {
@@ -380,9 +399,15 @@ export class TreeSitterEngine {
 								if (nameNode) {
 									const isFn = valueNode && (valueNode.type === "arrow_function" || valueNode.type === "function");
 									const isAllUpper = /^[A-Z0-9_]{2,}$/.test(nameNode.text);
+									let kind: "function" | "constant" | "variable" = "variable";
+									if (isFn) {
+										kind = "function";
+									} else if (isAllUpper) {
+										kind = "constant";
+									}
 									definitions.push({
 										name: nameNode.text,
-										kind: isFn ? "function" : isAllUpper ? "constant" : "variable",
+										kind,
 										signature: getCleanSignature(node).replace(/^export\s+/, ""),
 										line: node.startPosition.row + 1,
 										endLine: node.endPosition.row + 1,
@@ -395,7 +420,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- Python ---
-				else if (type === "function_definition" && (ext === ".py")) {
+				if (type === "function_definition" && (ext === ".py")) {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						let isMethod = false;
@@ -416,14 +441,16 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "decorated_definition" && (ext === ".py")) {
+				}
+				if (type === "decorated_definition" && (ext === ".py")) {
 					// Unwrap python decorator to find inner function or class definition
 					const defNode = node.childForFieldName("definition") || node.namedChildren.find((c: any) => c.type === "function_definition" || c.type === "class_definition");
 					if (defNode) {
 						visit(defNode, inFunctionScope);
 					}
 					return;
-				} else if (type === "class_definition" && (ext === ".py")) {
+				}
+				if (type === "class_definition" && (ext === ".py")) {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -441,13 +468,14 @@ export class TreeSitterEngine {
 						}
 					}
 					return;
-				} else if (type === "expression_statement" && (ext === ".py")) {
+				}
+				if (type === "expression_statement" && (ext === ".py")) {
 					// Expression statements in Python do not define repository symbols
 					return;
 				}
 
 				// --- Rust ---
-				else if (type === "function_item") {
+				if (type === "function_item") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						const isMethod = node.parent && node.parent.type === "declaration_list" && node.parent.parent && node.parent.parent.type === "impl_item";
@@ -460,7 +488,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "struct_item" || type === "enum_item" || type === "trait_item") {
+				}
+				if (type === "struct_item" || type === "enum_item" || type === "trait_item") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -489,7 +518,8 @@ export class TreeSitterEngine {
 						}
 					}
 					return;
-				} else if (type === "type_item") {
+				}
+				if (type === "type_item") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -501,7 +531,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "const_item" || type === "static_item") {
+				}
+				if (type === "const_item" || type === "static_item") {
 					const isTopLevel = node.parent?.type === "source_file" || node.parent?.type === "declaration_list";
 					if (isTopLevel) {
 						const nameNode = node.childForFieldName("name");
@@ -519,7 +550,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- Go ---
-				else if (type === "function_declaration") {
+				if (type === "function_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -531,7 +562,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "method_declaration") {
+				}
+				if (type === "method_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -543,7 +575,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "type_declaration") {
+				}
+				if (type === "type_declaration") {
 					for (const child of node.namedChildren) {
 						if (child.type === "type_spec") {
 							const nameNode = child.childForFieldName("name");
@@ -580,7 +613,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- C / C++ ---
-				else if (type === "function_definition" && (ext === ".c" || ext === ".cpp" || ext === ".h" || ext === ".hpp" || ext === ".cc")) {
+				if (type === "function_definition" && (ext === ".c" || ext === ".cpp" || ext === ".h" || ext === ".hpp" || ext === ".cc")) {
 					let isMethod = false;
 					let p = node.parent;
 					while (p) {
@@ -614,7 +647,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "class_specifier" || type === "struct_specifier") {
+				}
+				if (type === "class_specifier" || type === "struct_specifier") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -635,7 +669,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- Java / C# ---
-				else if (type === "constructor_declaration" || type === "method_declaration") {
+				if (type === "constructor_declaration" || type === "method_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -647,7 +681,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if (type === "enum_declaration" && (ext === ".cs" || ext === ".java")) {
+				}
+				if (type === "enum_declaration" && (ext === ".cs" || ext === ".java")) {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -662,7 +697,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- Ruby ---
-				else if (type === "method" || type === "singleton_method") {
+				if (type === "method" || type === "singleton_method") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						let isMethod = false;
@@ -683,7 +718,8 @@ export class TreeSitterEngine {
 						});
 					}
 					return;
-				} else if ((type === "class" || type === "module") && ext === ".rb") {
+				}
+				if ((type === "class" || type === "module") && ext === ".rb") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -704,7 +740,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- PHP ---
-				else if (type === "method_declaration") {
+				if (type === "method_declaration") {
 					const nameNode = node.childForFieldName("name");
 					if (nameNode) {
 						definitions.push({
@@ -719,7 +755,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- Bash ---
-				else if (type === "function_definition" && (ext === ".sh" || ext === ".bash")) {
+				if (type === "function_definition" && (ext === ".sh" || ext === ".bash")) {
 					const nameNode = node.childForFieldName("name") || node.namedChildren.find((c: any) => c.type === "word");
 					if (nameNode) {
 						definitions.push({
@@ -734,7 +770,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- Imports / Exports Aliases (TS/JS) ---
-				else if (type === "export_statement" || type === "import_statement") {
+				if (type === "export_statement" || type === "import_statement") {
 					const text = node.text;
 					if (text.includes(" as ")) {
 						const asMatch = text.match(/\b([a-zA-Z0-9_]+)\s+as\s+([a-zA-Z0-9_]+)\b/);

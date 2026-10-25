@@ -49,7 +49,13 @@ interface PersistedIndexSnapshot {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function compareStrings(a: string, b: string): number {
+	if (a < b) return -1;
+	if (a > b) return 1;
+	return 0;
 }
 
 function readDescriptorBounded(descriptor: number, maxBytes: number): Buffer {
@@ -150,6 +156,8 @@ export function validatePersistedIndex(
 	const chunkFiles = new Map<string, string>();
 	for (const value of data.chunks) {
 		if (!isRecord(value)) throw new Error("Persisted chunk must be an object");
+		// SAFETY: value is confirmed to be an object via isRecord, and each property of CodeChunk
+		// is individually runtime-validated below (id, filePath, lines, content, hash) before acceptance.
 		const chunk = value as unknown as CodeChunk;
 		if (
 			typeof chunk.id !== "string" ||
@@ -336,8 +344,6 @@ export class HybridSearchIndex {
 	private activeFileUpdates = new Map<string, Promise<void>>();
 	private debouncedSaveTimer: NodeJS.Timeout | null = null;
 	private debouncedSaveDeadline: number | null = null;
-	private isSaving = false;
-	private hasPendingSave = false;
 	private isShuttingDown = false;
 	private activeSavePromise: Promise<void> | null = null;
 	private activeSync: Promise<{ chunkCount: number; fileCount: number; indexedCount: number }> | null = null;
@@ -398,8 +404,9 @@ export class HybridSearchIndex {
 		) {
 			void this.embedder.dispose();
 			try {
-				if (typeof (global as any).gc === "function") {
-					(global as any).gc();
+				const globalWithGc = globalThis as typeof globalThis & { gc?: () => void };
+				if (typeof globalWithGc.gc === "function") {
+					globalWithGc.gc();
 				}
 			} catch (e) {
 				kernelDebug(e);
@@ -417,7 +424,7 @@ export class HybridSearchIndex {
 			this.config.effectiveProfile === "hybrid" ||
 			this.config.effectiveProfile === "full"
 		) {
-			return await this.embedder.initialize(onProgress);
+			return this.embedder.initialize(onProgress);
 		}
 		return false;
 	}
@@ -648,8 +655,6 @@ export class HybridSearchIndex {
 	 */
 	public saveToDisk(): void {
 		try {
-			const cacheDir = this.getCacheDir();
-
 			const chunkList = Array.from(this.chunks.values());
 			const fileHashesObj: Record<string, string> = {};
 			for (const [f, h] of this.fileHashes.entries()) {
@@ -667,7 +672,14 @@ export class HybridSearchIndex {
 				Array.from(this.vectors.keys()).every((id) => this.chunks.has(id))
 			) {
 				const vectorChunkIds = Array.from(this.vectors.keys());
-				const vectorArrays = vectorChunkIds.map((id) => this.vectors.get(id)!);
+				const vectorArrays: Float32Array[] = [];
+				for (const id of vectorChunkIds) {
+					const vec = this.vectors.get(id);
+					if (vec) vectorArrays.push(vec);
+				}
+				if (vectorArrays.length !== vectorChunkIds.length || vectorArrays.length === 0) {
+					return;
+				}
 				const vectorDim = vectorArrays[0].length;
 				const vectorBuffer = Buffer.alloc(vectorArrays.length * vectorDim * 4);
 				for (let i = 0; i < vectorArrays.length; i++) {
@@ -870,7 +882,7 @@ export class HybridSearchIndex {
 	private getWorkspaceFileHashes(): Map<string, string> | null {
 		const hashes = new Map<string, string>();
 		let workspaceBytes = 0;
-		const files = findChunkableFiles(this.cwd).sort();
+		const files = findChunkableFiles(this.cwd).sort(compareStrings);
 		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
 			try {
@@ -984,7 +996,7 @@ export class HybridSearchIndex {
 			onProgress?.("Scanning workspace files...");
 
 			// Ensure Tree-sitter parsers are warm for languages present in this workspace
-			const chunkableFiles = findChunkableFiles(this.cwd).sort();
+			const chunkableFiles = findChunkableFiles(this.cwd).sort(compareStrings);
 			this.skippedOversizedFiles.clear();
 			const workspaceExts = new Set<string>();
 			for (const f of chunkableFiles) {
@@ -1072,11 +1084,15 @@ export class HybridSearchIndex {
 			for (const delPath of filesToDelete) {
 				this.bm25.removeFile(delPath);
 				this.fileHashes.delete(delPath);
-				for (const chunkId of Array.from(this.chunks.keys())) {
+				const toDelete: string[] = [];
+				for (const chunkId of this.chunks.keys()) {
 					if (chunkId.startsWith(`${delPath}:`)) {
-						this.chunks.delete(chunkId);
-						this.vectors.delete(chunkId);
+						toDelete.push(chunkId);
 					}
+				}
+				for (const chunkId of toDelete) {
+					this.chunks.delete(chunkId);
+					this.vectors.delete(chunkId);
 				}
 			}
 			if (filesToDelete.length > 0) {
@@ -1091,11 +1107,15 @@ export class HybridSearchIndex {
 				for (const relPath of filesToReindex) {
 					// Clean old chunks for this file
 					this.bm25.removeFile(relPath);
-					for (const chunkId of Array.from(this.chunks.keys())) {
+					const toDelete: string[] = [];
+					for (const chunkId of this.chunks.keys()) {
 						if (chunkId.startsWith(`${relPath}:`)) {
-							this.chunks.delete(chunkId);
-							this.vectors.delete(chunkId);
+							toDelete.push(chunkId);
 						}
+					}
+					for (const chunkId of toDelete) {
+						this.chunks.delete(chunkId);
+						this.vectors.delete(chunkId);
 					}
 
 					const fileInfo = currentFiles.get(relPath);
@@ -1203,11 +1223,15 @@ export class HybridSearchIndex {
 	private removeIndexedFile(relPath: string): void {
 		this.bm25.removeFile(relPath);
 		this.fileHashes.delete(relPath);
-		for (const chunkId of Array.from(this.chunks.keys())) {
+		const toDelete: string[] = [];
+		for (const chunkId of this.chunks.keys()) {
 			if (chunkId.startsWith(`${relPath}:`)) {
-				this.chunks.delete(chunkId);
-				this.vectors.delete(chunkId);
+				toDelete.push(chunkId);
 			}
+		}
+		for (const chunkId of toDelete) {
+			this.chunks.delete(chunkId);
+			this.vectors.delete(chunkId);
 		}
 	}
 
@@ -1255,11 +1279,15 @@ export class HybridSearchIndex {
 				if (this.fileGenerations.get(relPath) !== currentGen) return;
 				this.bm25.removeFile(relPath);
 				this.fileHashes.delete(relPath);
-				for (const chunkId of Array.from(this.chunks.keys())) {
+				const toDelete: string[] = [];
+				for (const chunkId of this.chunks.keys()) {
 					if (chunkId.startsWith(`${relPath}:`)) {
-						this.chunks.delete(chunkId);
-						this.vectors.delete(chunkId);
+						toDelete.push(chunkId);
 					}
+				}
+				for (const chunkId of toDelete) {
+					this.chunks.delete(chunkId);
+					this.vectors.delete(chunkId);
 				}
 				this.dirtyFiles.delete(relPath);
 				this.bm25.recalculateStats();
@@ -1319,11 +1347,15 @@ export class HybridSearchIndex {
 					if (this.fileGenerations.get(relPath) !== currentGen) return;
 					this.bm25.removeFile(relPath);
 					this.fileHashes.delete(relPath);
-					for (const chunkId of Array.from(this.chunks.keys())) {
+					const toDelete: string[] = [];
+					for (const chunkId of this.chunks.keys()) {
 						if (chunkId.startsWith(`${relPath}:`)) {
-							this.chunks.delete(chunkId);
-							this.vectors.delete(chunkId);
+							toDelete.push(chunkId);
 						}
+					}
+					for (const chunkId of toDelete) {
+						this.chunks.delete(chunkId);
+						this.vectors.delete(chunkId);
 					}
 					this.dirtyFiles.delete(relPath);
 					this.bm25.recalculateStats();
@@ -1341,7 +1373,7 @@ export class HybridSearchIndex {
 			const fileChunks = Array.from(this.chunks.values()).filter((chunk) => chunk.filePath === relPath);
 			const fileVectorsReady = !wantsVectors || fileChunks.every((chunk) => {
 				const vector = this.vectors.get(chunk.id);
-				return !!vector && vector.length === this.config.matryoshkaDim;
+				return Boolean(vector && vector.length === this.config.matryoshkaDim);
 			});
 			if (this.fileHashes.get(relPath) === fileHash && !this.dirtyFiles.has(relPath) && fileVectorsReady) {
 				return;
@@ -1414,11 +1446,15 @@ export class HybridSearchIndex {
 
 			// Atomic in-memory swap:
 			this.bm25.removeFile(relPath);
-			for (const chunkId of Array.from(this.chunks.keys())) {
+			const toDelete: string[] = [];
+			for (const chunkId of this.chunks.keys()) {
 				if (chunkId.startsWith(`${relPath}:`)) {
-					this.chunks.delete(chunkId);
-					this.vectors.delete(chunkId);
+					toDelete.push(chunkId);
 				}
+			}
+			for (const chunkId of toDelete) {
+				this.chunks.delete(chunkId);
+				this.vectors.delete(chunkId);
 			}
 
 			this.fileHashes.set(relPath, fileHash);
@@ -1465,11 +1501,15 @@ export class HybridSearchIndex {
 		) return;
 		this.bm25.removeFile(relPath);
 		this.fileHashes.delete(relPath);
-		for (const chunkId of Array.from(this.chunks.keys())) {
+		const toDelete: string[] = [];
+		for (const chunkId of this.chunks.keys()) {
 			if (chunkId.startsWith(`${relPath}:`)) {
-				this.chunks.delete(chunkId);
-				this.vectors.delete(chunkId);
+				toDelete.push(chunkId);
 			}
+		}
+		for (const chunkId of toDelete) {
+			this.chunks.delete(chunkId);
+			this.vectors.delete(chunkId);
 		}
 		this.bm25.recalculateStats();
 		this.generation++;
@@ -1528,7 +1568,7 @@ export class HybridSearchIndex {
 		// 1. BM25 Search (Instant AST-tokenized lexical retrieval)
 		const bm25Results = this.bm25.search(query, 100, (chunkId) => {
 			const chunk = this.chunks.get(chunkId);
-			return !!chunk && matchesFilePattern(chunk);
+			return Boolean(chunk && matchesFilePattern(chunk));
 		});
 		const bm25RankMap = new Map<
 			string,
@@ -1603,12 +1643,19 @@ export class HybridSearchIndex {
 			const rrfVec = vecData ? 1 / (k + vecRank) : 0;
 			const rrfScore = rrfBm25 + rrfVec;
 
+			let signal: "hybrid" | "semantic" | "lexical" = "lexical";
+			if (bmData && vecData) {
+				signal = "hybrid";
+			} else if (vecData) {
+				signal = "semantic";
+			}
+
 			hits.push({
 				chunk,
 				rrfScore,
 				bm25Score: bmData ? bmData.score : 0,
 				vectorScore: vecData ? vecData.score : 0,
-				signal: bmData && vecData ? "hybrid" : vecData ? "semantic" : "lexical",
+				signal,
 				bm25Rank: bmData?.rank,
 				vectorRank: vecData?.rank,
 				matches: bmData?.matches || [],

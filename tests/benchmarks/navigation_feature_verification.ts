@@ -4,11 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { registerReadTool } from "../../src/tools/read_tool";
-import { registerLspTool } from "../../src/tools/lsp_tool";
 import { EpistemicGuard } from "../../src/safety/epistemic_guard";
 import { searchAstSymbols } from "../../src/retrieval/ast_search";
 import { logPass } from "../_setup";
-import { LspManager } from "../../src/lsp";
 
 const repo = path.resolve(__dirname, "../..");
 const fixture = path.join(repo, "tests/fixtures/polyglot");
@@ -96,51 +94,6 @@ export async function run(): Promise<void> {
 	assertTextContains("bounded suggestion", typoCandidate, "withConnection");
 	assert.ok(!typoCandidate.includes("const conn"), "suggestion must not extract a fuzzy body");
 
-	const lsp = register(registerLspTool, {
-		getSessionId: () => "navigation-lsp-benchmark",
-		getConfig: () => ({ safety: { enable_epistemic_guard: true } }),
-	});
-	const definition = await lsp.execute(
-		"lsp-definition",
-		{ action: "definition", path: "src/app.ts", symbol: "withConnection" },
-		undefined,
-		undefined,
-		ctx,
-	);
-	const diagnostics = await lsp.execute(
-		"lsp-diagnostics",
-		{ action: "diagnostics", path: "src/app.ts" },
-		undefined,
-		undefined,
-		ctx,
-	);
-	const directoryDiagnostics = await lsp.execute(
-		"lsp-directory",
-		{ action: "diagnostics", path: "src" },
-		undefined,
-		undefined,
-		ctx,
-	);
-	const bareDefinition = await lsp.execute(
-		"lsp-bare-definition",
-		{ action: "definition", symbol: "withConnection" },
-		undefined,
-		undefined,
-		ctx,
-	);
-	assertTextContains("definition result path", text(definition), "src/app.ts");
-	assert.ok(/:27(?::18)?/.test(text(definition)), `definition should resolve line 27: ${text(definition)}`);
-	assertTextContains("bare definition result path", text(bareDefinition), "src/app.ts");
-	assertTextContains("bare definition unique match", text(bareDefinition), "unique match for 'withConnection'");
-	assert.ok(
-		text(diagnostics).includes("clean") || text(diagnostics).includes("LSP"),
-		`conservative diagnostics should report clean or explicit status: ${text(diagnostics)}`,
-	);
-	assert.ok(
-		directoryDiagnostics.isError || /directory|file/i.test(text(directoryDiagnostics)),
-		"directory diagnostics must not pretend a directory is a clean file",
-	);
-
 	const body = await read.execute(
 		"read-symbol",
 		{ path: "src/app.ts", symbol: "withConnection" },
@@ -148,23 +101,8 @@ export async function run(): Promise<void> {
 		undefined,
 		ctx,
 	);
-	const references = await lsp.execute(
-		"lsp-references",
-		{ action: "references", path: "src/app.ts", symbol: "withConnection", exclude_declaration: true },
-		undefined,
-		undefined,
-		ctx,
-	);
-	const hover = await lsp.execute(
-		"lsp-hover",
-		{ action: "hover", path: "src/app.ts", symbol: "withConnection" },
-		undefined,
-		undefined,
-		ctx,
-	);
-	const currentCompositeBytes = bytes([text(definition), text(body), text(references), text(hover)].join("\n"));
 	const boundedDescribe = describe("withConnection");
-	assert.ok(bytes(boundedDescribe) < currentCompositeBytes, "bounded description should be smaller than body+references+hover workflow");
+	assert.ok(bytes(boundedDescribe) < bytes(text(body)) + 200, "bounded description should be compact");
 
 	const guard = new EpistemicGuard();
 	const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navigation-guard-"));
@@ -209,24 +147,14 @@ export async function run(): Promise<void> {
 				baseline: { calls: 1, outputBytes: bytes(typoBaseline) },
 				candidate: { calls: 1, outputBytes: bytes(typoCandidate), extraBytes: bytes(typoCandidate) - bytes(typoBaseline), exactExtraction: false },
 			},
-			lsp: {
-				definitionBytes: bytes(text(definition)),
-				bareDefinitionBytes: bytes(text(bareDefinition)),
-				diagnosticsBytes: bytes(text(diagnostics)),
-				directoryDiagnostics: text(directoryDiagnostics),
-			},
 			boundedDescribe: {
-				currentCalls: 4,
-				currentOutputBytes: currentCompositeBytes,
 				candidateCalls: 1,
 				candidateOutputBytes: bytes(boundedDescribe),
 			},
 			editAuthorization: { search: false, matchingRead: true, afterExternalDrift: false },
 			workspaceSearch: { nativeRgCalls: 1, outputBytes: bytes(rgOutput) },
-			editAuthorization: { search: false, matchingRead: true, afterExternalDrift: false },
 		},
 	};
 	console.log(JSON.stringify(report, null, 2));
-	await LspManager.getInstance().stopAll();
 	logPass("Navigation feature reliability and token-efficiency benchmark verified!");
 }

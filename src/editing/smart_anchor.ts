@@ -44,9 +44,9 @@ function fnvHash(prev: string, curr: string, next: string): string {
  */
 export function computeLineHash(fileLines: readonly string[], index: number): string {
 	if (index < 0 || index >= fileLines.length) return "";
-	const prev = index > 0 ? normalizeLine(fileLines[index - 1]!) : "";
-	const curr = normalizeLine(fileLines[index]!);
-	const next = index < fileLines.length - 1 ? normalizeLine(fileLines[index + 1]!) : "";
+	const prev = index > 0 ? normalizeLine(fileLines[index - 1] ?? "") : "";
+	const curr = normalizeLine(fileLines[index] ?? "");
+	const next = index < fileLines.length - 1 ? normalizeLine(fileLines[index + 1] ?? "") : "";
 	return fnvHash(prev, curr, next);
 }
 
@@ -282,9 +282,11 @@ export function preflightSmartAnchorEdits(
 
 	// Check for conflicting / overlapping spans
 	for (let j = 0; j < resolvedSpans.length; j++) {
-		const left = resolvedSpans[j]!;
+		const left = resolvedSpans[j];
+		if (!left) continue;
 		for (let k = j + 1; k < resolvedSpans.length; k++) {
-			const right = resolvedSpans[k]!;
+			const right = resolvedSpans[k];
+			if (!right) continue;
 			if (left.startLine <= right.endLine && right.startLine <= left.endLine) {
 				return {
 					success: false,

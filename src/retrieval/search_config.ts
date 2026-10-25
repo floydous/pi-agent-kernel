@@ -3,11 +3,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
 	getPiHomeDir,
-	loadKernelConfig,
 	saveProjectKernelConfig,
 	saveGlobalKernelConfig,
 	getProjectConfigPath,
-	getGlobalConfigPath,
 	getGlobalRawConfig,
 } from "../config";
 import { kernelDebug } from "../safety/kernel_debug";
@@ -66,8 +64,8 @@ export function loadPersistedProfile(
 			const raw = parseToml(fs.readFileSync(projectPath, "utf-8"));
 			const retrieval = raw.retrieval;
 			if (retrieval && typeof retrieval === "object" && !Array.isArray(retrieval)) {
-				const p = (retrieval as any).default_profile;
-				if (p && ["lean", "hybrid", "full", "off", "auto"].includes(p)) {
+				const p = (retrieval as Record<string, unknown>).default_profile;
+				if (typeof p === "string" && ["lean", "hybrid", "full", "off", "auto"].includes(p)) {
 					return p as SearchProfile;
 				}
 			}
@@ -111,10 +109,10 @@ export function savePersistedProfile(profile: SearchProfile, cwd?: string): void
 	try {
 		if (cwd) {
 			// Workspace-local profile update: writes only to project-local config.toml
-			saveProjectKernelConfig(cwd, { retrieval: { default_profile: profile as any } });
+			saveProjectKernelConfig(cwd, { retrieval: { default_profile: profile } });
 		} else {
 			// Global profile update: writes to global ~/.pi/agent/config.toml and legacy search_settings.json
-			saveGlobalKernelConfig({ retrieval: { default_profile: profile as any } });
+			saveGlobalKernelConfig({ retrieval: { default_profile: profile } });
 			const dir = path.dirname(SETTINGS_FILE);
 			if (!fs.existsSync(dir)) {
 				fs.mkdirSync(dir, { recursive: true });

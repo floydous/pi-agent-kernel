@@ -12,7 +12,6 @@ src/
 ├── config/        Hierarchical TOML configuration
 ├── context/       Session repair
 ├── editing/       Surgical patching and verification
-├── lsp/           Language Server Protocol support
 ├── retrieval/     AST, repository-map, and code-search logic
 ├── safety/        Read guards, output limits, and execution helpers
 ├── tools/         Pi tool registrations
@@ -25,7 +24,7 @@ src/
   lifecycle handlers.
 - `src/tools/` adapts kernel capabilities to Pi tool contracts. Tool modules
   receive explicit dependencies instead of creating hidden application state.
-- `src/retrieval/`, `src/editing/`, `src/lsp/`, and `src/safety/` contain the
+- `src/retrieval/`, `src/editing/`, and `src/safety/` contain the
   reusable implementation modules.
 - `src/config/` owns configuration loading and merging.
 - `src/context/` owns session repair.

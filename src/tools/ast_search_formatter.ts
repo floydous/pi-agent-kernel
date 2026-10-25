@@ -88,7 +88,8 @@ export function formatAstSearchResults(
 	const sections: string[] = [];
 
 	for (const filePath of fileOrder) {
-		const byKind = byFile.get(filePath)!;
+		const byKind = byFile.get(filePath);
+		if (!byKind) continue;
 		const fileLines: string[] = [filePath];
 
 		for (const [kind, items] of byKind) {

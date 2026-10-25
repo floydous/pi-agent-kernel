@@ -13,7 +13,7 @@ export interface SessionDeps {
 }
 
 /**
- * Whether the opt-in tools (`get_repo_map`, `ast_search`, `lsp`) are registered for this
+ * Whether the opt-in tools (`get_repo_map`, `ast_search`) are registered for this
  * workspace. Single source of truth: `src/index.ts` gates registration on this, and user-facing
  * tool hints consult it so they never recommend a tool the model cannot actually call.
  */

@@ -34,11 +34,8 @@ npx tsx tests/run-all.ts epistemic-guard
 | `output-clamping` | Output clamping and discovery-command detection |
 | `ui-width-safety` | TUI output-width regression |
 | `epistemic-guard` | Read-before-write safety and session isolation |
-| `unified-footer` | Footer formatting |
-| `lsp-uri-and-detection` | LSP URI and language detection |
-| `lsp-formatters` | Diagnostics, definitions, references, hover, and symbols |
-| `lsp-manager` | LSP manager lifecycle and modals |
-| `ast-fallback` | AST fallback extensions |
+| `unified-footer` | Integrated status footer formatting |
+| `ast-fallback` | AST-based fallback symbol extraction |
 | `aliased-re-exports` | Aliased re-exports and dotted lookups |
 | `typescript-ast` | TypeScript AST and parameter-scope hover |
 | `rust-ast` | Rust AST and bleed defense |
@@ -47,10 +44,8 @@ npx tsx tests/run-all.ts epistemic-guard
 | `post-edit-verification` | Post-edit verification and diagnostic gates |
 | `cache-retrieval` | Embedder cache and search-index retention |
 | `end-to-end` | Cross-feature integration checks |
-| `mutation-continuity` | Epistemic guard mutation continuity |
-| `lsp-clean-and-filters` | Clean diagnostics and reference filters |
-| `lsp-reference-snippets` | Reference snippet windowing |
-| `ast-search-formatter` | Hierarchical AST search formatting |
+| `mutation-continuity` | File lock lifecycle and concurrent edit safety |
+| `ast-search-formatter` | Hierarchical AST search formatter tests |
 | `tree-sitter` | Tree-sitter WASM engine |
 | `audit-verification` | Cache and executable lookup verification |
 | `cold-process-ast` | Fresh-process AST fallback contracts across 11 languages |

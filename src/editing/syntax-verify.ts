@@ -1,6 +1,6 @@
-import * as fs from "fs";
-import * as path from "path";
-import { execFileSync } from "child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { execFileSync } from "node:child_process";
 
 export interface VerificationResult {
 	valid: boolean;
@@ -17,7 +17,7 @@ export interface VerificationResult {
  * balanced. This deterministically catches the dominant per-edit failure
  * class: truncated replacements, missing closing braces/parens, unterminated
  * strings or block comments. It is NOT a full parse; type errors remain the
- * job of the post-edit LSP diagnostics hook.
+ * domain of project-native typechecks (e.g. tsc, cargo check).
  */
 /**
  * Decides whether a '/' at the current position starts a regex literal
@@ -182,6 +182,8 @@ function checkTsStructure(content: string): string | null {
 				else if (ch === "]") inCharClass = false;
 				else if (ch === "/" && !inCharClass) state = "code";
 				break;
+			default:
+				break;
 		}
 		i++;
 	}
@@ -228,7 +230,9 @@ export function resolveNodeExecutable(): { bin: string; env?: Record<string, str
 				cachedNodeExec = cand;
 				return cand;
 			}
-		} catch {}
+		} catch (error) {
+			void error;
+		}
 	}
 
 	cachedNodeExec = null;
