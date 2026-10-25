@@ -93,7 +93,7 @@ function lineRanges(indexes: readonly number[]): Array<{ startLine: number; endL
 
 /** Extracted from index.ts — registers the `read` tool. */
 export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
-	// 6. Tool: `read` (Unified File Reader with Surgical AST Symbol Extraction - Replaces stock read tool)
+	// 6. Tool: `read` (Bounded File Reader with Line-Windowing - Replaces stock read tool)
 	const editMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
 	const benchmarkMethod = ["line-range", "search-replace", "hash-anchor", "adaptive"].includes(editMethod || "") ? editMethod : undefined;
 	const readMode = process.env.PI_READ_MODE?.toLowerCase();

@@ -35,6 +35,14 @@ export async function run(): Promise<void> {
 		});
 		const ctx = { cwd: tempDir };
 
+		// Verify tool schema no longer exposes symbol or surrounding_lines
+		const schemaProps = read.parameters?.properties || {};
+		assert.equal("symbol" in schemaProps, false, "read tool schema must not expose 'symbol'");
+		assert.equal("surrounding_lines" in schemaProps, false, "read tool schema must not expose 'surrounding_lines'");
+		assert.ok("offset" in schemaProps, "read tool schema must expose 'offset'");
+		assert.ok("limit" in schemaProps, "read tool schema must expose 'limit'");
+		assert.ok("path" in schemaProps, "read tool schema must expose 'path'");
+
 		const largePath = path.join(tempDir, "large.ts");
 		fs.writeFileSync(
 			largePath,
@@ -79,6 +87,11 @@ export async function run(): Promise<void> {
 		const small = await read.execute("small", { path: "small.ts" }, undefined, undefined, ctx);
 		assert.equal(small.details.shownLines, 120, "file under 250 lines is returned in full");
 		assert.equal(small.details.truncated, false, "small file is not truncated");
+
+		// Assert passing an ignored legacy symbol argument reads the file cleanly without throwing
+		const legacy = await read.execute("legacy", { path: "small.ts", symbol: "arbitrarySymbol" }, undefined, undefined, ctx);
+		assert.equal(legacy.isError, undefined, "legacy symbol parameter does not cause error");
+		assert.equal(legacy.details.shownLines, 120, "legacy symbol argument reads file contents normally");
 
 		const anchored = await read.execute(
 			"anchored",
