@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Fullwidth Dot Normalization**: Edits now convert the fullwidth full stop `．` (U+FF0E) to a regular `.` in search, replacement, and anchored line text, so models that emit fullwidth dots no longer produce broken code or failed matches. Enabled by default; turn it off with `/agent-kernel set normalize_dots off`, the settings dashboard, or `editing.normalize_fullwidth_dots = false`.
+
+### Changed
+
+- **Faster Search Startup in Reopened Workspaces**: The code search index now reuses saved results for files that have not changed instead of re-parsing every file at startup, and updating or removing a file no longer rescans the whole index. Re-syncing an unchanged 500-file repository dropped from about 2.6 s to 0.7 s in our measurements, with identical search results.
+
+### Fixed
+
+- **Clearer Recovery from Tool Mix-Ups**: When an agent sends a shell command to `read` or `edit`, the error now names the `bash` tool and the exact call to make, instead of a generic missing-path error.
+- **Edit Errors Name the Actual Mistake**: An edit with a search block but no replacement now explains how to delete the block with `edits: [{ search, replace: "" }]`. Some model routes silently drop an empty top-level `replace`, which previously caused the same failing edit to repeat. An edit sent read-style `offset`/`limit` arguments now points to the `read` tool.
+
 ## [0.5.0] - 2026-10-25
 
 ### Added
