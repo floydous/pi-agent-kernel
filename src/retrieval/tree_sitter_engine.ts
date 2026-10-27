@@ -770,7 +770,12 @@ export class TreeSitterEngine {
 				}
 
 				// --- Imports / Exports Aliases (TS/JS) ---
-				if (type === "export_statement" || type === "import_statement") {
+				// An export with a declaration or default value (`export function f() {…}`) spans the whole
+				// body, where any "x as y" text is not an alias; only clause-style statements carry aliases.
+				const isAliasStatement =
+					type === "import_statement" ||
+					(type === "export_statement" && !node.childForFieldName("declaration") && !node.childForFieldName("value"));
+				if (isAliasStatement) {
 					const text = node.text;
 					if (text.includes(" as ")) {
 						const asMatch = text.match(/\b([a-zA-Z0-9_]+)\s+as\s+([a-zA-Z0-9_]+)\b/);

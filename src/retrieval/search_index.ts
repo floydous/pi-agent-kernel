@@ -29,7 +29,9 @@ const INDEX_VERSION = 4;
 const LEGACY_INDEX_VERSION = 3;
 const MAX_PERSISTED_INDEX_BYTES = 128 * 1024 * 1024;
 const MAX_PERSISTED_VECTOR_BYTES = MAX_INDEX_CHUNKS * 768 * 4;
-const EXTRACTOR_GENERATION = "tree-sitter-wasm-v2";
+// Bump when extraction/chunking output changes: unchanged files reuse cached chunks, so stale chunks
+// would otherwise persist. v3: export declarations no longer yield spurious "x as y" aliases.
+const EXTRACTOR_GENERATION = "tree-sitter-wasm-v3";
 
 interface PersistedVectorCache {
 	vectorDim: number;
