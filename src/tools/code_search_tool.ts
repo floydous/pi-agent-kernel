@@ -82,6 +82,7 @@ export function registerCodeSearchTool(
 				limit,
 				filePattern: params.file_pattern,
 				rrfK: params.rrf_k,
+				separateTests: true,
 			});
 
 			const indexStatus = typeof index.getStatus === "function" ? index.getStatus() : undefined;

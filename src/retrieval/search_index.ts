@@ -24,6 +24,7 @@ import { writeFileSyncAtomic } from "../safety/atomic_write";
 import { TreeSitterEngine } from "./tree_sitter_engine";
 import { getSearchCacheDir } from "./search_cache";
 import { WorkspaceWalkCache } from "./workspace_walker";
+import { isTestPath } from "./tag_extractor";
 export { getSearchCacheDir } from "./search_cache";
 
 const INDEX_VERSION = 4;
@@ -1570,6 +1571,12 @@ export class HybridSearchIndex {
 			profile?: SearchProfile;
 			/** Bounded RRF smoothing constant; defaults to 60. */
 			rrfK?: number;
+			/**
+			 * Return `limit` source hits followed by up to `testLimit` test hits, so test files that restate
+			 * behavior in prose cannot crowd source code out. Ignored when the query or file pattern targets tests.
+			 */
+			separateTests?: boolean;
+			testLimit?: number;
 		} = {},
 	): Promise<SearchHit[]> {
 		if (this.config.effectiveProfile === "off") {
@@ -1704,6 +1711,12 @@ export class HybridSearchIndex {
 
 		// Sort by combined RRF score descending
 		hits.sort((a, b) => b.rrfScore - a.rrfScore);
+		const targetsTests = /\b(tests?|specs?)\b/i.test(query) || /test|spec/i.test(options.filePattern ?? "");
+		if (options.separateTests && !targetsTests) {
+			const source = hits.filter((hit) => !isTestPath(hit.chunk.filePath));
+			const tests = hits.filter((hit) => isTestPath(hit.chunk.filePath));
+			return [...source.slice(0, limit), ...tests.slice(0, options.testLimit ?? 3)];
+		}
 		return hits.slice(0, limit);
 	}
 
