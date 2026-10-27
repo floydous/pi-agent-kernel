@@ -109,6 +109,12 @@ function preflightFileEdit(
 	}
 
 	if (!isAnchorMode && !hasSingleBlock && !hasMultiBlock) {
+		if (typeof singleSearch === "string") {
+			return { error: `[EDIT ERROR] Missing 'replace' for the 'search' block in '${relPath}'. An empty top-level 'replace' can be dropped before it reaches the tool. To delete the matched block, use edits: [{ search: "<block>", replace: "" }].` };
+		}
+		if (item.offset !== undefined || item.limit !== undefined) {
+			return { error: `[EDIT ERROR] 'offset'/'limit' are 'read' arguments. To inspect lines, call read({ path: "${relPath}", offset, limit }). To edit, pass 'search' and 'replace'.` };
+		}
 		return { error: `[EDIT ERROR] Must provide either smart anchors ('pos' and 'lines', or 'edits' with anchors) or 'search' and 'replace' blocks for '${relPath}'.` };
 	}
 
@@ -408,6 +414,34 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			onUpdate: any,
 			ctx: any,
 		): Promise<any> {
+			// Detect tool confusion (caller passed shell command to edit tool)
+			if (params && typeof params === "object" && typeof params.command === "string" && params.command.trim().length > 0) {
+				const hasPath = typeof params.path === "string" && params.path.trim().length > 0;
+				const hasFiles = Array.isArray(params.files) && params.files.length > 0;
+				if (hasPath || hasFiles) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[EDIT ERROR] Ambiguous parameters: received both shell 'command' and file edit parameters ('path'/'files'). To execute shell commands, invoke the 'bash' tool. To modify code, invoke the 'edit' tool without 'command'.`,
+							},
+						],
+						details: { error: "ambiguous_parameters", command: params.command.trim() },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `[EDIT ERROR] Received shell command in 'edit' tool. To execute shell commands, invoke the 'bash' tool instead with { command: ${JSON.stringify(params.command.trim())} }. The 'edit' tool is for modifying file contents and requires { path: "path/to/file", search: "...", replace: "..." }.`,
+						},
+					],
+					details: { error: "tool_confusion_command", command: params.command.trim() },
+					isError: true,
+				};
+			}
+
 			// Check for multi-file payload
 			const fileEdits: any[] = [];
 			if (params && typeof params === "object") {

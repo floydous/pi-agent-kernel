@@ -170,6 +170,32 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				}
 			}
 
+			// Detect tool confusion (caller passed shell command to read tool)
+			if (params && typeof params === "object" && typeof params.command === "string" && params.command.trim().length > 0) {
+				if (targetPaths.length > 0) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[READ ERROR] Ambiguous parameters: received both shell 'command' and file 'path'/'paths'. To execute commands, use 'bash'. To read files, use 'read' without 'command'.`,
+							},
+						],
+						details: { error: "ambiguous_parameters", command: params.command.trim(), paths: targetPaths },
+						isError: true,
+					};
+				}
+				return {
+					content: [
+						{
+							type: "text",
+							text: `[READ ERROR] Received shell command in 'read' tool. To execute shell commands, invoke the 'bash' tool instead with { command: ${JSON.stringify(params.command.trim())} }. The 'read' tool is for inspecting file contents and requires { path: "path/to/file" }.`,
+						},
+					],
+					details: { error: "tool_confusion_command", command: params.command.trim() },
+					isError: true,
+				};
+			}
+
 			if (targetPaths.length === 0) {
 				return {
 					content: [

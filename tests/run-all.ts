@@ -299,6 +299,11 @@ const suites: TestEntry[] = [
 		key: "gitignore-traversal",
 		loader: () => runSuiteModule(() => import("./retrieval/gitignore_traversal.test")),
 	},
+	{
+		name: "Tool Confusion Recovery Suite",
+		key: "tool-confusion-recovery",
+		loader: () => runSuiteModule(() => import("./tool-confusion/tool_confusion_recovery.test")),
+	},
 ];
 
 async function main(): Promise<void> {
