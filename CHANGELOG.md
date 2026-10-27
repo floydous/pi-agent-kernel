@@ -14,6 +14,7 @@
 ### Fixed
 
 - **No Phantom Symbols from Exported Code**: Code search no longer indexes fake alias symbols built from `x as y` text inside exported functions, classes, and constants (for example, `value as unknown` produced a symbol named `unknown`). Real `import { a as b }` and `export { a as b }` aliases are still indexed. Existing search caches are rebuilt once after upgrading.
+- **C++ Code Is Now Searchable**: Code search now indexes `.cc`, `.cxx`, `.hh`, and `.hxx` files, which it previously skipped entirely, and parses `.h` headers as C++ when they contain C++ code, so classes and methods in them become searchable. In our tests on four C++ repositories, the right file appeared in the top five results for 11 of 14 fixes made in `.cc` files, up from 1. Plain C headers are parsed exactly as before. Existing search caches are rebuilt once after upgrading.
 - **Clearer Recovery from Tool Mix-Ups**: When an agent sends a shell command to `read` or `edit`, the error now names the `bash` tool and the exact call to make, instead of a generic missing-path error.
 - **Edit Errors Name the Actual Mistake**: An edit with a search block but no replacement now explains how to delete the block with `edits: [{ search, replace: "" }]`. Some model routes silently drop an empty top-level `replace`, which previously caused the same failing edit to repeat. An edit sent read-style `offset`/`limit` arguments now points to the `read` tool.
 
