@@ -34,7 +34,8 @@ const MAX_PERSISTED_VECTOR_BYTES = MAX_INDEX_CHUNKS * 768 * 4;
 // Bump when extraction/chunking output changes: unchanged files reuse cached chunks, so stale chunks
 // would otherwise persist. v3: export declarations no longer yield spurious "x as y" aliases.
 // v4: .cc/.cxx/.hh/.hxx are indexed and C++ headers named .h are parsed with the C++ grammar.
-const EXTRACTOR_GENERATION = "tree-sitter-wasm-v4";
+// v5: Rust items under test attributes are chunked as kind "test".
+const EXTRACTOR_GENERATION = "tree-sitter-wasm-v5";
 
 interface PersistedVectorCache {
 	vectorDim: number;
@@ -1713,8 +1714,10 @@ export class HybridSearchIndex {
 		hits.sort((a, b) => b.rrfScore - a.rrfScore);
 		const targetsTests = /\b(tests?|specs?)\b/i.test(query) || /test|spec/i.test(options.filePattern ?? "");
 		if (options.separateTests && !targetsTests) {
-			const source = hits.filter((hit) => !isTestPath(hit.chunk.filePath));
-			const tests = hits.filter((hit) => isTestPath(hit.chunk.filePath));
+			// A test is a test file or a test chunk inside a source file (Rust #[cfg(test)] / #[test] items).
+			const isTest = (hit: SearchHit) => isTestPath(hit.chunk.filePath) || hit.chunk.kind === "test";
+			const source = hits.filter((hit) => !isTest(hit));
+			const tests = hits.filter(isTest);
 			return [...source.slice(0, limit), ...tests.slice(0, options.testLimit ?? 3)];
 		}
 		return hits.slice(0, limit);

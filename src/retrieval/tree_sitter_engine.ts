@@ -52,6 +52,27 @@ const EXTENSION_TO_GRAMMAR: Record<string, LanguageGrammarSpec> = {
 // that the C++ parse reduces (measured on jq/libuv/ninja/fmt headers: switches no C header, nearly every C++ one).
 const CPP_HEADER_MARKER = /^\s*namespace\s+[\w:]*\s*\{|^\s*template\s*<|^\s*class\s+\w+|^\s*(public|private|protected)\s*:|\w::\w|\bconstexpr\b|\btypename\b/m;
 
+// Rust keeps unit tests inside source files. Items under these attributes are test code: #[test], #[cfg(test)],
+// #[cfg(all(test, …))], #[rstest], #[<path>::test] (e.g. tokio::test). #[cfg(not(test))] is not.
+const RUST_TEST_ATTRIBUTE = /^#\[(?:test\]|cfg\((?:all\()?test\b|rstest\b|[\w:]+::test\b)/;
+
+/** Marks Rust definitions inside an item that carries a test attribute as kind "test" (for source/test separation). */
+function markRustTests(root: any, definitions: SymbolDef[]): void {
+	const ranges: Array<[number, number]> = [];
+	const walk = (node: any) => {
+		if (node.type === "attribute_item" && RUST_TEST_ATTRIBUTE.test(node.text.replace(/\s+/g, ""))) {
+			let item = node.nextNamedSibling;
+			while (item && (item.type === "attribute_item" || item.type === "line_comment" || item.type === "block_comment")) item = item.nextNamedSibling;
+			if (item) ranges.push([item.startPosition.row + 1, item.endPosition.row + 1]);
+		}
+		for (let i = 0; i < node.namedChildCount; i++) walk(node.namedChild(i));
+	};
+	walk(root);
+	for (const def of definitions) {
+		if (ranges.some(([start, end]) => def.line >= start && def.line <= end)) def.kind = "test";
+	}
+}
+
 function countErrorNodes(node: any): number {
 	let count = node.type === "ERROR" || (typeof node.isMissing === "function" ? node.isMissing() : node.isMissing) ? 1 : 0;
 	for (let i = 0; i < node.childCount; i++) count += countErrorNodes(node.child(i));
@@ -858,6 +879,7 @@ export class TreeSitterEngine {
 				}
 			}
 			collectAstReferences(root);
+			if (ext === ".rs") markRustTests(root, definitions);
 
 			return {
 				filePath,

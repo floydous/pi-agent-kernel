@@ -300,6 +300,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/gitignore_traversal.test")),
 	},
 	{
+		name: "Rust Inline Test Suite",
+		key: "rust-inline-tests",
+		loader: () => runSuiteModule(() => import("./retrieval/rust_inline_tests.test")),
+	},
+	{
 		name: "Grammar Load Reporting Suite",
 		key: "grammar-issues",
 		loader: () => runSuiteModule(() => import("./retrieval/grammar_issues.test")),
