@@ -10,6 +10,7 @@
 
 - **Faster Search Startup in Reopened Workspaces**: The code search index now reuses saved results for files that have not changed instead of re-parsing every file at startup, and updating or removing a file no longer rescans the whole index. Re-syncing an unchanged 500-file repository dropped from about 2.6 s to 0.7 s in our measurements, with identical search results.
 - **Faster Code Search Queries**: Before each search, the index now re-reads only files whose size or modification time changed, and reuses its list of workspace files until a folder or ignore file changes, instead of re-reading every file and walking the whole workspace. A search on a 500-file repository dropped from about 340 ms to 20 ms in our measurements. A change that leaves modification times untouched (tools that restore them, some network filesystems) is picked up at the next change or re-index.
+- **Search Puts Source Code First**: Code search now returns the best source matches first and lists up to three matching test files after them, so tests that describe behavior in plain words no longer push the implementing code out of the results. Searches whose query or file filter mentions tests or specs keep the mixed ranking. On held-out fixes from TypeScript and JavaScript projects, the right file ranked first in 18 of 43 searches, up from 10. A result can now hold up to eight matches instead of five; the median result grew by 6–28% in our tests.
 
 ### Fixed
 
