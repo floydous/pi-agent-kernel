@@ -305,6 +305,16 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/alias_extraction.test")),
 	},
 	{
+		name: "Stat-Based Freshness Suite",
+		key: "freshness-stat",
+		loader: () => runSuiteModule(() => import("./retrieval/freshness_stat.test")),
+	},
+	{
+		name: "Workspace Walk Cache Suite",
+		key: "walk-cache",
+		loader: () => runSuiteModule(() => import("./retrieval/walk_cache.test")),
+	},
+	{
 		name: "Incremental Index Reuse & Equivalence Suite",
 		key: "incremental-reuse",
 		loader: () => runSuiteModule(() => import("./retrieval/incremental_reuse.test")),

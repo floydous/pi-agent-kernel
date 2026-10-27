@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS } from "./workspace_walker";
+import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS, type WorkspaceWalkCache } from "./workspace_walker";
 import { extractFileTags, isTestPath, SymbolDef } from "./tag_extractor";
 import { TreeSitterEngine } from "./tree_sitter_engine";
 
@@ -283,13 +283,14 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
  * chunkWorkspace. The search index uses this to check live file freshness
  * without reparsing unchanged files.
  */
-export function findChunkableFiles(rootDir: string, maxFiles = 500): string[] {
-	return walkWorkspaceFiles({
+export function findChunkableFiles(rootDir: string, maxFiles = 500, cache?: WorkspaceWalkCache): string[] {
+	const options = {
 		rootDir,
 		maxFiles,
 		extensions: SUPPORTED_EXTENSIONS,
 		includeGithub: true,
-	});
+	};
+	return cache ? cache.walk(options) : walkWorkspaceFiles(options);
 }
 
 /**

@@ -23,6 +23,7 @@ import { kernelDebug } from "../safety/kernel_debug";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 import { TreeSitterEngine } from "./tree_sitter_engine";
 import { getSearchCacheDir } from "./search_cache";
+import { WorkspaceWalkCache } from "./workspace_walker";
 export { getSearchCacheDir } from "./search_cache";
 
 const INDEX_VERSION = 4;
@@ -76,6 +77,21 @@ function readDescriptorBounded(descriptor: number, maxBytes: number): Buffer {
 
 function sameFileSnapshot(before: fs.Stats, after: fs.Stats): boolean {
 	return before.dev === after.dev && before.ino === after.ino && before.size === after.size && before.mtimeMs === after.mtimeMs;
+}
+
+/** Stat + content hash of a file as last read, letting freshness checks skip unchanged files. */
+interface FreshnessSnapshot {
+	stats: fs.Stats;
+	hash: string;
+	bytes: number;
+	/** Modified within the timestamp-granularity window of the read; a same-size rewrite could share its mtime. */
+	racy: boolean;
+}
+
+const RACY_MTIME_WINDOW_MS = 2_000;
+
+function freshnessSnapshot(stats: fs.Stats, hash: string, bytes: number): FreshnessSnapshot {
+	return { stats, hash, bytes, racy: stats.mtimeMs >= Date.now() - RACY_MTIME_WINDOW_MS };
 }
 
 function isValidChunkKind(kind: string): boolean {
@@ -392,6 +408,8 @@ export class HybridSearchIndex {
 	private liveCheckPromise: Promise<boolean> | null = null;
 	private persistedVectorCaches: PersistedVectorCache[] = [];
 	private skippedOversizedFiles = new Set<string>();
+	private freshnessSnapshots = new Map<string, FreshnessSnapshot>();
+	private walkCache = new WorkspaceWalkCache();
 	private projectTrusted: boolean;
 
 	constructor(
@@ -923,11 +941,28 @@ export class HybridSearchIndex {
 
 	private getWorkspaceFileHashes(): Map<string, string> | null {
 		const hashes = new Map<string, string>();
+		const snapshots = new Map<string, FreshnessSnapshot>();
 		let workspaceBytes = 0;
-		const files = findChunkableFiles(this.cwd).sort(compareStrings);
+		const files = findChunkableFiles(this.cwd, undefined, this.walkCache).sort(compareStrings);
 		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
 			try {
+				// Fast path: a regular file whose stat matches the snapshot taken when it was last read keeps
+				// that read's hash. Recently modified ("racy") snapshots are always re-read.
+				const known = this.freshnessSnapshots.get(relPath);
+				if (known && !known.racy) {
+					const current = fs.lstatSync(filePath);
+					if (current.isFile() && sameFileSnapshot(known.stats, current)) {
+						if (current.size > MAX_INDEX_FILE_BYTES || workspaceBytes + known.bytes > MAX_INDEX_WORKSPACE_BYTES) {
+							this.skippedOversizedFiles.add(relPath);
+							continue;
+						}
+						workspaceBytes += known.bytes;
+						hashes.set(relPath, known.hash);
+						snapshots.set(relPath, known);
+						continue;
+					}
+				}
 				const descriptor = fs.openSync(filePath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
 				let content: string;
 				let opened: fs.Stats;
@@ -949,12 +984,15 @@ export class HybridSearchIndex {
 					continue;
 				}
 				workspaceBytes += actualBytes;
-				hashes.set(relPath, computeHash(content));
+				const hash = computeHash(content);
+				hashes.set(relPath, hash);
+				snapshots.set(relPath, freshnessSnapshot(opened, hash, actualBytes));
 			} catch (error) {
 				kernelDebug(error);
 				return null;
 			}
 		}
+		this.freshnessSnapshots = snapshots;
 		return hashes;
 	}
 
@@ -1037,7 +1075,7 @@ export class HybridSearchIndex {
 
 			onProgress?.("Scanning workspace files...");
 
-			const chunkableFiles = findChunkableFiles(this.cwd).sort(compareStrings);
+			const chunkableFiles = findChunkableFiles(this.cwd, undefined, this.walkCache).sort(compareStrings);
 			this.skippedOversizedFiles.clear();
 			const workspaceExts = new Set<string>();
 			for (const f of chunkableFiles) {
@@ -1106,6 +1144,7 @@ export class HybridSearchIndex {
 					workspaceBytes += actualBytes;
 					workspaceChunks += chunks.length;
 					currentFiles.set(relPath, { hash, chunks });
+					this.freshnessSnapshots.set(relPath, freshnessSnapshot(opened, hash, actualBytes));
 				} catch (error) {
 					kernelDebug(error);
 				}

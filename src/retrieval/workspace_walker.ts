@@ -86,6 +86,8 @@ export interface WalkWorkspaceOptions {
 	extensions?: Set<string>;
 	includeGithub?: boolean;
 	onFile?: (filePath: string) => boolean | void;
+	/** Called for each directory whose ignore files are consulted, before it is read. */
+	onDirectory?: (dirPath: string) => void;
 }
 
 /**
@@ -140,6 +142,7 @@ export function walkWorkspaceFiles(options: WalkWorkspaceOptions): string[] {
 	}
 
 	for (const dir of initialDirs) {
+		options.onDirectory?.(dir);
 		const dirRel = path.relative(baseRoot, dir).replace(/\\/g, "/");
 		const localGit = loadIgnoreFile(path.join(dir, ".gitignore"));
 		if (localGit) {
@@ -154,6 +157,7 @@ export function walkWorkspaceFiles(options: WalkWorkspaceOptions): string[] {
 	function scan(dir: string, gitStack: IgnoreFrame[], piStack: IgnoreFrame[]): boolean {
 		if (files.length >= maxFiles) return false;
 
+		options.onDirectory?.(dir);
 		let entries: fs.Dirent[];
 		try {
 			entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -263,4 +267,72 @@ export function walkWorkspaceFiles(options: WalkWorkspaceOptions): string[] {
 
 	scan(rootDir, rootGitFrames, rootPiFrames);
 	return files;
+}
+
+interface WalkProbe {
+	path: string;
+	/** `.git` probes only matter for existence: git operations touch .git constantly. */
+	existenceOnly: boolean;
+	stats?: fs.Stats;
+}
+
+const WALK_RACY_WINDOW_MS = 2_000;
+
+function takeProbe(probePath: string, existenceOnly: boolean): WalkProbe {
+	return { path: probePath, existenceOnly, stats: fs.statSync(probePath, { throwIfNoEntry: false }) };
+}
+
+function probeUnchanged(probe: WalkProbe): boolean {
+	const now = fs.statSync(probe.path, { throwIfNoEntry: false });
+	if (!probe.stats || !now) return !probe.stats && !now;
+	if (probe.existenceOnly) return true;
+	return probe.stats.dev === now.dev && probe.stats.ino === now.ino && probe.stats.size === now.size
+		&& probe.stats.mtimeMs === now.mtimeMs && probe.stats.isDirectory() === now.isDirectory();
+}
+
+/**
+ * Reuses a workspace walk until something it depended on changes: a visited directory (entry
+ * add/remove/rename updates its mtime), a consulted .gitignore/.piignore, or the `.git` ancestors
+ * that decide the ignore root. Walks recorded within the mtime-granularity window are not reused.
+ */
+export class WorkspaceWalkCache {
+	private key = "";
+	private files: string[] = [];
+	private probes: WalkProbe[] = [];
+	private racy = true;
+
+	walk(options: WalkWorkspaceOptions): string[] {
+		if (options.onFile) return walkWorkspaceFiles(options);
+		const key = JSON.stringify([
+			path.resolve(options.rootDir),
+			options.maxFiles ?? 500,
+			options.includeGithub ?? true,
+			options.extensions ? [...options.extensions].sort() : null,
+		]);
+		if (key === this.key && !this.racy && this.probes.every(probeUnchanged)) return this.files.slice();
+
+		const started = Date.now();
+		const probes = new Map<string, WalkProbe>();
+		const record = (probePath: string, existenceOnly = false) => {
+			if (!probes.has(probePath)) probes.set(probePath, takeProbe(probePath, existenceOnly));
+		};
+		for (let dir = path.resolve(options.rootDir); ; dir = path.dirname(dir)) {
+			record(path.join(dir, ".git"), true);
+			if (probes.get(path.join(dir, ".git"))!.stats || path.dirname(dir) === dir) break;
+		}
+		const files = walkWorkspaceFiles({
+			...options,
+			onDirectory: (dir) => {
+				options.onDirectory?.(dir);
+				record(dir);
+				record(path.join(dir, ".gitignore"));
+				record(path.join(dir, ".piignore"));
+			},
+		});
+		this.key = key;
+		this.files = files;
+		this.probes = [...probes.values()];
+		this.racy = this.probes.some((p) => !p.existenceOnly && p.stats && p.stats.mtimeMs >= started - WALK_RACY_WINDOW_MS);
+		return files.slice();
+	}
 }
