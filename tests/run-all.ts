@@ -300,6 +300,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/gitignore_traversal.test")),
 	},
 	{
+		name: "Incremental Index Reuse & Equivalence Suite",
+		key: "incremental-reuse",
+		loader: () => runSuiteModule(() => import("./retrieval/incremental_reuse.test")),
+	},
+	{
 		name: "Tool Confusion Recovery Suite",
 		key: "tool-confusion-recovery",
 		loader: () => runSuiteModule(() => import("./tool-confusion/tool_confusion_recovery.test")),

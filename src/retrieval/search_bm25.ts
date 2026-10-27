@@ -67,17 +67,23 @@ export class BM25Engine {
 	private termDocFreqs: Map<string, number> = new Map();
 	// term -> Set of chunkIds (Inverted index for O(Σ matches) query scanning)
 	private postings: Map<string, Set<string>> = new Map();
+	// filePath -> chunkIds, so removeFile touches only that file's chunks
+	private docIdsByFile: Map<string, Set<string>> = new Map();
 
 	private totalDocs = 0;
 	private avgDocLength = 0;
+	// Running sum of docLengths, so recalculateStats is O(1)
+	private totalLength = 0;
 
 	public clear(): void {
 		this.docTermFreqs.clear();
 		this.docLengths.clear();
 		this.termDocFreqs.clear();
 		this.postings.clear();
+		this.docIdsByFile.clear();
 		this.totalDocs = 0;
 		this.avgDocLength = 0;
+		this.totalLength = 0;
 	}
 
 	/**
@@ -101,7 +107,14 @@ export class BM25Engine {
 		}
 
 		this.docTermFreqs.set(chunk.id, tfMap);
+		this.totalLength += tokens.length - (this.docLengths.get(chunk.id) ?? 0);
 		this.docLengths.set(chunk.id, tokens.length);
+		let fileIds = this.docIdsByFile.get(chunk.filePath);
+		if (!fileIds) {
+			fileIds = new Set();
+			this.docIdsByFile.set(chunk.filePath, fileIds);
+		}
+		fileIds.add(chunk.id);
 
 		for (const term of tfMap.keys()) {
 			this.termDocFreqs.set(term, (this.termDocFreqs.get(term) || 0) + 1);
@@ -120,42 +133,37 @@ export class BM25Engine {
 	 * Remove all chunks associated with a specific relative file path.
 	 */
 	public removeFile(filePath: string): void {
-		const prefix = `${filePath}:`;
-		for (const chunkId of [...this.docTermFreqs.keys()]) {
-			if (chunkId.startsWith(prefix)) {
-				const tfMap = this.docTermFreqs.get(chunkId);
-				if (tfMap) {
-					for (const term of tfMap.keys()) {
-						const count = (this.termDocFreqs.get(term) || 1) - 1;
-						if (count <= 0) {
-							this.termDocFreqs.delete(term);
-						} else {
-							this.termDocFreqs.set(term, count);
-						}
-						const chunkSet = this.postings.get(term);
-						if (chunkSet) {
-							chunkSet.delete(chunkId);
-							if (chunkSet.size === 0) {
-								this.postings.delete(term);
-							}
+		for (const chunkId of this.docIdsByFile.get(filePath) ?? []) {
+			const tfMap = this.docTermFreqs.get(chunkId);
+			if (tfMap) {
+				for (const term of tfMap.keys()) {
+					const count = (this.termDocFreqs.get(term) || 1) - 1;
+					if (count <= 0) {
+						this.termDocFreqs.delete(term);
+					} else {
+						this.termDocFreqs.set(term, count);
+					}
+					const chunkSet = this.postings.get(term);
+					if (chunkSet) {
+						chunkSet.delete(chunkId);
+						if (chunkSet.size === 0) {
+							this.postings.delete(term);
 						}
 					}
 				}
-				this.docTermFreqs.delete(chunkId);
-				this.docLengths.delete(chunkId);
-				this.totalDocs--;
 			}
+			this.docTermFreqs.delete(chunkId);
+			this.totalLength -= this.docLengths.get(chunkId) ?? 0;
+			this.docLengths.delete(chunkId);
+			this.totalDocs--;
 		}
+		this.docIdsByFile.delete(filePath);
 		this.recalculateStats();
 	}
 
 	public recalculateStats(): void {
-		let totalLength = 0;
-		for (const len of this.docLengths.values()) {
-			totalLength += len;
-		}
 		this.totalDocs = this.docLengths.size;
-		this.avgDocLength = this.totalDocs > 0 ? totalLength / this.totalDocs : 0;
+		this.avgDocLength = this.totalDocs > 0 ? this.totalLength / this.totalDocs : 0;
 	}
 
 	/**
