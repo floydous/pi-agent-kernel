@@ -95,13 +95,17 @@ export function registerCodeSearchTool(
 				indexStatus.vectorCount < indexStatus.chunkCount
 					? `[Notice: Vector embeddings are incomplete (${indexStatus.vectorCount}/${indexStatus.chunkCount} chunks); searched via BM25]\n\n`
 					: "";
+			const grammarIssues = indexStatus?.grammarIssues ?? [];
+			const grammarNotice = grammarIssues.length > 0
+				? `[Notice: tree-sitter grammar unavailable for ${grammarIssues.map((issue) => `${issue.extensions.join(", ")} (${issue.reason})`).join("; ")}; code structure for those files is approximate]\n\n`
+				: "";
 
 			if (hits.length === 0) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `${vectorNotice}No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`,
+							text: `${grammarNotice}${vectorNotice}No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`,
 						},
 					],
 					details: { count: 0 },
@@ -149,7 +153,7 @@ export function registerCodeSearchTool(
 				content: [
 					{
 						type: "text",
-						text: `${vectorNotice}${formatted.text}`,
+						text: `${grammarNotice}${vectorNotice}${formatted.text}`,
 					},
 				],
 				details: {

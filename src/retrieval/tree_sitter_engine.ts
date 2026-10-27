@@ -82,6 +82,8 @@ export class TreeSitterEngine {
 	private languages = new Map<string, WtsLanguage>();
 	private ParserClass: any = null;
 	private LanguageClass: any = null;
+	// Why a grammar could not be used, by language ("*" = the engine itself), so the fallback is reported, not hidden.
+	private loadIssues = new Map<string, string>();
 
 	public static getInstance(): TreeSitterEngine {
 		if (!TreeSitterEngine.instance) {
@@ -97,6 +99,15 @@ export class TreeSitterEngine {
 
 	public getSupportedExtensions(): string[] {
 		return Object.keys(EXTENSION_TO_GRAMMAR);
+	}
+
+	/** Languages whose grammar could not be used: file not found, failed to load, or the engine failed to start. */
+	public getLoadIssues(): Array<{ language: string; extensions: string[]; reason: string }> {
+		return [...this.loadIssues].map(([language, reason]) => ({
+			language,
+			extensions: Object.keys(EXTENSION_TO_GRAMMAR).filter((ext) => language === "*" || EXTENSION_TO_GRAMMAR[ext].langKey === language),
+			reason,
+		}));
 	}
 
 	public async init(): Promise<boolean> {
@@ -138,6 +149,7 @@ export class TreeSitterEngine {
 				return true;
 			} catch (e) {
 				kernelDebug(`TreeSitterEngine init failed: ${e}`);
+				this.loadIssues.set("*", `tree-sitter failed to start: ${String(e).split("\n")[0]}`);
 				this.initialized = false;
 				return false;
 			}
@@ -167,11 +179,15 @@ export class TreeSitterEngine {
 						this.LanguageClass.load(wasmPath)
 							.then((lang: any) => {
 								this.languages.set(spec.langKey, lang);
+								this.loadIssues.delete(spec.langKey);
 							})
 							.catch((e: any) => {
 								kernelDebug(`Failed to load grammar for ${spec.langKey}: ${e}`);
+								this.loadIssues.set(spec.langKey, `grammar failed to load: ${String(e).split("\n")[0]}`);
 							}),
 					);
+				} else {
+					this.loadIssues.set(spec.langKey, `grammar file ${spec.wasmFile} not found`);
 				}
 			}
 		}

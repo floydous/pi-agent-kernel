@@ -300,6 +300,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/gitignore_traversal.test")),
 	},
 	{
+		name: "Grammar Load Reporting Suite",
+		key: "grammar-issues",
+		loader: () => runSuiteModule(() => import("./retrieval/grammar_issues.test")),
+	},
+	{
 		name: "Source/Test Separation Suite",
 		key: "test-separation",
 		loader: () => runSuiteModule(() => import("./retrieval/test_separation.test")),

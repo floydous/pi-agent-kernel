@@ -1737,6 +1737,8 @@ export class HybridSearchIndex {
 		engineState: string;
 		pipelineDesc: string;
 		hardwareInfo: string;
+		/** Grammar load problems for languages present in the workspace (their files fall back to a simpler parser). */
+		grammarIssues: Array<{ extensions: string[]; reason: string }>;
 	} {
 		const modelRevision = this.config.modelRevision.slice(0, 12);
 		const isModelLoaded = this.embedder.isLoaded();
@@ -1782,6 +1784,10 @@ export class HybridSearchIndex {
 		const cpus = os.cpus().length;
 		const freeMem = (os.freemem() / (1024 * 1024 * 1024)).toFixed(1);
 		const hardwareInfo = `${cpus} CPUs, ${freeMem} GB free RAM`;
+		const presentExtensions = new Set(Array.from(this.fileHashes.keys(), (file) => path.extname(file).toLowerCase()));
+		const grammarIssues = TreeSitterEngine.getInstance().getLoadIssues()
+			.map((issue) => ({ extensions: issue.extensions.filter((ext) => presentExtensions.has(ext)), reason: issue.reason }))
+			.filter((issue) => issue.extensions.length > 0);
 
 		return {
 			profile: this.config.profile,
@@ -1797,6 +1803,7 @@ export class HybridSearchIndex {
 			engineState,
 			pipelineDesc,
 			hardwareInfo,
+			grammarIssues,
 		};
 	}
 
