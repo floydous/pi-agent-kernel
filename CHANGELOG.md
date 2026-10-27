@@ -9,9 +9,11 @@
 ### Changed
 
 - **Faster Search Startup in Reopened Workspaces**: The code search index now reuses saved results for files that have not changed instead of re-parsing every file at startup, and updating or removing a file no longer rescans the whole index. Re-syncing an unchanged 500-file repository dropped from about 2.6 s to 0.7 s in our measurements, with identical search results.
+- **Faster Code Search Queries**: Before each search, the index now re-reads only files whose size or modification time changed, and reuses its list of workspace files until a folder or ignore file changes, instead of re-reading every file and walking the whole workspace. A search on a 500-file repository dropped from about 340 ms to 20 ms in our measurements. A change that leaves modification times untouched (tools that restore them, some network filesystems) is picked up at the next change or re-index.
 
 ### Fixed
 
+- **No Phantom Symbols from Exported Code**: Code search no longer indexes fake alias symbols built from `x as y` text inside exported functions, classes, and constants (for example, `value as unknown` produced a symbol named `unknown`). Real `import { a as b }` and `export { a as b }` aliases are still indexed. Existing search caches are rebuilt once after upgrading.
 - **Clearer Recovery from Tool Mix-Ups**: When an agent sends a shell command to `read` or `edit`, the error now names the `bash` tool and the exact call to make, instead of a generic missing-path error.
 - **Edit Errors Name the Actual Mistake**: An edit with a search block but no replacement now explains how to delete the block with `edits: [{ search, replace: "" }]`. Some model routes silently drop an empty top-level `replace`, which previously caused the same failing edit to repeat. An edit sent read-style `offset`/`limit` arguments now points to the `read` tool.
 
