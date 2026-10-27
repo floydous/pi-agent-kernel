@@ -75,21 +75,36 @@ function preflightFileEdit(
 		return { error: `[EDIT FAILED] File not found: '${item.path}'.` };
 	}
 
+	const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
+	const shouldNormalizeDots = config?.editing?.normalize_fullwidth_dots !== false;
+
 	let edits = item.edits;
 	if (Array.isArray(edits)) {
 		edits = edits.map((e: any) => {
 			if (!e || typeof e !== "object") return e;
-			const search = e.search ?? e.oldText ?? e.old_text ?? e.old;
-			const replace = e.replace ?? e.newText ?? e.new_text ?? e.new;
-			return { ...e, search, replace };
+			let search = e.search ?? e.oldText ?? e.old_text ?? e.old;
+			let replace = e.replace ?? e.newText ?? e.new_text ?? e.new;
+			let lines = e.lines;
+			if (shouldNormalizeDots) {
+				if (typeof search === "string" && search.includes("\uff0e")) search = search.replace(/\uff0e/g, ".");
+				if (typeof replace === "string" && replace.includes("\uff0e")) replace = replace.replace(/\uff0e/g, ".");
+				if (Array.isArray(lines)) lines = lines.map((l: any) => typeof l === "string" ? l.replace(/\uff0e/g, ".") : l);
+			}
+			return { ...e, search, replace, ...(lines !== undefined ? { lines } : {}) };
 		});
 	}
-	const singleSearch = item.search ?? item.oldText ?? item.old_text ?? item.old;
-	const singleReplace = item.replace ?? item.newText ?? item.new_text ?? item.new;
+	let singleSearch = item.search ?? item.oldText ?? item.old_text ?? item.old;
+	let singleReplace = item.replace ?? item.newText ?? item.new_text ?? item.new;
+	let singleLines = Array.isArray(item.lines) ? [...item.lines] : item.lines;
+	if (shouldNormalizeDots) {
+		if (typeof singleSearch === "string" && singleSearch.includes("\uff0e")) singleSearch = singleSearch.replace(/\uff0e/g, ".");
+		if (typeof singleReplace === "string" && singleReplace.includes("\uff0e")) singleReplace = singleReplace.replace(/\uff0e/g, ".");
+		if (Array.isArray(singleLines)) singleLines = singleLines.map((l: any) => typeof l === "string" ? l.replace(/\uff0e/g, ".") : l);
+	}
 
 	const hasSingleAnchor =
 		(item.pos !== undefined || item.start_line !== undefined) &&
-		Array.isArray(item.lines);
+		Array.isArray(singleLines);
 	const hasAnchorEdits =
 		Array.isArray(edits) &&
 		edits.length > 0 &&
@@ -129,7 +144,7 @@ function preflightFileEdit(
 				{
 					pos: item.pos ?? item.start_line,
 					end: item.end ?? item.end_line,
-					lines: item.lines,
+					lines: singleLines,
 				},
 			];
 		} else {
@@ -194,7 +209,6 @@ function preflightFileEdit(
 		}
 	}
 
-	const config = deps.getConfig?.(ctx.cwd) ?? loadKernelConfig(ctx.cwd);
 	const epistemicCheck = globalEpistemicGuard.checkReadPrecondition(
 		resolvedPath,
 		"edit",
@@ -212,7 +226,7 @@ function preflightFileEdit(
 		prepared: {
 			resolvedPath,
 			relPath,
-			item: { ...item, search: singleSearch, replace: singleReplace, edits },
+			item: { ...item, search: singleSearch, replace: singleReplace, lines: singleLines, edits },
 			isAnchorMode,
 			hasSingleAnchor,
 			hasSingleBlock,

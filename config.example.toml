@@ -19,6 +19,7 @@ exec_timeout_ms = 5000
 mode = "smart_anchor"
 default_anchors = true
 read_mode = "auto"
+normalize_fullwidth_dots = true
 
 [ui]
 enable_pastel_footer = true

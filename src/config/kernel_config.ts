@@ -23,6 +23,7 @@ export interface EditingConfig {
 	default_anchors: boolean;
 	read_mode: "auto" | "plain" | "anchored";
 	syntax_gate?: "warn" | "block";
+	normalize_fullwidth_dots?: boolean;
 }
 
 export interface KernelConfigOverrides {
@@ -67,6 +68,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 		default_anchors: false,
 		read_mode: "plain",
 		syntax_gate: "warn",
+		normalize_fullwidth_dots: true,
 	},
 	ui: {
 		enable_pastel_footer: true,
@@ -91,7 +93,7 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 		"max_total_bytes",
 		"exec_timeout_ms",
 	]),
-	editing: new Set(["mode", "default_anchors", "read_mode", "syntax_gate"]),
+	editing: new Set(["mode", "default_anchors", "read_mode", "syntax_gate", "normalize_fullwidth_dots"]),
 	ui: new Set(["enable_pastel_footer"]),
 	instructions: new Set(["enabled", "pi_docs"]),
 };
@@ -152,6 +154,9 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 	requireEnum(config.editing.read_mode, "editing.read_mode", ["auto", "plain", "anchored"]);
 	if (config.editing.syntax_gate !== undefined) {
 		requireEnum(config.editing.syntax_gate, "editing.syntax_gate", ["warn", "block"]);
+	}
+	if (config.editing.normalize_fullwidth_dots !== undefined) {
+		requireBoolean(config.editing.normalize_fullwidth_dots, "editing.normalize_fullwidth_dots");
 	}
 
 	requireBoolean(config.ui.enable_pastel_footer, "ui.enable_pastel_footer");

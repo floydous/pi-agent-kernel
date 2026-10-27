@@ -58,6 +58,7 @@ export function formatConfigDashboard(cwd: string, config: KernelConfig): string
 		`  • Engine Mode           : ${config.editing.mode} (smart_anchor | standard)`,
 		`  • Read Mode             : ${config.editing.read_mode} (plain | anchored | auto)`,
 		`  • Default Anchors       : ${config.editing.default_anchors ? "true" : "false"}`,
+		`  • Fullwidth Dot Normalization : ${config.editing.normalize_fullwidth_dots !== false ? "ENABLED" : "DISABLED"}`,
 		``,
 		`[System & UI]`,
 		`  • Kernel Guidance Prompt: ${config.instructions.enabled ? "ENABLED" : "DISABLED"}`,
@@ -181,6 +182,14 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						}
 						break;
 					}
+					case "fullwidth_dots":
+					case "normalize_fullwidth_dots":
+					case "normalize_dots": {
+						const enable = val === "on" || val === "true" || val === "1" || val === "enabled";
+						updates.editing = { normalize_fullwidth_dots: enable };
+						desc = `Fullwidth dot normalization set to ${enable ? "ENABLED" : "DISABLED"}`;
+						break;
+					}
 					case "guidance":
 					case "instructions": {
 						const enable = val === "on" || val === "true" || val === "1" || val === "enabled";
@@ -262,6 +271,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					if (id === "max_lines") return globalRaw.safety?.max_lines !== undefined;
 					if (id === "editing") return globalRaw.editing?.mode !== undefined;
 					if (id === "read_mode") return globalRaw.editing?.read_mode !== undefined;
+					if (id === "normalize_dots") return globalRaw.editing?.normalize_fullwidth_dots !== undefined;
 					if (id === "guidance") return globalRaw.instructions?.enabled !== undefined;
 					if (id === "pi_docs") return globalRaw.instructions?.pi_docs !== undefined;
 					if (id === "footer") return globalRaw.ui?.enable_pastel_footer !== undefined;
@@ -284,6 +294,10 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					} else if (id === "read_mode") {
 						patch.editing = { read_mode: value as "auto" | "plain" | "anchored" };
 						desc = `Reading anchor protocol = ${value}`;
+					} else if (id === "normalize_dots") {
+						const enable = value === "enabled";
+						patch.editing = { normalize_fullwidth_dots: enable };
+						desc = `Fullwidth dot normalization = ${enable ? "enabled" : "disabled"}`;
 					} else if (id === "guidance") {
 						const enable = value === "enabled";
 						patch.instructions = { enabled: enable };
@@ -318,6 +332,8 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							return { section: "editing", key: "mode" };
 						case "read_mode":
 							return { section: "editing", key: "read_mode" };
+						case "normalize_dots":
+							return { section: "editing", key: "normalize_fullwidth_dots" };
 						case "guidance":
 							return { section: "instructions", key: "enabled" };
 						case "pi_docs":
@@ -408,6 +424,20 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							anchored:
 								"Anchored reads: Injects LINE#HASH prefixes on every line for strict positional pinning. Increases context token consumption.",
 							auto: "Adaptive reading: Defaults to clean plain text, automatically falling back to anchored reads when resolving ambiguous edit targets.",
+						},
+					},
+					{
+						category: "Editing Engine",
+						id: "normalize_dots",
+						label: "Fullwidth Dot Normalization",
+						currentValue: currentConfig.editing.normalize_fullwidth_dots !== false ? "enabled" : "disabled",
+						values: ["enabled", "disabled"],
+						isGlobal: checkIsGlobal("normalize_dots"),
+						descriptions: {
+							enabled:
+								"Fullwidth dot normalization enabled: Automatically converts Unicode fullwidth full stop (U+FF0E '．') to ASCII '.' in all edit operations.",
+							disabled:
+								"Fullwidth dot normalization disabled: Preserves Unicode fullwidth full stop (U+FF0E '．') verbatim in edit operations.",
 						},
 					},
 

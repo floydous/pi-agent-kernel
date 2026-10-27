@@ -304,6 +304,11 @@ const suites: TestEntry[] = [
 		key: "tool-confusion-recovery",
 		loader: () => runSuiteModule(() => import("./tool-confusion/tool_confusion_recovery.test")),
 	},
+	{
+		name: "Fullwidth Dot Normalization & Toggle Suite",
+		key: "normalize-dots",
+		loader: () => runSuiteModule(() => import("./editing/normalize_dots_test")),
+	},
 ];
 
 async function main(): Promise<void> {
