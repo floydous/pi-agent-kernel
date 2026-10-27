@@ -651,7 +651,7 @@ export function extractFileTags(filePath: string, content: string): FileTags {
 		}
 
 		// C / C++
-		if (ext === ".c" || ext === ".cpp" || ext === ".cc" || ext === ".h" || ext === ".hpp") {
+		if (ext === ".c" || ext === ".cpp" || ext === ".cc" || ext === ".cxx" || ext === ".h" || ext === ".hpp" || ext === ".hh" || ext === ".hxx") {
 			const cExpressionFn = line.match(
 				/^(?:[A-Za-z_][A-Za-z0-9_:<>*&\s]+?)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*\{/,
 			);

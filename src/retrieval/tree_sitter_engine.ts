@@ -32,6 +32,9 @@ const EXTENSION_TO_GRAMMAR: Record<string, LanguageGrammarSpec> = {
 	".cpp": { wasmFile: "tree-sitter-cpp.wasm", langKey: "cpp" },
 	".hpp": { wasmFile: "tree-sitter-cpp.wasm", langKey: "cpp" },
 	".cc": { wasmFile: "tree-sitter-cpp.wasm", langKey: "cpp" },
+	".cxx": { wasmFile: "tree-sitter-cpp.wasm", langKey: "cpp" },
+	".hh": { wasmFile: "tree-sitter-cpp.wasm", langKey: "cpp" },
+	".hxx": { wasmFile: "tree-sitter-cpp.wasm", langKey: "cpp" },
 	// Java
 	".java": { wasmFile: "tree-sitter-java.wasm", langKey: "java" },
 	// C#
@@ -44,6 +47,16 @@ const EXTENSION_TO_GRAMMAR: Record<string, LanguageGrammarSpec> = {
 	// PHP
 	".php": { wasmFile: "tree-sitter-php.wasm", langKey: "php" },
 };
+
+// `.h` is shared by C and C++. A header is parsed as C++ only when it has a C++ marker and the C parse has errors
+// that the C++ parse reduces (measured on jq/libuv/ninja/fmt headers: switches no C header, nearly every C++ one).
+const CPP_HEADER_MARKER = /^\s*namespace\s+[\w:]*\s*\{|^\s*template\s*<|^\s*class\s+\w+|^\s*(public|private|protected)\s*:|\w::\w|\bconstexpr\b|\btypename\b/m;
+
+function countErrorNodes(node: any): number {
+	let count = node.type === "ERROR" || (typeof node.isMissing === "function" ? node.isMissing() : node.isMissing) ? 1 : 0;
+	for (let i = 0; i < node.childCount; i++) count += countErrorNodes(node.child(i));
+	return count;
+}
 
 function getGrammarsDir(): string {
 	// Root of agent-kernel extension: ../../grammars relative to src/retrieval or dist/retrieval
@@ -141,6 +154,8 @@ export class TreeSitterEngine {
 		if (!this.initialized || !this.ParserClass || !this.LanguageClass) return;
 
 		const pending: Promise<void>[] = [];
+		// C++ headers named .h need the C++ grammar too (see CPP_HEADER_MARKER).
+		if (extensions.includes(".h") && !extensions.includes(".hpp")) extensions = [...extensions, ".hpp"];
 		for (const ext of extensions) {
 			const spec = EXTENSION_TO_GRAMMAR[ext];
 			if (!spec) continue;
@@ -208,6 +223,16 @@ export class TreeSitterEngine {
 		let tree: any = null;
 		try {
 			tree = parser.parse(content);
+			if (ext === ".h" && tree.rootNode.hasError && CPP_HEADER_MARKER.test(content)) {
+				const cppParser = this.getParser(".hpp");
+				const cppTree = cppParser ? cppParser.parse(content) : null;
+				if (cppTree && countErrorNodes(cppTree.rootNode) < countErrorNodes(tree.rootNode)) {
+					tree.delete();
+					tree = cppTree;
+				} else {
+					cppTree?.delete();
+				}
+			}
 			const root = tree.rootNode;
 			const hasSyntaxError = root.hasError;
 			const definitions: SymbolDef[] = [];
@@ -613,7 +638,7 @@ export class TreeSitterEngine {
 				}
 
 				// --- C / C++ ---
-				if (type === "function_definition" && (ext === ".c" || ext === ".cpp" || ext === ".h" || ext === ".hpp" || ext === ".cc")) {
+				if (type === "function_definition" && (ext === ".c" || ext === ".cpp" || ext === ".h" || ext === ".hpp" || ext === ".cc" || ext === ".cxx" || ext === ".hh" || ext === ".hxx")) {
 					let isMethod = false;
 					let p = node.parent;
 					while (p) {

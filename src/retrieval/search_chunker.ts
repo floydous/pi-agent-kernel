@@ -21,7 +21,7 @@ export interface CodeChunk {
 }
 
 export const SUPPORTED_EXTENSIONS = new Set([
-	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".h", ".hpp", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql"
+	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh", ".hxx", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql"
 ]);
 
 export const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;

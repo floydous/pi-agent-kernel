@@ -300,6 +300,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/gitignore_traversal.test")),
 	},
 	{
+		name: "C++ Indexing Suite",
+		key: "cpp-indexing",
+		loader: () => runSuiteModule(() => import("./retrieval/cpp_indexing.test")),
+	},
+	{
 		name: "Alias Extraction Suite",
 		key: "alias-extraction",
 		loader: () => runSuiteModule(() => import("./retrieval/alias_extraction.test")),
