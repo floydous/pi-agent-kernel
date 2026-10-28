@@ -25,7 +25,8 @@ export async function run(): Promise<void> {
 	const piDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-file-cap-pidir-"));
 	process.env.PI_DIR = piDir;
 	const { HybridSearchIndex } = require("../../src/retrieval/search_index");
-	const { MAX_INDEX_CHUNKS } = require("../../src/retrieval/search_chunker");
+	const { findChunkableFiles, MAX_INDEX_CHUNKS } = require("../../src/retrieval/search_chunker");
+	const { walkWorkspaceFiles } = require("../../src/retrieval/workspace_walker");
 	const workspaces: string[] = [];
 	const workspace = (files: Record<string, string>) => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-file-cap-ws-"));
@@ -96,6 +97,48 @@ export async function run(): Promise<void> {
 			assert.equal(incremental.getStatus().skippedFiles, 1);
 			await incremental.flushPendingSave?.(true);
 		});
+
+		await section("T4. Files are ranked source < test < vendored, then by path code units, for any walk order...", async () => {
+			const root = path.resolve(os.tmpdir(), "file-cap-virtual-root");
+			const expected = [
+				"Zebra.c", "a.c", "src-x/a.c", "src/a.c", "src/server.c", "srcA/x.c", // source, code-unit order
+				"tests/unit/test_x.c", // test
+				"deps/lua/src/lapi.c", "deps/x/test/foo_test.c", "third_party/y.c", // vendored (a vendored test is vendored)
+			];
+			const shuffles = [expected.slice().reverse(), [...expected.slice(5), ...expected.slice(0, 5)], expected.slice()];
+			for (const shuffled of shuffles) {
+				const fakeWalk = { walk: () => shuffled.map((rel) => path.join(root, rel)) };
+				const ranked = findChunkableFiles(root, 100, fakeWalk).map((f: string) => path.relative(root, f).replace(/\\/g, "/"));
+				assert.deepEqual(ranked, expected);
+			}
+			const fakeWalk = { walk: () => shuffles[0].map((rel) => path.join(root, rel)) };
+			assert.deepEqual(findChunkableFiles(root, 3, fakeWalk).map((f: string) => path.basename(f)), ["Zebra.c", "a.c", "a.c"]);
+		});
+
+		await section("T5. The file cap keeps src/ over deps/; the chunk budget goes to src/ first...", async () => {
+			const dir = workspace({ "deps/a.c": "int a;\n", "deps/b.c": "int b;\n", "deps/c.c": "int c;\n", "src/y.c": "int y;\n", "src/z.c": "int z;\n" });
+			const rel = (files: string[]) => files.map((f) => path.relative(dir, f).replace(/\\/g, "/"));
+			assert.deepEqual(rel(walkWorkspaceFiles({ rootDir: dir, maxFiles: 3, extensions: new Set([".c"]) })), ["deps/a.c", "deps/b.c", "deps/c.c"], "fixture: the walk lists deps/ first");
+			assert.deepEqual(rel(findChunkableFiles(dir, 3)), ["src/y.c", "src/z.c", "deps/a.c"]);
+			const budget = workspace({ "deps/big.c": big["m0.c"], "deps/big2.c": big["m1.c"], "src/z.c": big["m2.c"] });
+			const budgetIndex = newIndex(budget);
+			await budgetIndex.syncWorkspace(true);
+			assert.deepEqual(indexedFiles(budgetIndex), ["deps/big.c", "src/z.c"]);
+			assert.equal(budgetIndex.getStatus().skippedFiles, 1);
+			await budgetIndex.flushPendingSave?.(true);
+		});
+
+		await section("T7. Under the caps the file set and sync order are those of an unranked walk...", async () => {
+			const dir = workspace({ "deps/a.c": "int da;\n", "src/b.c": "int sb;\n", "srcA/x.c": "int sx;\n", "src-x/a.c": "int xa;\n", "tests/test_c.c": "int tc;\n", "Z.c": "int z;\n", "a.c": "int a;\n" });
+			const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+			const expected = walkWorkspaceFiles({ rootDir: dir, maxFiles: 500, extensions: new Set([".c"]) }).sort(compare)
+				.map((f: string) => path.relative(dir, f).replace(/\\/g, "/"));
+			const under = newIndex(dir);
+			await under.syncWorkspace(true);
+			const insertion = [...new Set<string>([...under.chunks.values()].map((c: any) => c.filePath))];
+			assert.deepEqual(insertion, expected);
+			await under.flushPendingSave?.(true);
+		});
 	} finally {
 		if (previousPiDir === undefined) delete process.env.PI_DIR;
 		else process.env.PI_DIR = previousPiDir;
@@ -103,7 +146,7 @@ export async function run(): Promise<void> {
 		fs.rmSync(piDir, { recursive: true, force: true });
 	}
 	if (failures.length > 0) throw new Error(`File cap tests failed:\n  ${failures.join("\n  ")}`);
-	console.log("✓ The index stays fresh when a workspace exceeds the chunk cap!");
+	console.log("✓ The index stays fresh over the chunk cap and ranks files by tier!");
 }
 
 if (require.main === module) {

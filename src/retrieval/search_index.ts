@@ -948,7 +948,8 @@ export class HybridSearchIndex {
 		const hashes = new Map<string, string>();
 		const snapshots = new Map<string, FreshnessSnapshot>();
 		let workspaceBytes = 0;
-		const files = findChunkableFiles(this.cwd, undefined, this.walkCache).sort(compareStrings);
+		// Priority order, as in sync, so the byte caps keep the same files.
+		const files = findChunkableFiles(this.cwd, undefined, this.walkCache);
 		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
 			try {
@@ -1082,7 +1083,8 @@ export class HybridSearchIndex {
 
 			onProgress?.("Scanning workspace files...");
 
-			const chunkableFiles = findChunkableFiles(this.cwd, undefined, this.walkCache).sort(compareStrings);
+			// Priority order (source, tests, vendored): the byte and chunk budgets go to project code first.
+			const chunkableFiles = findChunkableFiles(this.cwd, undefined, this.walkCache);
 			this.skippedOversizedFiles.clear();
 			this.chunkCapSkips.clear();
 			const workspaceExts = new Set<string>();
@@ -1097,7 +1099,7 @@ export class HybridSearchIndex {
 			// snapshot. A second read could pair old chunks with a new hash and make
 			// the final freshness check falsely accept stale content. Files whose hash
 			// matches the indexed hash reuse their indexed chunks instead of re-parsing.
-			const currentFiles = new Map<string, { hash: string; chunks: CodeChunk[] }>();
+			const selectedFiles = new Map<string, { absPath: string; hash: string; chunks: CodeChunk[] }>();
 			let workspaceBytes = 0;
 			let workspaceChunks = 0;
 			for (const absPath of chunkableFiles) {
@@ -1153,12 +1155,14 @@ export class HybridSearchIndex {
 					}
 					workspaceBytes += actualBytes;
 					workspaceChunks += chunks.length;
-					currentFiles.set(relPath, { hash, chunks });
+					selectedFiles.set(relPath, { absPath, hash, chunks });
 					this.freshnessSnapshots.set(relPath, freshnessSnapshot(opened, hash, actualBytes));
 				} catch (error) {
 					kernelDebug(error);
 				}
 			}
+			// Index in path order, so BM25 tie-breaking does not depend on the file priority.
+			const currentFiles = new Map([...selectedFiles].sort((a, b) => compareStrings(a[1].absPath, b[1].absPath)));
 
 			// Identify changed, added, or deleted files. A profile upgrade from BM25
 			// to vector retrieval must also embed unchanged chunks that have no vector.

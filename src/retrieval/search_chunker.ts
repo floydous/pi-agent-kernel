@@ -28,6 +28,15 @@ export const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
 export const MAX_INDEX_FILE_BYTES = 2 * 1024 * 1024;
 export const MAX_INDEX_WORKSPACE_BYTES = 20 * 1024 * 1024;
 export const MAX_INDEX_CHUNKS = 10_000;
+export const MAX_INDEX_FILES = 500;
+/** Indexable files a walk collects for ranking; past this the walk stops in directory order. */
+export const MAX_WALK_FILES = 20_000;
+const VENDORED_PATH = /(^|\/)(deps|third_party|thirdparty|external|extern)\//;
+
+/** Index priority when the caps cannot hold every file: 0 project source, 1 test, 2 vendored (a vendored test is vendored). */
+export function fileTier(relPath: string): number {
+	return VENDORED_PATH.test(relPath) ? 2 : isTestPath(relPath) ? 1 : 0;
+}
 
 /**
  * Compute SHA-256 hash of a string.
@@ -282,15 +291,48 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
  * Find supported source files in a workspace using the same traversal policy as
  * chunkWorkspace. The search index uses this to check live file freshness
  * without reparsing unchanged files.
+ *
+ * Returns the first `maxFiles` files in index priority order: fileTier, then
+ * workspace-relative path in code-unit order, independent of directory order.
  */
-export function findChunkableFiles(rootDir: string, maxFiles = 500, cache?: WorkspaceWalkCache): string[] {
+export function findChunkableFiles(rootDir: string, maxFiles = MAX_INDEX_FILES, cache?: WorkspaceWalkCache): string[] {
+	return rankChunkableFiles(rootDir, cache, Math.max(maxFiles, MAX_WALK_FILES)).slice(0, maxFiles).map((entry) => entry.file);
+}
+
+export interface RankedFile {
+	readonly file: string;
+	/** Workspace-relative path with forward slashes. */
+	readonly rel: string;
+	readonly tier: number;
+}
+
+/** A warm search repeats an unchanged walk; ranking 20,000 paths each time would cost more than the walk check. */
+const rankingMemo = new WeakMap<WorkspaceWalkCache, { rootDir: string; walked: string[]; ranked: readonly RankedFile[] }>();
+
+/** Every walked indexable file (up to `maxWalk`) in index priority order. The result is shared: do not mutate it. */
+export function rankChunkableFiles(rootDir: string, cache?: WorkspaceWalkCache, maxWalk = MAX_WALK_FILES): readonly RankedFile[] {
 	const options = {
 		rootDir,
-		maxFiles,
+		maxFiles: maxWalk,
 		extensions: SUPPORTED_EXTENSIONS,
 		includeGithub: true,
 	};
-	return cache ? cache.walk(options) : walkWorkspaceFiles(options);
+	const walked = cache ? cache.walk(options) : walkWorkspaceFiles(options);
+	const memo = cache && rankingMemo.get(cache);
+	if (memo && memo.rootDir === rootDir && memo.walked.length === walked.length && memo.walked.every((file, i) => file === walked[i])) {
+		return memo.ranked;
+	}
+	// The walker builds every path from the resolved root, so slicing equals path.relative at a fraction of the cost.
+	const root = path.resolve(rootDir);
+	const prefix = root.endsWith(path.sep) ? root.length : root.length + 1;
+	const ranked = walked
+		.map((file) => {
+			const rel = file.slice(prefix).replace(/\\/g, "/");
+			return { file, rel, tier: fileTier(rel) };
+		})
+		.sort((a, b) => a.tier - b.tier || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+	if (cache) rankingMemo.set(cache, { rootDir, walked, ranked });
+	return ranked;
 }
 
 /**
