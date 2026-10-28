@@ -11,7 +11,9 @@ export const AUTO_OUTPUT_BUDGET = 8_000;
 const PREVIEW_LINE_LIMIT = 12;
 const PREVIEW_CHAR_LIMIT = 1_400;
 const AUTO_FULL_CHAR_LIMIT = 6_000;
-const AUTO_PREVIEW_HIT_LIMIT = 3;
+const AUTO_PREVIEW_HIT_LIMIT = 5;
+/** A previewed chunk this small is shown whole: a 12-line window often misses the relevant lines of a mid-size body. */
+const PREVIEW_WHOLE_CHUNK_CHAR_LIMIT = 2_000;
 
 export interface VisibleCodeRange {
 	chunkId: string;
@@ -88,6 +90,12 @@ function queryPreview(
 	hit: SearchHit,
 	query: string,
 ): { text: string; visibleRange?: VisibleCodeRange } {
+	if (hit.chunk.content.length <= PREVIEW_WHOLE_CHUNK_CHAR_LIMIT) {
+		return {
+			text: `${hitHeader(hit)}\n\`\`\`${languageFor(hit.chunk.filePath)}\n${hit.chunk.content}\n\`\`\``,
+			visibleRange: { chunkId: hit.chunk.id, startLine: hit.chunk.startLine, endLine: hit.chunk.endLine },
+		};
+	}
 	const lines = hit.chunk.content.split("\n");
 	const terms = Array.from(new Set(tokenizeCode(query)));
 	const bestLine = bestMatchingLine(lines, terms);
