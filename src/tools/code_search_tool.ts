@@ -99,13 +99,19 @@ export function registerCodeSearchTool(
 			const grammarNotice = grammarIssues.length > 0
 				? `[Notice: tree-sitter grammar unavailable for ${grammarIssues.map((issue) => `${issue.extensions.join(", ")} (${issue.reason})`).join("; ")}; code structure for those files is approximate]\n\n`
 				: "";
+			const notIndexed = indexStatus?.notIndexed;
+			const missingFiles = notIndexed ? notIndexed.source + notIndexed.test + notIndexed.vendored : 0;
+			const count = (n: number) => n.toLocaleString("en-US");
+			const coverageNotice = indexStatus && notIndexed && missingFiles > 0
+				? `[Notice: index covers ${count(indexStatus.indexableFiles - missingFiles)} of ${indexStatus.walkTruncated ? "≥ " : ""}${count(indexStatus.indexableFiles)} indexable files (index limits); not indexed: ${(["source", "test", "vendored"] as const).filter((tier) => notIndexed[tier] > 0).map((tier) => `${count(notIndexed[tier])} ${tier}`).join(", ")} (${indexStatus.notIndexedDirs.join(", ")}); use rg for those paths]\n\n`
+				: "";
 
 			if (hits.length === 0) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `${grammarNotice}${vectorNotice}No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`,
+							text: `${coverageNotice}${grammarNotice}${vectorNotice}No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`,
 						},
 					],
 					details: { count: 0 },
@@ -153,7 +159,7 @@ export function registerCodeSearchTool(
 				content: [
 					{
 						type: "text",
-						text: `${grammarNotice}${vectorNotice}${formatted.text}`,
+						text: `${coverageNotice}${grammarNotice}${vectorNotice}${formatted.text}`,
 					},
 				],
 				details: {

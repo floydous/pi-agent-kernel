@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { TreeSitterEngine } from "../../src/retrieval/tree_sitter_engine";
+import { registerCodeSearchTool } from "../../src/tools/code_search_tool";
 
 /** A C file of `count` one-line-body functions: one chunk each, so a few files exceed MAX_INDEX_CHUNKS. */
 const cFunctions = (prefix: string, count: number, offset = 0) =>
@@ -128,6 +129,39 @@ export async function run(): Promise<void> {
 			await budgetIndex.flushPendingSave?.(true);
 		});
 
+		await section("T6. Index status and code_search report files left out of the index...", async () => {
+			const files: Record<string, string> = { "deps/v1.c": "int v1;\n", "deps/v2.c": "int v2;\n" };
+			for (let i = 0; i < 500; i++) files[`src/f${String(i).padStart(3, "0")}.c`] = `int f${i};\n`;
+			const over = newIndex(workspace(files));
+			await over.syncWorkspace(true);
+			const status = over.getStatus();
+			assert.equal(status.fileCount, 500);
+			assert.equal(status.indexableFiles, 502);
+			assert.deepEqual(status.notIndexed, { source: 0, test: 0, vendored: 2 });
+			assert.deepEqual(status.notIndexedDirs, ["deps/"]);
+			assert.equal(status.walkTruncated, false);
+			await over.flushPendingSave?.(true);
+
+			const hit = { chunk: { id: "src/a.c:1-1", filePath: "src/a.c", absolutePath: path.join(os.tmpdir(), "src/a.c"), startLine: 1, endLine: 1, kind: "file", symbolName: "a.c", breadcrumb: "", content: "int a;", signature: "File" }, rrfScore: 1, signal: "lexical", matches: ["a"] };
+			const output = async (status: any, hits: any[] = [hit]) => {
+				let tool: any;
+				registerCodeSearchTool({ registerTool(t: any) { tool = t; } } as any, {
+					getSessionId: () => "file-cap",
+					getSearchIndex: () => ({ search: async () => hits, getStatus: () => ({ effectiveProfile: "lean", vectorCount: 0, chunkCount: 1, grammarIssues: [], ...status }) }),
+				} as any);
+				return (await tool.execute("f1", { query: "alpha" }, null, () => {}, { cwd: os.tmpdir() })).content[0].text as string;
+			};
+			const partial = { indexableFiles: 1001, notIndexed: { source: 0, test: 0, vendored: 445 }, notIndexedDirs: ["deps/"], walkTruncated: false };
+			const notice = "[Notice: index covers 556 of 1,001 indexable files (index limits); not indexed: 445 vendored (deps/); use rg for those paths]\n\n";
+			assert.ok((await output(partial)).startsWith(notice));
+			assert.ok((await output(partial, [])).startsWith(notice), "the notice also precedes a no-hit answer");
+			assert.ok((await output({ indexableFiles: 20000, notIndexed: { source: 19000, test: 300, vendored: 200 }, notIndexedDirs: ["src/", "lib/", "./"], walkTruncated: true }))
+				.startsWith("[Notice: index covers 500 of ≥ 20,000 indexable files (index limits); not indexed: 19,000 source, 300 test, 200 vendored (src/, lib/, ./); use rg for those paths]"));
+			const complete = { indexableFiles: 3, notIndexed: { source: 0, test: 0, vendored: 0 }, notIndexedDirs: [], walkTruncated: false };
+			assert.equal(await output(complete), await output({}), "no notice, byte-identical output, when everything is indexed");
+			assert.equal((await output(complete)).includes("[Notice"), false);
+		});
+
 		await section("T7. Under the caps the file set and sync order are those of an unranked walk...", async () => {
 			const dir = workspace({ "deps/a.c": "int da;\n", "src/b.c": "int sb;\n", "srcA/x.c": "int sx;\n", "src-x/a.c": "int xa;\n", "tests/test_c.c": "int tc;\n", "Z.c": "int z;\n", "a.c": "int a;\n" });
 			const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
@@ -137,6 +171,8 @@ export async function run(): Promise<void> {
 			await under.syncWorkspace(true);
 			const insertion = [...new Set<string>([...under.chunks.values()].map((c: any) => c.filePath))];
 			assert.deepEqual(insertion, expected);
+			assert.equal(under.getStatus().indexableFiles, 7);
+			assert.deepEqual(under.getStatus().notIndexed, { source: 0, test: 0, vendored: 0 });
 			await under.flushPendingSave?.(true);
 		});
 	} finally {
@@ -146,7 +182,7 @@ export async function run(): Promise<void> {
 		fs.rmSync(piDir, { recursive: true, force: true });
 	}
 	if (failures.length > 0) throw new Error(`File cap tests failed:\n  ${failures.join("\n  ")}`);
-	console.log("✓ The index stays fresh over the chunk cap and ranks files by tier!");
+	console.log("✓ The index stays fresh over the chunk cap, ranks files by tier, and reports what it left out!");
 }
 
 if (require.main === module) {

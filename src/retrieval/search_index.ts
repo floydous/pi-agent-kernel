@@ -5,11 +5,14 @@ import * as crypto from "node:crypto";
 import {
 	MAX_INDEX_CHUNKS,
 	MAX_INDEX_FILE_BYTES,
+	MAX_INDEX_FILES,
 	MAX_INDEX_WORKSPACE_BYTES,
+	MAX_WALK_FILES,
 	type CodeChunk,
+	type RankedFile,
 	chunkFile,
 	computeHash,
-	findChunkableFiles,
+	rankChunkableFiles,
 	SUPPORTED_EXTENSIONS,
 } from "./search_chunker";
 import { BM25Engine } from "./search_bm25";
@@ -415,6 +418,8 @@ export class HybridSearchIndex {
 	private chunkCapSkips = new Map<string, string>();
 	private freshnessSnapshots = new Map<string, FreshnessSnapshot>();
 	private walkCache = new WorkspaceWalkCache();
+	/** Every indexable file of the last walk, in priority order (up to MAX_WALK_FILES), for coverage reporting. */
+	private walkedFiles: readonly RankedFile[] = [];
 	private projectTrusted: boolean;
 
 	constructor(
@@ -949,7 +954,8 @@ export class HybridSearchIndex {
 		const snapshots = new Map<string, FreshnessSnapshot>();
 		let workspaceBytes = 0;
 		// Priority order, as in sync, so the byte caps keep the same files.
-		const files = findChunkableFiles(this.cwd, undefined, this.walkCache);
+		this.walkedFiles = rankChunkableFiles(this.cwd, this.walkCache);
+		const files = this.walkedFiles.slice(0, MAX_INDEX_FILES).map((entry) => entry.file);
 		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
 			try {
@@ -1084,7 +1090,8 @@ export class HybridSearchIndex {
 			onProgress?.("Scanning workspace files...");
 
 			// Priority order (source, tests, vendored): the byte and chunk budgets go to project code first.
-			const chunkableFiles = findChunkableFiles(this.cwd, undefined, this.walkCache);
+			this.walkedFiles = rankChunkableFiles(this.cwd, this.walkCache);
+			const chunkableFiles = this.walkedFiles.slice(0, MAX_INDEX_FILES).map((entry) => entry.file);
 			this.skippedOversizedFiles.clear();
 			this.chunkCapSkips.clear();
 			const workspaceExts = new Set<string>();
@@ -1755,6 +1762,13 @@ export class HybridSearchIndex {
 		hardwareInfo: string;
 		/** Grammar load problems for languages present in the workspace (their files fall back to a simpler parser). */
 		grammarIssues: Array<{ extensions: string[]; reason: string }>;
+		/** Indexable files the last walk found; the walk stops at MAX_WALK_FILES (walkTruncated). */
+		indexableFiles: number;
+		/** Indexable files left out by the file, byte or chunk caps, by fileTier. */
+		notIndexed: { source: number; test: number; vendored: number };
+		/** Up to 3 top-level directories ("./" for the root) holding the most not-indexed files. */
+		notIndexedDirs: string[];
+		walkTruncated: boolean;
 	} {
 		const modelRevision = this.config.modelRevision.slice(0, 12);
 		const isModelLoaded = this.embedder.isLoaded();
@@ -1804,6 +1818,15 @@ export class HybridSearchIndex {
 		const grammarIssues = TreeSitterEngine.getInstance().getLoadIssues()
 			.map((issue) => ({ extensions: issue.extensions.filter((ext) => presentExtensions.has(ext)), reason: issue.reason }))
 			.filter((issue) => issue.extensions.length > 0);
+		const notIndexed = { source: 0, test: 0, vendored: 0 };
+		const notIndexedByDir = new Map<string, number>();
+		for (const { rel: relPath, tier } of this.walkedFiles) {
+			if (this.fileHashes.has(relPath)) continue;
+			notIndexed[(["source", "test", "vendored"] as const)[tier]]++;
+			const dir = relPath.includes("/") ? `${relPath.slice(0, relPath.indexOf("/"))}/` : "./";
+			notIndexedByDir.set(dir, (notIndexedByDir.get(dir) ?? 0) + 1);
+		}
+		const notIndexedDirs = [...notIndexedByDir].sort((a, b) => b[1] - a[1] || compareStrings(a[0], b[0])).slice(0, 3).map(([dir]) => dir);
 
 		return {
 			profile: this.config.profile,
@@ -1820,6 +1843,10 @@ export class HybridSearchIndex {
 			pipelineDesc,
 			hardwareInfo,
 			grammarIssues,
+			indexableFiles: this.walkedFiles.length,
+			notIndexed,
+			notIndexedDirs,
+			walkTruncated: this.walkedFiles.length >= MAX_WALK_FILES,
 		};
 	}
 
