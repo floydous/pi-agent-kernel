@@ -210,7 +210,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 		const freshProjectIndex = new HybridSearchIndex(ws.tempDir, undefined, { projectTrusted: true });
 		assertPass("Fresh index in project loads project profile override from disk", freshProjectIndex.getProfile() === "full");
 
-		// 13. Verify TUI modal defers execution until closed (cycling lean -> hybrid -> full does not trigger hybrid)
+		// 13. Verify TUI modal defers execution until closed (cycling lean -> full applies nothing until the modal closes)
 		await registeredCommand.handler("reset", liveCtx);
 		const projectCfgPath = getProjectConfigPath(ws.tempDir);
 		if (projectCfgPath && fs.existsSync(projectCfgPath)) {
@@ -241,12 +241,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 		);
 
 		// Profile is the first item (index 0)
-		// Cycle once: lean -> hybrid
-		tuiModalComp.handleInput(" ");
-		assertPass("Profile not applied yet when passing hybrid", intermediateProfiles.length === 0);
-		assertPass("Index profile still lean while modal open", searchIndex.getProfile() === "lean");
-
-		// Cycle again: hybrid -> full
+		// Cycle once: lean -> full
 		tuiModalComp.handleInput(" ");
 		assertPass("Profile not applied yet when selecting full", intermediateProfiles.length === 0);
 		assertPass("Index profile still lean while modal open", searchIndex.getProfile() === "lean");
@@ -254,9 +249,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 		// Close modal (Esc) -> commits full in one shot
 		tuiModalComp.handleInput("\x1b");
 		assertPass("Index profile now switched to full", searchIndex.getProfile() === "full");
-		assertPass("Intermediate profile 'hybrid' was NEVER applied", !intermediateProfiles.includes("hybrid"));
 		assertPass("Applied full directly in single transition", intermediateProfiles.length === 1 && intermediateProfiles[0] === "full");
-		assertPass("Intermediate profile 'hybrid' was NEVER applied", !intermediateProfiles.includes("hybrid"));
 		assertPass("Applied full directly in single transition", intermediateProfiles.length === 1 && intermediateProfiles[0] === "full");
 
 		logPass("Agent Kernel command CLI, completions, and persistence verified!");

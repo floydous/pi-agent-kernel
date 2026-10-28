@@ -40,10 +40,9 @@ Restart Pi or start a new session.
 /engine status
 ```
 
-- `auto`: Selects `lean` on remote servers, `hybrid` on laptops, or `full` on desktops based on available hardware.
+- `auto`: Selects `lean` on machines with fewer than 4 CPU cores and `full` otherwise.
 - `lean` (default): AST-indexed BM25 keyword search with no extra memory footprint.
-- `hybrid`: BM25 search combined with 256-dimension Matryoshka embeddings.
-- `full`: 768-dimension dense semantic search.
+- `full`: BM25 search fused with 768-dimension code embeddings from `gte-modernbert-base` (~147 MB, downloaded on first use). `hybrid` is accepted as an alias.
 - `off`: Disables local indexing completely.
 
 ---

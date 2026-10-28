@@ -14,12 +14,18 @@ import { parseToml } from "../config/toml";
 
 export type SearchProfile = "lean" | "hybrid" | "full" | "off" | "auto";
 
-export const EMBEDDING_MODEL_ID = "nomic-ai/nomic-embed-text-v1.5";
-export const EMBEDDING_MODEL_REVISION = "e9b6763023c676ca8431644204f50c2b100d9aab";
+export const EMBEDDING_MODEL_ID = "Alibaba-NLP/gte-modernbert-base";
+export const EMBEDDING_MODEL_REVISION = "e7f32e3c00f91d699e8c43b53106206bcc72bb22";
+/**
+ * Minimum query–chunk cosine for a vector hit to enter fusion. Calibrated for gte-modernbert-base on 168 held-out
+ * queries: the highest floor that drops no top-5 hit (0.5 dropped 2 right files and 2 right chunks).
+ */
+export const DENSE_SIMILARITY_FLOOR = 0.45;
 
 export interface SearchConfig {
 	profile: SearchProfile;
-	effectiveProfile: "lean" | "hybrid" | "full" | "off";
+	/** "hybrid" is accepted as a profile name but resolves to "full": both used the same model at the same cost. */
+	effectiveProfile: "lean" | "full" | "off";
 	matryoshkaDim: number;
 	/** Minimum cosine similarity required before vector results enter RRF. */
 	vectorSimilarityThreshold: number;
@@ -43,11 +49,8 @@ const SETTINGS_FILE = path.join(
  * Auto-detect the best profile based on current hardware.
  * Strictly defaults to "lean" (AST-aware BM25) for ultra-fast, zero-overhead lexical search.
  */
-export function detectBestProfile(): "lean" | "hybrid" | "full" {
-	const cpuCount = os.cpus().length;
-	if (cpuCount >= 8) return "full";
-	if (cpuCount >= 4) return "hybrid";
-	return "lean";
+export function detectBestProfile(): "lean" | "full" {
+	return os.cpus().length >= 4 ? "full" : "lean";
 }
 
 /**
@@ -137,8 +140,8 @@ export function getSearchConfig(
 	projectTrusted = false,
 ): SearchConfig {
 	const profile = requestedProfile || loadPersistedProfile(cwd, projectTrusted);
-	const effectiveProfile: "lean" | "hybrid" | "full" | "off" =
-		profile === "auto" ? detectBestProfile() : profile || "lean";
+	const effectiveProfile: "lean" | "full" | "off" =
+		profile === "auto" ? detectBestProfile() : profile === "hybrid" ? "full" : profile || "lean";
 
 	const globalCacheDir = path.join(os.homedir(), ".pi", "cache", "search");
 
@@ -177,38 +180,18 @@ export function getSearchConfig(
 		};
 	}
 
-	// Hybrid Profile: Gentle 1-thread Nomic 256-dim embeddings with throttle sleeps.
-	if (effectiveProfile === "hybrid") {
-		return {
-			profile,
-			effectiveProfile: "hybrid",
-			matryoshkaDim: 256,
-			// Empirically calibrated: 0.55 admits natural-language cross-domain queries
-			// while cleanly blocking off-topic noise (unrelated queries score ~0.48-0.52).
-			vectorSimilarityThreshold: 0.55,
-			numThreads: 1,
-			modelId: EMBEDDING_MODEL_ID,
-			modelRevision: EMBEDDING_MODEL_REVISION,
-			dtype: "q8",
-			batchSize: 1,
-			sleepBetweenBatchesMs: 80, // 80ms sleep between chunk batches to prevent CPU starvation
-			cacheDir: globalCacheDir,
-			lazyLoad: true,
-		};
-	}
-
-	// Full Profile: Controlled multi-core workstation setting.
+	// Full Profile: BM25 + 768-dim code embeddings, controlled multi-core setting.
 	return {
 		profile,
 		effectiveProfile: "full",
 		matryoshkaDim: 768,
-		// Empirically calibrated floor for 768-dim embeddings.
-		vectorSimilarityThreshold: 0.55,
+		vectorSimilarityThreshold: DENSE_SIMILARITY_FLOOR,
 		numThreads: Math.min(2, Math.max(1, Math.floor(os.cpus().length / 2))),
 		modelId: EMBEDDING_MODEL_ID,
 		modelRevision: EMBEDDING_MODEL_REVISION,
 		dtype: "q8",
-		batchSize: 2,
+		// One text per call: with q8 weights, batched texts change each other's vectors.
+		batchSize: 1,
 		sleepBetweenBatchesMs: 50,
 		cacheDir: globalCacheDir,
 		lazyLoad: true,

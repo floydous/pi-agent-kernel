@@ -22,7 +22,7 @@ Settings can be managed via the `/agent-kernel` interactive modal or CLI subcomm
 
 ### `[retrieval]`
 
-- `default_profile`: `auto`, `lean`, `hybrid`, `full`, or `off`.
+- `default_profile`: `auto`, `lean`, `full`, or `off` (`hybrid` is accepted as an alias for `full`).
 - `max_search_results`: result limit for code search.
 
 ### `[safety]`

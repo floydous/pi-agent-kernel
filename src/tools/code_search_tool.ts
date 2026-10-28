@@ -86,9 +86,7 @@ export function registerCodeSearchTool(
 			});
 
 			const indexStatus = typeof index.getStatus === "function" ? index.getStatus() : undefined;
-			const wantsVectors =
-				indexStatus?.effectiveProfile === "hybrid" ||
-				indexStatus?.effectiveProfile === "full";
+			const wantsVectors = indexStatus?.effectiveProfile === "full";
 			const vectorNotice =
 				wantsVectors &&
 				indexStatus &&

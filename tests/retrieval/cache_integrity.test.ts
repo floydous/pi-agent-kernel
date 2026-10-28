@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chunkFile, computeHash } from "../../src/retrieval/search_chunker";
-import { getSearchConfig } from "../../src/retrieval/search_config";
+import { EMBEDDING_MODEL_ID, EMBEDDING_MODEL_REVISION, getSearchConfig } from "../../src/retrieval/search_config";
 import {
   HybridSearchIndex,
   getSearchCacheDir,
@@ -77,6 +77,8 @@ export async function run(): Promise<void> {
       ignoreConfigHashes: {},
       chunks: legacyChunks,
       vectorCaches: [{
+        // Vectors from the current model (the migration under test is the Markdown eviction, not a model change).
+        model: `${EMBEDDING_MODEL_ID}@${EMBEDDING_MODEL_REVISION}`,
         vectorDim: legacyVectorDim,
         vectorChunkIds: legacyVectorIds,
         vectorChunkHashes: legacyChunks.map((item) => item.hash),

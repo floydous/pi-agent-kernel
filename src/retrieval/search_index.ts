@@ -42,6 +42,8 @@ const MAX_PERSISTED_VECTOR_BYTES = MAX_INDEX_CHUNKS * 768 * 4;
 const EXTRACTOR_GENERATION = "tree-sitter-wasm-v6";
 
 interface PersistedVectorCache {
+	/** "<model id>@<revision>" that produced the vectors; caches from any other model are not loaded. */
+	model: string;
 	vectorDim: number;
 	vectorChunkIds: string[];
 	vectorChunkHashes?: string[];
@@ -439,7 +441,7 @@ export class HybridSearchIndex {
 		return this.config.profile;
 	}
 
-	public getEffectiveProfile(): "lean" | "hybrid" | "full" | "off" {
+	public getEffectiveProfile(): "lean" | "full" | "off" {
 		return this.config.effectiveProfile;
 	}
 
@@ -491,10 +493,7 @@ export class HybridSearchIndex {
 	public async preloadModel(
 		onProgress?: (msg: string) => void,
 	): Promise<boolean> {
-		if (
-			this.config.effectiveProfile === "hybrid" ||
-			this.config.effectiveProfile === "full"
-		) {
+		if (this.config.effectiveProfile === "full") {
 			return this.embedder.initialize(onProgress);
 		}
 		return false;
@@ -516,11 +515,17 @@ export class HybridSearchIndex {
 		return `vectors-${dim}d.bin`;
 	}
 
+	private vectorModel(): string {
+		return `${this.config.modelId}@${this.config.modelRevision}`;
+	}
+
+	/** Vector caches from the current embedding model only; untagged (older) caches came from a previous model. */
 	private getPersistedVectorCaches(data: any): PersistedVectorCache[] {
 		if (Array.isArray(data.vectorCaches)) {
 			return data.vectorCaches.filter(
 				(cache: any): cache is PersistedVectorCache =>
 					cache &&
+					cache.model === this.vectorModel() &&
 					Number.isInteger(cache.vectorDim) &&
 					(cache.vectorDim === 256 || cache.vectorDim === 768) &&
 				Array.isArray(cache.vectorChunkIds) &&
@@ -537,27 +542,7 @@ export class HybridSearchIndex {
 					(cache.fileName === "vectors.bin" || cache.fileName === `vectors-${cache.vectorDim}d.bin`),
 			);
 		}
-
-		if (
-			Number.isInteger(data.vectorDim) &&
-			(data.vectorDim === 256 || data.vectorDim === 768) &&
-			Array.isArray(data.vectorChunkIds) &&
-			data.vectorChunkIds.length <= MAX_INDEX_CHUNKS &&
-			data.vectorChunkIds.every((id: unknown) => typeof id === "string" && id.length > 0 && id.length <= 4096) &&
-			new Set(data.vectorChunkIds).size === data.vectorChunkIds.length &&
-			(data.vectorChunkHashes === undefined || (Array.isArray(data.vectorChunkHashes) && data.vectorChunkHashes.length === data.vectorChunkIds.length && data.vectorChunkHashes.every((hash: unknown) => typeof hash === "string" && /^[0-9a-f]{16}$/i.test(hash)))) &&
-			typeof data.vectorHash === "string" &&
-			/^[0-9a-f]{64}$/i.test(data.vectorHash)
-		) {
-			return [{
-				vectorDim: data.vectorDim,
-				vectorChunkIds: data.vectorChunkIds,
-				vectorChunkHashes: data.vectorChunkHashes,
-				vectorHash: data.vectorHash,
-				fileName: "vectors.bin",
-			}];
-		}
-
+		// The single-cache layout (vectorDim at the top level) predates model tags, so it is never from this model.
 		return [];
 	}
 
@@ -687,9 +672,7 @@ export class HybridSearchIndex {
 			}
 
 			this.persistedVectorCaches = persistedVectorCaches;
-			const wantsVectors =
-				this.config.effectiveProfile === "hybrid" ||
-				this.config.effectiveProfile === "full";
+			const wantsVectors = this.config.effectiveProfile === "full";
 			const activeCache = this.persistedVectorCaches.find(
 				(cache) => cache.vectorDim === this.config.matryoshkaDim,
 			);
@@ -772,6 +755,7 @@ export class HybridSearchIndex {
 				if (vectorChunkHashes.some((hash) => !hash)) return;
 				const fileName = this.getVectorCacheFileName(vectorDim);
 				vectorCaches.set(vectorDim, {
+					model: this.vectorModel(),
 					vectorDim,
 					vectorChunkIds,
 					vectorChunkHashes,
@@ -1176,9 +1160,7 @@ export class HybridSearchIndex {
 			// to vector retrieval must also embed unchanged chunks that have no vector.
 			const filesToReindex: string[] = [];
 			const filesToDelete: string[] = [];
-			const wantsVectors =
-				this.config.effectiveProfile === "hybrid" ||
-				this.config.effectiveProfile === "full";
+			const wantsVectors = this.config.effectiveProfile === "full";
 
 			for (const [relPath, info] of currentFiles.entries()) {
 				const oldHash = this.fileHashes.get(relPath);
@@ -1230,10 +1212,8 @@ export class HybridSearchIndex {
 
 				this.bm25.recalculateStats();
 
-				// Embed new chunks if semantic vector search is enabled (hybrid / full)
-				const isVectorEnabled =
-					this.config.effectiveProfile === "hybrid" ||
-					this.config.effectiveProfile === "full";
+				// Embed new chunks if semantic vector search is enabled (full profile)
+				const isVectorEnabled = this.config.effectiveProfile === "full";
 				if (isVectorEnabled && chunksToEmbed.length > 0) {
 					const batchSize = this.config.batchSize || 2;
 					const sleepMs = this.config.sleepBetweenBatchesMs || 50;
@@ -1446,9 +1426,7 @@ export class HybridSearchIndex {
 			}
 
 			const fileHash = computeHash(content);
-			const wantsVectors =
-				this.config.effectiveProfile === "hybrid" ||
-				this.config.effectiveProfile === "full";
+			const wantsVectors = this.config.effectiveProfile === "full";
 			const fileChunks = this.chunks.idsForFile(relPath).map((id) => this.chunks.get(id)!);
 			const fileVectorsReady = !wantsVectors || fileChunks.every((chunk) => {
 				const vector = this.vectors.get(chunk.id);
@@ -1651,11 +1629,9 @@ export class HybridSearchIndex {
 			});
 		});
 
-		// 2. Vector Search (if active profile is hybrid/full AND indexing is not actively in progress)
+		// 2. Vector Search (if active profile is full AND indexing is not actively in progress)
 		const vectorRankMap = new Map<string, { rank: number; score: number }>();
-		const wantsVectors =
-			activeConfig.effectiveProfile === "hybrid" ||
-			activeConfig.effectiveProfile === "full";
+		const wantsVectors = activeConfig.effectiveProfile === "full";
 		const isVectorReady =
 			wantsVectors &&
 			!this.isIndexing &&
@@ -1749,7 +1725,7 @@ export class HybridSearchIndex {
 	 */
 	public getStatus(): {
 		profile: SearchProfile;
-		effectiveProfile: "lean" | "hybrid" | "full" | "off";
+		effectiveProfile: "lean" | "full" | "off";
 		fileCount: number;
 		skippedFiles: number;
 		chunkCount: number;
@@ -1783,22 +1759,13 @@ export class HybridSearchIndex {
 		} else if (this.config.effectiveProfile === "lean") {
 			modelStatus = "Active (BM25 Engine - 0 MB Model RAM)";
 			pipelineDesc = "AST-tokenized BM25 Lexical Retrieval";
-		} else if (this.config.effectiveProfile === "hybrid") {
-			if (isModelLoaded) {
-				modelStatus = `Active in RAM (Nomic v1.5 Matryoshka 256-dim, rev ${modelRevision})`;
-			} else if (isModelCached) {
-				modelStatus = `Cached on disk (revision ${modelRevision})`;
-			} else {
-				modelStatus = `Not downloaded (~135 MB, revision ${modelRevision})`;
-			}
-			pipelineDesc = "Hybrid BM25 + 256-dim Matryoshka Vector Search";
 		} else {
 			if (isModelLoaded) {
-				modelStatus = `Active in RAM (Nomic v1.5 768-dim, rev ${modelRevision})`;
+				modelStatus = `Active in RAM (gte-modernbert-base 768-dim, rev ${modelRevision})`;
 			} else if (isModelCached) {
 				modelStatus = `Cached on disk (revision ${modelRevision})`;
 			} else {
-				modelStatus = `Not downloaded (~135 MB, revision ${modelRevision})`;
+				modelStatus = `Not downloaded (~147 MB, revision ${modelRevision})`;
 			}
 			pipelineDesc = "Full BM25 + 768-dim Semantic Vector Search";
 		}

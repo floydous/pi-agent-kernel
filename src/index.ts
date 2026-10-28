@@ -378,10 +378,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// Slash Command: /engine [auto|lean|hybrid|full|off|status|reindex]
+	// Slash Command: /engine [auto|lean|full|off|status|reindex] ("hybrid" is still accepted as an alias of full)
 	pi.registerCommand("engine", {
 		description:
-			"Configure codebase retrieval engine (auto | lean | hybrid | full | off | status | reindex)",
+			"Configure codebase retrieval engine (auto | lean | full | off | status | reindex)",
 		getArgumentCompletions: (prefix: string) => {
 			const options = [
 				{
@@ -391,7 +391,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				{
 					value: "auto",
 					label:
-						"auto - Auto-detect: Lean (VPS), Hybrid (Laptop), Full (Workstation)",
+						"auto - Auto-detect: Lean (fewer than 4 CPUs), Full (4 or more)",
 				},
 				{
 					value: "lean",
@@ -399,13 +399,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 						"lean - Fast AST-aware BM25 (0% CPU, 0 MB extra RAM) [Persisted Default]",
 				},
 				{
-					value: "hybrid",
-					label:
-						"hybrid - Throttled 256-dim Matryoshka embeddings",
-				},
-				{
 					value: "full",
-					label: "full - Multi-core 768-dim embeddings",
+					label: "full - BM25 + 768-dim code embeddings (\"hybrid\" is an alias)",
 				},
 				{
 					value: "off",
@@ -520,10 +515,9 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				const options = [
 					`View Status (${status.engineState} - ${status.chunkCount} chunks, RSS ${status.rssMemoryMB}MB)`,
 					`── Profiles ───────────────────────`,
-					`Set Default: Auto Detect (Lean -> Hybrid -> Full based on specs)${currentProfile === "auto" ? " [Current]" : ""}`,
+					`Set Default: Auto Detect (Lean -> Full based on specs)${currentProfile === "auto" ? " [Current]" : ""}`,
 					`Set Default: Lean Mode (Fast BM25, 0% CPU, 0 MB extra RAM)${currentProfile === "lean" ? " [Current]" : ""}`,
-					`Set Default: Hybrid Mode (Throttled 256-dim Matryoshka)${currentProfile === "hybrid" ? " [Current]" : ""}`,
-					`Set Default: Full Mode (768-dim embeddings)${currentProfile === "full" ? " [Current]" : ""}`,
+					`Set Default: Full Mode (BM25 + 768-dim code embeddings)${currentProfile === "full" || currentProfile === "hybrid" ? " [Current]" : ""}`,
 					`Set Default: Disable Engine (Turn off search)${currentProfile === "off" ? " [Current]" : ""}`,
 					`── Actions ────────────────────────`,
 					`Re-index Workspace`,
@@ -539,7 +533,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				let newProfile: SearchProfile | null = null;
 				if (choice.includes("Auto Detect")) newProfile = "auto";
 				else if (choice.includes("Lean Mode")) newProfile = "lean";
-				else if (choice.includes("Hybrid Mode")) newProfile = "hybrid";
 				else if (choice.includes("Full Mode")) newProfile = "full";
 				else if (choice.includes("Disable Engine")) newProfile = "off";
 

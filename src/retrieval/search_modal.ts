@@ -33,7 +33,7 @@ export class SearchControlModal implements Focusable {
 			category: "profile",
 			profile: "auto",
 			label: "Auto Detect",
-			desc: "Auto-detect Lean (VPS), Hybrid (Laptop), or Full (Desktop)",
+			desc: "Auto-detect Lean (fewer than 4 CPUs) or Full (4 or more)",
 		},
 		{
 			id: "lean",
@@ -43,18 +43,11 @@ export class SearchControlModal implements Focusable {
 			desc: "AST BM25 (0% CPU, 0 MB extra RAM)",
 		},
 		{
-			id: "hybrid",
-			category: "profile",
-			profile: "hybrid",
-			label: "Hybrid Mode",
-			desc: "Throttled 256-dim Matryoshka embeddings",
-		},
-		{
 			id: "full",
 			category: "profile",
 			profile: "full",
 			label: "Full Mode",
-			desc: "Multi-core 768-dim embeddings",
+			desc: "BM25 + 768-dim code embeddings",
 		},
 		{
 			id: "off",
@@ -91,7 +84,7 @@ export class SearchControlModal implements Focusable {
 		this.initialProfile = index.getProfile();
 
 		// Set initial cursor to current active profile
-		const currentProfile = this.initialProfile;
+		const currentProfile = this.initialProfile === "hybrid" ? "full" : this.initialProfile;
 		const idx = this.items.findIndex((item) => item.profile === currentProfile);
 		if (idx >= 0) this.selectedIndex = idx;
 	}
@@ -238,7 +231,7 @@ export class SearchControlModal implements Focusable {
 			const item = this.items[i];
 			if (item.category === "profile") {
 				const isSelected = i === this.selectedIndex;
-				const isCurrentProfile = item.profile === currentProfile;
+				const isCurrentProfile = item.profile === (currentProfile === "hybrid" ? "full" : currentProfile);
 
 				const cursor = isSelected ? `${fgTitle} > ` : "   ";
 				const radio = isCurrentProfile ? `${fgSelected}[x]` : `${fgDim}[ ]`;
@@ -251,9 +244,9 @@ export class SearchControlModal implements Focusable {
 				}
 
 				let descExtra = "";
-				if (item.profile === "hybrid" || item.profile === "full") {
+				if (item.profile === "full") {
 					if (!status.isModelCached) {
-						descExtra = ` ${fgNotice}(Not downloaded, ~135 MB)`;
+						descExtra = ` ${fgNotice}(Not downloaded, ~147 MB)`;
 					} else {
 						descExtra = ` ${fgStatusReady}(ready)`;
 					}

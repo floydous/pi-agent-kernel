@@ -320,6 +320,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/file_cap.test")),
 	},
 	{
+		name: "Dense Profile Suite",
+		key: "dense-profile",
+		loader: () => runSuiteModule(() => import("./retrieval/dense_profile.test")),
+	},
+	{
 		name: "Struct/Class Definition Suite",
 		key: "struct-definitions",
 		loader: () => runSuiteModule(() => import("./retrieval/struct_definitions.test")),

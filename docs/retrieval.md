@@ -16,18 +16,21 @@ fast discovery does not require loading the local embedding model.
 ## Profiles
 
 - `lean`: AST-aware BM25 search with minimal startup cost.
-- `hybrid`: BM25 combined with local embeddings when available.
-- `full`: the highest-cost configured retrieval profile.
+- `full`: BM25 fused with 768-dimension embeddings from the local
+  `Alibaba-NLP/gte-modernbert-base` code embedder (q8, ~147 MB, pinned revision).
+  `hybrid` is accepted as an alias for `full`.
 - `off`: disables retrieval indexing where supported.
-- `auto`: lets the runtime select the configured/default profile.
+- `auto`: selects `lean` below 4 CPU cores and `full` otherwise.
 
 During indexing, search can fall back to the lean path rather than blocking on
-model initialization. Hybrid/full profiles require vector cosine similarity of at
-least 0.6 before candidates enter reciprocal-rank fusion; lower-confidence vector
-candidates are abstained from while BM25 results remain available. This floor is a
-conservative initial boundary measured on the bounded feedback fixture and must be
-recalibrated against a larger labeled corpus before changing it. Output limits
-remain enforced so retrieval cannot flood agent context.
+model initialization. The full profile requires vector cosine similarity of at
+least 0.45 before candidates enter reciprocal-rank fusion; lower-confidence vector
+candidates are abstained from while BM25 results remain available. The floor is the
+highest one that dropped no top-5 hit on 168 held-out queries (`DENSE_SIMILARITY_FLOOR`
+in `search_config.ts`); recalibrate it whenever the embedding model changes. Vector
+caches are tagged with the model and revision that produced them, and caches from
+another model are re-embedded rather than reused. Output limits remain enforced so
+retrieval cannot flood agent context.
 
 The `code_search` index is intentionally code-only: Markdown and other text files remain readable but are not chunked or embedded for retrieval.
 

@@ -45,7 +45,7 @@ export function formatConfigDashboard(cwd: string, config: KernelConfig): string
 		`Project Config: ${projectPath ?? "none"} [${projectExists ? "ACTIVE" : "NONE"}]`,
 		``,
 		`[Retrieval & Tools]`,
-		`  • Profile (Engine)      : ${config.retrieval.default_profile} (auto | lean | hybrid | full | off)`,
+		`  • Profile (Engine)      : ${config.retrieval.default_profile} (auto | lean | full | off)`,
 		`  • Max Search Results    : ${config.retrieval.max_search_results}`,
 		``,
 		`[Safety & Interception]`,
@@ -84,7 +84,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 			];
 
 			const keys = [
-				{ value: "set profile", label: "set profile <auto|lean|hybrid|full|off> - Retrieval engine profile" },
+				{ value: "set profile", label: "set profile <auto|lean|full|off> - Retrieval engine profile" },
 				{ value: "set epistemic", label: "set epistemic <on|off> - Toggle Epistemic Guard" },
 				{ value: "set editing", label: "set editing <smart_anchor|standard> - Editing engine mode" },
 				{ value: "set read_mode", label: "set read_mode <plain|anchored|auto> - Reading anchor mode" },
@@ -352,14 +352,13 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						id: "profile",
 						label: "Retrieval Engine Profile",
 						currentValue: currentConfig.retrieval.default_profile,
-						values: ["auto", "lean", "hybrid", "full", "off"],
+						values: ["auto", "lean", "full", "off"],
 						isGlobal: checkIsGlobal("profile"),
 						descriptions: {
-							auto: "Auto profile: Dynamically selects lean (VPS), hybrid (laptop), or full (desktop) based on system specs.",
+							auto: "Auto profile: Selects lean below 4 CPU cores and full otherwise.",
 							lean: "Lean profile: BM25 keyword index + AST code chunking. Zero RAM overhead, sub-millisecond retrieval, ideal for VPS and standard tasks.",
-							hybrid:
-								"Hybrid profile: BM25 keyword matching blended with Matryoshka sub-vector embeddings for balanced lexical and semantic retrieval.",
-							full: "Full profile: Dense 768d embeddings + BM25 keyword index. Maximum semantic recall, ideal for large workstations.",
+							full: "Full profile: BM25 keyword index fused with 768d gte-modernbert-base code embeddings (~147 MB model). \"hybrid\" is an alias.",
+							hybrid: "Hybrid: alias of the full profile.",
 							off: "Off profile: Retrieval subsystem disabled. Searches return empty results.",
 						},
 					},

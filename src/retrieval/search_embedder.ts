@@ -11,7 +11,6 @@ export interface EmbeddingResult {
 
 export class LocalEmbedder {
 	private extractor: any = null;
-	private layerNormFn: any = null;
 	private config: SearchConfig;
 	private isInitializing = false;
 	private initPromise: Promise<void> | null = null;
@@ -147,7 +146,7 @@ export class LocalEmbedder {
 				if (cached) {
 					onProgress?.("Loading embedding weights into RAM...");
 				} else {
-					onProgress?.("Downloading embedding weights: 0% (~135 MB)...");
+					onProgress?.("Downloading embedding weights: 0% (~147 MB)...");
 				}
 
 				// Enforce single-thread CPU constraints to avoid starving system processes
@@ -155,15 +154,13 @@ export class LocalEmbedder {
 				process.env.ORT_INTRA_OP_NUM_THREADS = String(this.config.numThreads || 1);
 				process.env.ORT_INTER_OP_NUM_THREADS = String(this.config.numThreads || 1);
 
-				const { env, pipeline, layer_norm } = await import(
+				const { env, pipeline } = await import(
 					"@huggingface/transformers"
 				);
 				if (env && env.backends && env.backends.onnx) {
 					env.backends.onnx.numThreads = this.config.numThreads || 1;
 					env.backends.onnx.logLevel = "warning";
 				}
-
-				this.layerNormFn = layer_norm;
 
 				this.extractor = await pipeline("feature-extraction", this.config.modelId, {
 					revision: this.config.modelRevision,
@@ -176,9 +173,10 @@ export class LocalEmbedder {
 					},
 				});
 
-				// Strictly clamp tokenizer max sequence length to 512 tokens to prevent ONNX activation RAM explosions
+				// Clamp the sequence length to bound ONNX activation RAM. Texts are cut to 1,800 chars first; with this
+				// model those take ≤ 980 tokens in all but 3 of 23,000 measured chunks, so 1,024 rarely truncates.
 				if (this.extractor?.tokenizer?.config) {
-					this.extractor.tokenizer.config.model_max_length = 512;
+					this.extractor.tokenizer.config.model_max_length = 1024;
 				}
 
 				onProgress?.("Embedding model loaded.");
@@ -229,11 +227,12 @@ export class LocalEmbedder {
 	}
 
 	/**
-	 * Embed a batch of texts with Matryoshka dimension truncation and L2 normalization.
+	 * Embed texts as L2-normalized CLS vectors (gte-modernbert-base: no task prefix). Callers pass one text per call:
+	 * with q8 weights, texts batched together change each other's vectors.
 	 */
 	public async embedBatch(
 		texts: string[],
-		isQuery = false,
+		_isQuery = false, // queries and documents are embedded alike (no task prefix)
 		onProgress?: (msg: string) => void,
 	): Promise<Float32Array[]> {
 		if (
@@ -250,27 +249,11 @@ export class LocalEmbedder {
 
 		if (texts.length === 0) return [];
 
-		// Apply mandatory Nomic task prefix and clamp character length to 1,800 chars (~400 tokens)
-		const prefix = isQuery ? "search_query: " : "search_document: ";
-		const prefixedTexts = texts.map((t) => `${prefix}${t.slice(0, 1800)}`);
-
 		try {
-			let tensorOutput = await this.extractor(prefixedTexts, {
-				pooling: "mean",
-				normalize: false,
+			const tensorOutput = await this.extractor(texts.map((t) => t.slice(0, 1800)), {
+				pooling: "cls",
+				normalize: true,
 			});
-
-			const targetDim =
-				this.config.matryoshkaDim > 0 ? this.config.matryoshkaDim : 768;
-
-			// Apply LayerNorm -> Slice to Matryoshka Dim -> L2 Normalize
-			if (this.layerNormFn && targetDim < 768) {
-				tensorOutput = this.layerNormFn(tensorOutput, [tensorOutput.dims[1]])
-					.slice(null, [0, targetDim])
-					.normalize(2, -1);
-			} else {
-				tensorOutput = tensorOutput.normalize(2, -1);
-			}
 
 			const data: Float32Array = tensorOutput.data;
 			const batchCount = tensorOutput.dims[0];
@@ -339,7 +322,6 @@ export class LocalEmbedder {
 		}
 
 		this.extractor = null;
-		this.layerNormFn = null;
 		this.initPromise = null;
 		this.queryLruCache.clear();
 

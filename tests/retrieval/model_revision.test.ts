@@ -9,11 +9,11 @@ import {
 } from "../../src/retrieval/search_config";
 import { LocalEmbedder } from "../../src/retrieval/search_embedder";
 
-const REVISION = "e9b6763023c676ca8431644204f50c2b100d9aab";
+const REVISION = "e7f32e3c00f91d699e8c43b53106206bcc72bb22";
 
 export async function run(): Promise<void> {
   console.log("=== Running Immutable Embedding Model Revision Tests ===");
-  assert.equal(EMBEDDING_MODEL_ID, "nomic-ai/nomic-embed-text-v1.5");
+  assert.equal(EMBEDDING_MODEL_ID, "Alibaba-NLP/gte-modernbert-base");
   assert.equal(EMBEDDING_MODEL_REVISION, REVISION);
   for (const profile of ["off", "lean", "hybrid", "full"] as const) {
     const config = getSearchConfig(profile);
@@ -39,7 +39,7 @@ export async function run(): Promise<void> {
       ".cache",
       "huggingface",
       "hub",
-      "models--nomic-ai--nomic-embed-text-v1.5",
+      "models--Alibaba-NLP--gte-modernbert-base",
       "snapshots",
       REVISION,
     );
