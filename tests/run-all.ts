@@ -315,6 +315,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/test_separation.test")),
 	},
 	{
+		name: "Index File Cap Suite",
+		key: "file-cap",
+		loader: () => runSuiteModule(() => import("./retrieval/file_cap.test")),
+	},
+	{
 		name: "C++ Indexing Suite",
 		key: "cpp-indexing",
 		loader: () => runSuiteModule(() => import("./retrieval/cpp_indexing.test")),

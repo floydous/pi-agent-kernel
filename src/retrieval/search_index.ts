@@ -411,6 +411,8 @@ export class HybridSearchIndex {
 	private liveCheckPromise: Promise<boolean> | null = null;
 	private persistedVectorCaches: PersistedVectorCache[] = [];
 	private skippedOversizedFiles = new Set<string>();
+	/** relPath -> hash of content skipped by MAX_INDEX_CHUNKS; freshness checks cannot count chunks, so they match this. */
+	private chunkCapSkips = new Map<string, string>();
 	private freshnessSnapshots = new Map<string, FreshnessSnapshot>();
 	private walkCache = new WorkspaceWalkCache();
 	private projectTrusted: boolean;
@@ -960,9 +962,10 @@ export class HybridSearchIndex {
 							this.skippedOversizedFiles.add(relPath);
 							continue;
 						}
+						snapshots.set(relPath, known);
+						if (this.chunkCapSkips.get(relPath) === known.hash) continue;
 						workspaceBytes += known.bytes;
 						hashes.set(relPath, known.hash);
-						snapshots.set(relPath, known);
 						continue;
 					}
 				}
@@ -986,10 +989,11 @@ export class HybridSearchIndex {
 					this.skippedOversizedFiles.add(relPath);
 					continue;
 				}
-				workspaceBytes += actualBytes;
 				const hash = computeHash(content);
-				hashes.set(relPath, hash);
 				snapshots.set(relPath, freshnessSnapshot(opened, hash, actualBytes));
+				if (this.chunkCapSkips.get(relPath) === hash) continue;
+				workspaceBytes += actualBytes;
+				hashes.set(relPath, hash);
 			} catch (error) {
 				kernelDebug(error);
 				return null;
@@ -1080,6 +1084,7 @@ export class HybridSearchIndex {
 
 			const chunkableFiles = findChunkableFiles(this.cwd, undefined, this.walkCache).sort(compareStrings);
 			this.skippedOversizedFiles.clear();
+			this.chunkCapSkips.clear();
 			const workspaceExts = new Set<string>();
 			for (const f of chunkableFiles) {
 				const ext = path.extname(f).toLowerCase();
@@ -1142,6 +1147,8 @@ export class HybridSearchIndex {
 					}
 					if (workspaceChunks + chunks.length > MAX_INDEX_CHUNKS) {
 						this.skippedOversizedFiles.add(relPath);
+						this.chunkCapSkips.set(relPath, hash);
+						this.freshnessSnapshots.set(relPath, freshnessSnapshot(opened, hash, actualBytes));
 						continue;
 					}
 					workspaceBytes += actualBytes;
@@ -1453,12 +1460,14 @@ export class HybridSearchIndex {
 			const currentChunksForFile = this.chunks.idsForFile(relPath).length;
 			if (this.chunks.size - currentChunksForFile + newChunks.length > MAX_INDEX_CHUNKS) {
 				this.skippedOversizedFiles.add(relPath);
+				this.chunkCapSkips.set(relPath, fileHash);
 				this.removeIndexedFile(relPath);
 				this.dirtyFiles.delete(relPath);
 				this.scheduleDebouncedSave();
 				return;
 			}
 			this.skippedOversizedFiles.delete(relPath);
+			this.chunkCapSkips.delete(relPath);
 			// Map content hash -> vector from existing chunks
 			const hashToVector = new Map<string, Float32Array>();
 			for (const chunk of this.chunks.values()) {
