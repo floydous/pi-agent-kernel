@@ -105,11 +105,17 @@ export function registerCodeSearchTool(
 				: "";
 
 			if (hits.length === 0) {
+				// Blame the filter, not the query, when it excludes every indexed file (e.g. "README": docs are not indexed).
+				const filterExcludesIndex = params.file_pattern && indexStatus && indexStatus.chunkCount > 0 &&
+					typeof index.hasIndexedFile === "function" && !index.hasIndexedFile(params.file_pattern);
+				const message = filterExcludesIndex
+					? `No indexed file path contains "${params.file_pattern}". code_search indexes source code only (not Markdown, JSON, YAML, TOML or other text files); use rg to search other files.`
+					: `No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`;
 				return {
 					content: [
 						{
 							type: "text",
-							text: `${coverageNotice}${grammarNotice}${vectorNotice}No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`,
+							text: `${coverageNotice}${grammarNotice}${vectorNotice}${message}`,
 						},
 					],
 					details: { count: 0 },

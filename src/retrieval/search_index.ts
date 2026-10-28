@@ -353,6 +353,11 @@ export interface SearchHit {
 	matches: string[];
 }
 
+/** The code_search file_pattern rule: case-insensitive substring of the slash-normalized relative path. */
+function pathMatchesPattern(filePath: string, pattern: string): boolean {
+	return filePath.replace(/\\/g, "/").toLowerCase().includes(pattern.replace(/\\/g, "/").toLowerCase());
+}
+
 /** Chunk map that also indexes chunk ids by file, so per-file lookups and removals avoid full scans. */
 class ChunkStore extends Map<string, CodeChunk> {
 	private idsByFile = new Map<string, Set<string>>();
@@ -383,6 +388,10 @@ class ChunkStore extends Map<string, CodeChunk> {
 
 	idsForFile(filePath: string): string[] {
 		return Array.from(this.idsByFile.get(filePath) ?? []);
+	}
+
+	files(): IterableIterator<string> {
+		return this.idsByFile.keys();
 	}
 
 	private unlink(id: string, filePath: string): void {
@@ -1603,11 +1612,7 @@ export class HybridSearchIndex {
 		const limit = options.limit || 5;
 		const k = Math.max(1, Math.min(Math.floor(options.rrfK ?? 60), 200));
 		const matchesFilePattern = (chunk: CodeChunk): boolean =>
-			!options.filePattern ||
-			chunk.filePath
-				.replace(/\\/g, "/")
-				.toLowerCase()
-				.includes(options.filePattern.replace(/\\/g, "/").toLowerCase());
+			!options.filePattern || pathMatchesPattern(chunk.filePath, options.filePattern);
 		const activeConfig = options.profile
 			? getSearchConfig(options.profile, this.cwd, this.projectTrusted)
 			: this.config;
@@ -1718,6 +1723,12 @@ export class HybridSearchIndex {
 			return [...source.slice(0, limit), ...tests.slice(0, options.testLimit ?? 3)];
 		}
 		return hits.slice(0, limit);
+	}
+
+	/** True if a file in the index matches a code_search file_pattern. */
+	public hasIndexedFile(filePattern: string): boolean {
+		for (const filePath of this.chunks.files()) if (pathMatchesPattern(filePath, filePattern)) return true;
+		return false;
 	}
 
 	/**

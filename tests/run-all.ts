@@ -310,6 +310,11 @@ const suites: TestEntry[] = [
 		loader: () => runSuiteModule(() => import("./retrieval/grammar_issues.test")),
 	},
 	{
+		name: "File Pattern Notice Suite",
+		key: "file-pattern-notice",
+		loader: () => runSuiteModule(() => import("./retrieval/file_pattern_notice.test")),
+	},
+	{
 		name: "Source/Test Separation Suite",
 		key: "test-separation",
 		loader: () => runSuiteModule(() => import("./retrieval/test_separation.test")),
