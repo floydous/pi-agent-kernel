@@ -712,7 +712,9 @@ export class TreeSitterEngine {
 				}
 				if (type === "class_specifier" || type === "struct_specifier") {
 					const nameNode = node.childForFieldName("name");
-					if (nameNode) {
+					const body = node.childForFieldName("body");
+					// Without a body this is a type reference (`struct foo *p`) or forward declaration, not a definition.
+					if (nameNode && body) {
 						definitions.push({
 							name: nameNode.text,
 							kind: "class",
@@ -721,7 +723,6 @@ export class TreeSitterEngine {
 							endLine: node.endPosition.row + 1,
 						});
 					}
-					const body = node.childForFieldName("body");
 					if (body) {
 						for (const member of body.namedChildren) {
 							visit(member, false);

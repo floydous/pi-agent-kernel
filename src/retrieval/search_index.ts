@@ -38,7 +38,8 @@ const MAX_PERSISTED_VECTOR_BYTES = MAX_INDEX_CHUNKS * 768 * 4;
 // would otherwise persist. v3: export declarations no longer yield spurious "x as y" aliases.
 // v4: .cc/.cxx/.hh/.hxx are indexed and C++ headers named .h are parsed with the C++ grammar.
 // v5: Rust items under test attributes are chunked as kind "test".
-const EXTRACTOR_GENERATION = "tree-sitter-wasm-v5";
+// v6: C/C++ struct/class references and forward declarations (no body) are no longer chunked as definitions.
+const EXTRACTOR_GENERATION = "tree-sitter-wasm-v6";
 
 interface PersistedVectorCache {
 	vectorDim: number;
