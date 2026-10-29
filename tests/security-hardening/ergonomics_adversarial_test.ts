@@ -54,7 +54,8 @@ export async function runErgonomicsAdversarialTests(): Promise<void> {
 		// D. Simulated Missing/Unavailable Node Runtime: Must NEVER claim code is invalid syntax
 		setNodeExecutableForTesting(null);
 		const validTs = path.join(ws.tempDir, "valid.ts");
-		fs.writeFileSync(validTs, "export const x: number = 42;", "utf8");
+		// Valid TS the tree-sitter grammar rejects, so tsc (which needs Node) must decide.
+		fs.writeFileSync(validTs, "export interface Box<out T> { get(): T }", "utf8");
 		const unavailRes = checkSyntax(validTs);
 		assertPass(
 			"Missing Node runtime fails open with status='unavailable', never falsely claiming invalid syntax",

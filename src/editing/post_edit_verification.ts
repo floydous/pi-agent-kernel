@@ -1,4 +1,4 @@
-import { checkSyntax } from "./syntax-verify";
+import { checkSyntax, type VerificationResult } from "./syntax-verify";
 
 export type VerificationState =
 	| "clean"
@@ -161,8 +161,10 @@ export function renderEditFailure(reason: string): string {
 export async function verifyEditedFile(
 	filePath: string,
 	diagnostics?: () => Promise<DiagnosticCheck>,
+	/** The verdict the patch already reached on the written content; skips checking it again. */
+	precomputedSyntax?: VerificationResult,
 ): Promise<PostEditVerification> {
-	const syntax = checkSyntax(filePath);
+	const syntax = precomputedSyntax ?? checkSyntax(filePath);
 	if (!syntax.valid) {
 		return {
 			edit: "applied",

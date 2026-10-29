@@ -1,207 +1,13 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
+import { TreeSitterEngine } from "../retrieval/tree_sitter_engine";
 
 export interface VerificationResult {
 	valid: boolean;
 	status?: "clean" | "failed" | "unavailable" | "inconclusive" | "not run";
 	error?: string;
-}
-
-/**
- * Structural syntax validation for TypeScript/JSX files.
- *
- * `node --check` cannot parse TS and a full `tsc` parse is too slow for a
- * per-edit gate, so this strips comments and string/template literals
- * (respecting escapes) and verifies that all delimiters — ( ) [ ] { } — are
- * balanced. This deterministically catches the dominant per-edit failure
- * class: truncated replacements, missing closing braces/parens, unterminated
- * strings or block comments. It is NOT a full parse; type errors remain the
- * domain of project-native typechecks (e.g. tsc, cargo check).
- */
-/**
- * Decides whether a '/' at the current position starts a regex literal
- * rather than a division operator. Standard lexer heuristic:
- * - right after certain keywords (return /re/, typeof /re/, ...) -> regex
- * - right after any other identifier/number -> division (x / 2)
- * - right after ')', ']', '}', '.', or a closing quote -> division
- * - anywhere else (start of file, after operators, '(', '=', ',', etc.)
- *   -> regex
- */
-const REGEX_PRECEDING_KEYWORDS = new Set([
-	"return",
-	"typeof",
-	"instanceof",
-	"in",
-	"of",
-	"new",
-	"delete",
-	"void",
-	"throw",
-	"case",
-	"do",
-	"else",
-	"yield",
-	"await",
-]);
-
-function regexCanStart(prevSig: string, lastWord: string): boolean {
-	if (lastWord) return REGEX_PRECEDING_KEYWORDS.has(lastWord);
-	if (prevSig === "") return true;
-	return !")]}\"'`.".includes(prevSig);
-}
-
-function checkTsStructure(content: string): string | null {
-	const stack: { ch: string; line: number; isTemplateInterp?: boolean }[] = [];
-	let line = 1;
-	let i = 0;
-	// State machine over raw source: code | 'str' | "str" | `tpl` | //line | /*block */ | /regex/
-	type State =
-		| "code"
-		| "squote"
-		| "dquote"
-		| "template"
-		| "lineComment"
-		| "blockComment"
-		| "regex";
-	let state: State = "code";
-	// Inside a regex character class [...], '/' does not terminate the regex.
-	let inCharClass = false;
-	// Last significant (non-whitespace) char seen in code state — used to
-	// decide whether a '/' starts a regex literal or is a division operator.
-	let prevSig = "";
-	// Current identifier/number token being scanned (for keyword detection).
-	let lastWord = "";
-	const closers: Record<string, string> = {
-		")": "(",
-		"]": "[",
-		"}": "{",
-	};
-
-	while (i < content.length) {
-		const ch = content[i];
-		const next = content[i + 1];
-		if (ch === "\n") {
-			line++;
-			if (state === "lineComment" || state === "regex") state = "code";
-			i++;
-			continue;
-		}
-
-		switch (state) {
-			case "lineComment":
-				break;
-			case "blockComment":
-				if (ch === "*" && next === "/") {
-					state = "code";
-					i++;
-				}
-				break;
-			case "squote":
-				if (ch === "\\") i++;
-				else if (ch === "'") {
-					state = "code";
-					prevSig = "'";
-					lastWord = "";
-				}
-				break;
-			case "dquote":
-				if (ch === "\\") i++;
-				else if (ch === '"') {
-					state = "code";
-					prevSig = '"';
-					lastWord = "";
-				}
-				break;
-			case "template":
-				if (ch === "\\") {
-					i++;
-				} else if (ch === "$" && next === "{") {
-					stack.push({ ch: "{", line, isTemplateInterp: true });
-					state = "code";
-					i++;
-				} else if (ch === "`") {
-					state = "code";
-					prevSig = "`";
-					lastWord = "";
-				}
-				break;
-			case "code":
-				if (ch === "/" && next === "/") {
-					state = "lineComment";
-					i++;
-				} else if (ch === "/" && next === "*") {
-					state = "blockComment";
-					i++;
-				} else if (ch === "/" && prevSig !== "<" && next !== ">" && regexCanStart(prevSig, lastWord)) {
-					// Regex literal (division makes no sense at this position).
-					// Delimiters inside it are pattern syntax, not code structure.
-					state = "regex";
-					inCharClass = false;
-					lastWord = "";
-				} else if (ch === "'") {
-					state = "squote";
-					prevSig = "'";
-					lastWord = "";
-				} else if (ch === '"') {
-					state = "dquote";
-					prevSig = '"';
-					lastWord = "";
-				} else if (ch === "`") {
-					state = "template";
-					prevSig = "`";
-					lastWord = "";
-				} else if (ch === "(" || ch === "[" || ch === "{") {
-					stack.push({ ch, line });
-				} else if (ch === ")" || ch === "]" || ch === "}") {
-					const top = stack.pop();
-					if (!top || top.ch !== closers[ch]) {
-						return `Unbalanced '${ch}' on line ${line}${top ? ` (unclosed '${top.ch}' from line ${top.line})` : " (no matching opener)"}`;
-					}
-					if (top.isTemplateInterp) {
-						state = "template";
-						prevSig = "}";
-						lastWord = "";
-					}
-				}
-				if (!/\s/.test(ch)) prevSig = ch;
-				// Accumulate identifier/number tokens; whitespace preserves the
-				// token (so 'return /re/' and 'x / 2' both resolve correctly),
-				// while any other character ends it.
-				if (/\s/.test(ch)) {
-					// keep lastWord
-				} else if (/[A-Za-z0-9_$]/.test(ch)) {
-					lastWord += ch;
-				} else {
-					lastWord = "";
-				}
-				break;
-			case "regex":
-				if (ch === "\\") i++;
-				else if (ch === "[") inCharClass = true;
-				else if (ch === "]") inCharClass = false;
-				else if (ch === "/" && !inCharClass) state = "code";
-				break;
-			default:
-				break;
-		}
-		i++;
-	}
-
-	if (state === "squote" || state === "dquote") {
-		return `Unterminated string literal (reached end of file, last line ${line})`;
-	}
-	if (state === "template") {
-		return `Unterminated template literal (reached end of file, last line ${line})`;
-	}
-	if (state === "blockComment") {
-		return `Unterminated block comment (last line ${line})`;
-	}
-	if (stack.length > 0) {
-		const unclosed = stack[stack.length - 1];
-		return `Unclosed '${unclosed.ch}' opened on line ${unclosed.line} (still open at end of file)`;
-	}
-	return null;
 }
 
 let cachedNodeExec: { bin: string; env?: Record<string, string> } | null | undefined;
@@ -337,22 +143,6 @@ function validateSyntaxAtPath(resolvedPath: string): VerificationResult {
 			ext === ".mts" ||
 			ext === ".cts"
 		) {
-			const isJsx = ext === ".tsx" || ext === ".jsx";
-			// JSX/TSX text contains arbitrary unescaped delimiters (e.g. <p>step (1)</p>)
-			// that a naive bracket counter misidentifies. For JSX, tsc with --jsx preserve
-			// performs complete and authoritative syntax validation.
-			if (!isJsx) {
-				const tsContent = fs.readFileSync(resolvedPath, "utf8");
-				const structuralError = checkTsStructure(tsContent);
-				if (structuralError) {
-					return {
-						valid: false,
-						status: "failed",
-						error: `Syntax validation failed on ${path.basename(resolvedPath)}:\n${structuralError}`,
-					};
-				}
-			}
-
 			const nodeExec = resolveNodeExecutable();
 			const compiler = resolveTypeScriptCompiler();
 			if (!nodeExec || !fs.existsSync(compiler)) {
@@ -427,28 +217,91 @@ export function checkSyntax(filePath: string): VerificationResult {
 	const resolvedPath = path.isAbsolute(filePath)
 		? filePath
 		: path.resolve(process.cwd(), filePath);
-	return validateSyntaxAtPath(resolvedPath);
+	if (!fs.existsSync(resolvedPath)) {
+		return { valid: true, status: "clean" };
+	}
+	let content: string;
+	try {
+		content = fs.readFileSync(resolvedPath, "utf8");
+	} catch (err: any) {
+		return {
+			valid: false,
+			status: "inconclusive",
+			error: `Syntax validation could not read ${path.basename(resolvedPath)}: ${err.message || String(err)}`,
+		};
+	}
+	return checkSyntaxContent(resolvedPath, content);
+}
+
+// Checked by their own parser in validateSyntaxAtPath; tree-sitter only speeds up the TypeScript family.
+const PARSER_CHECKED = new Set([".py", ".json", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".mts", ".cts"]);
+const TYPESCRIPT_FAMILY = new Set([".ts", ".tsx", ".jsx", ".mts", ".cts"]);
+
+// Error recovery can wrap a whole block in one error (e.g. a missing closing brace), so multi-line errors show their span.
+function formatTreeSitterErrors(errors: Array<{ line: number; column: number; endLine: number; missing?: string; text?: string }>): string {
+	const shown = errors.slice(0, 3).map((e) => {
+		if (e.missing !== undefined) return `[${e.line}:${e.column}] missing "${e.missing}"`;
+		return e.endLine > e.line
+			? `[${e.line}:${e.column}] cannot parse lines ${e.line}-${e.endLine}, starting "${e.text}"`
+			: `[${e.line}:${e.column}] unexpected "${e.text}"`;
+	});
+	return `tree-sitter found a syntax error: ${shown.join("; ")}${errors.length > 3 ? `; +${errors.length - 3} more` : ""}`;
 }
 
 /**
- * Validate candidate content without changing the target file.
- * File-oriented validators run against a temporary sibling with the same
- * extension, which keeps their existing behavior while protecting the target.
+ * Validate candidate content without changing the target file. Pass the file's current content as `original` so that
+ * tree-sitter can judge only what the edit changed (rules measured in .research/syntax-validation/):
+ * - TypeScript family: clean when tree-sitter finds no error in the candidate or the original; otherwise tsc decides,
+ *   because the grammar lags the language (e.g. `interface I<out T>`).
+ * - Languages with a grammar but no parser here (Rust, Go, C/C++, Java, C#, Ruby, PHP, Bash): tree-sitter errors are
+ *   reported only when the original parsed without errors; otherwise the check is not run.
+ * - JavaScript, Python, JSON: always their own parser (tree-sitter misses JS early errors and Python indentation).
+ * Call TreeSitterEngine.loadLanguages for the extension first; without a loaded grammar the parsers decide alone.
  */
 export function checkSyntaxContent(
 	filePath: string,
 	content: string,
+	original?: string,
 ): VerificationResult {
 	const resolvedPath = path.isAbsolute(filePath)
 		? filePath
 		: path.resolve(process.cwd(), filePath);
-	const extension = path.extname(resolvedPath) || ".tmp";
+	const ext = path.extname(resolvedPath).toLowerCase();
+	if (TYPESCRIPT_FAMILY.has(ext) || !PARSER_CHECKED.has(ext)) {
+		const engine = TreeSitterEngine.getInstance();
+		const errors = engine.findSyntaxErrors(ext, content);
+		const originalErrors = original === undefined ? undefined : engine.findSyntaxErrors(ext, original);
+		if (!TYPESCRIPT_FAMILY.has(ext)) {
+			if (!errors || !originalErrors || originalErrors.length > 0) return { valid: true, status: "not run" };
+			return errors.length === 0
+				? { valid: true, status: "clean" }
+				: { valid: false, status: "failed", error: formatTreeSitterErrors(errors) };
+		}
+		if (errors?.length === 0 && !originalErrors?.length) return { valid: true, status: "clean" };
+	}
+
+	// `node --check` passes ES-module syntax errors in a .js file whose package.json sets no "type" (Node 24), so a
+	// .js candidate is checked as .mjs and .cjs: valid when either parses, as Node itself decides at run time.
+	const extensions = ext === ".js"
+		? (/^\s*(import|export)\b/m.test(content) ? [".mjs", ".cjs"] : [".cjs", ".mjs"])
+		: [path.extname(resolvedPath) || ".tmp"];
+	let result: VerificationResult | undefined;
+	for (const extension of extensions) {
+		const res = validateCandidate(content, extension);
+		if (res.valid) return res;
+		result ??= res;
+	}
+	return result!;
+}
+
+/** Run the file-oriented validators on a temporary copy, so the target is never touched. */
+function validateCandidate(content: string, extension: string): VerificationResult {
 	let tempDir: string | undefined;
 
 	try {
-		tempDir = fs.mkdtempSync(
-			path.join(path.dirname(resolvedPath), ".pi-agent-kernel-validate-"),
-		);
+		// Outside the project, so file watchers never see it; the validators do not depend on the location
+		// (tsc ignores tsconfig, and .js is checked with an explicit module type).
+		tempDir = fs.mkdtempSync(path.join(os.tmpdir(), ".pi-agent-kernel-validate-"));
 		const candidatePath = path.join(tempDir, `candidate${extension}`);
 		fs.writeFileSync(candidatePath, content, "utf8");
 		const res = validateSyntaxAtPath(candidatePath);

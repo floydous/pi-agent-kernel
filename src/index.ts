@@ -791,6 +791,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 					kernelDebug(e);
 				}
 
+				await TreeSitterEngine.getInstance().loadLanguages([path.extname(resolvedPath).toLowerCase()]);
 				const syntaxRes = checkSyntax(resolvedPath);
 
 				if (!syntaxRes.valid && syntaxRes.status === "failed") {

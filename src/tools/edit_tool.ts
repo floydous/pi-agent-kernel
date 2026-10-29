@@ -26,6 +26,7 @@ import {
 } from "../safety/epistemic_guard";
 import { loadKernelConfig } from "../config";
 import type { SessionDeps } from "./context";
+import { TreeSitterEngine } from "../retrieval/tree_sitter_engine";
 
 function mutationLockKey(filePath: string): string {
 	const resolved = path.resolve(filePath);
@@ -250,6 +251,8 @@ async function applyPreparedEdit(
 	const editingMode = config?.editing?.mode ?? "smart_anchor";
 	const autoHeal = editingMode !== "standard";
 	const syntaxGate = options.syntaxGate ?? config?.editing?.syntax_gate ?? (editingMode === "standard" ? "block" : "warn");
+	// The syntax check uses tree-sitter when the grammar is loaded (see checkSyntaxContent).
+	await TreeSitterEngine.getInstance().loadLanguages([path.extname(resolvedPath).toLowerCase()]);
 	let patchRes: ReturnType<typeof applySurgicalPatch>;
 	if (isAnchorMode) {
 		patchRes = applySmartAnchorEdits(resolvedPath, anchorBlocks, { syntaxGate });
@@ -314,7 +317,7 @@ async function applyPreparedEdit(
 
 	await deps.invalidateSearchFile?.(ctx.cwd, resolvedPath);
 
-	const verification = await verifyEditedFile(resolvedPath);
+	const verification = await verifyEditedFile(resolvedPath, undefined, patchRes.syntax);
 
 	const statusText = renderPostEditVerification(verification, undefined, relPath);
 	return {

@@ -365,7 +365,7 @@ export function applySmartAnchorEdits(
 		: candidateContentNorm;
 
 	// Syntax validation gate
-	const syntax = checkSyntaxContent(resolvedPath, candidateContent);
+	const syntax = checkSyntaxContent(resolvedPath, candidateContent, originalContent);
 	if (!syntax.valid && options.syntaxGate !== "warn") {
 		return {
 			success: false,
@@ -411,5 +411,6 @@ export function applySmartAnchorEdits(
 		strategy: "smart_anchor",
 		diffOutput,
 		targetRanges: preflight.targetRanges,
+		syntax,
 	};
 }

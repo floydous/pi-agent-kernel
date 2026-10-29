@@ -250,6 +250,33 @@ export class TreeSitterEngine {
 		return null;
 	}
 
+	/**
+	 * Syntax errors in `content`: ERROR and MISSING nodes (outermost only), with 1-based positions. Both kinds are
+	 * needed: a missing `)` can recover with a MISSING node and no ERROR node. Null when no grammar is loaded.
+	 */
+	public findSyntaxErrors(ext: string, content: string): Array<{ line: number; column: number; endLine: number; missing?: string; text?: string }> | null {
+		const parser = this.getParser(ext);
+		if (!parser) return null;
+		let tree: any = null;
+		try {
+			tree = parser.parse(content);
+			const errors: Array<{ line: number; column: number; endLine: number; missing?: string; text?: string }> = [];
+			const visit = (node: any) => {
+				const at = { line: node.startPosition.row + 1, column: node.startPosition.column + 1, endLine: node.endPosition.row + 1 };
+				if (typeof node.isMissing === "function" ? node.isMissing() : node.isMissing) errors.push({ ...at, missing: node.type });
+				else if (node.type === "ERROR") errors.push({ ...at, text: node.text.trim().split("\n")[0].slice(0, 40) });
+				else if (node.hasError) for (let i = 0; i < node.childCount; i++) visit(node.child(i));
+			};
+			visit(tree.rootNode);
+			return errors;
+		} catch (e) {
+			kernelDebug(`TreeSitterEngine findSyntaxErrors error (${ext}): ${e}`);
+			return null;
+		} finally {
+			tree?.delete();
+		}
+	}
+
 	public extractTags(filePath: string, content: string): FileTags | null {
 		const ext = path.extname(filePath).toLowerCase();
 		let parser = this.getParser(ext);

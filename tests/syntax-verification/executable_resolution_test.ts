@@ -50,7 +50,7 @@ export function testExecutableResolution(): void {
 		fs.writeFileSync(invalidTs, "export const x: number = ;", "utf8");
 		const invalidTsRes = checkSyntax(invalidTs);
 		assertPass("Invalid TS is caught as failed", invalidTsRes.valid === false && invalidTsRes.status === "failed", { invalidTsRes });
-		assert.ok(invalidTsRes.error?.includes("error TS"), "Invalid TS diagnostic must contain error TS");
+		assert.ok(/TS1\d{3}/.test(invalidTsRes.error ?? ""), "Invalid TS diagnostic must contain the TS error code");
 
 		// 6. Test simulated unavailable Node executable: fail open with status='unavailable'
 		setNodeExecutableForTesting(null);
@@ -61,7 +61,10 @@ export function testExecutableResolution(): void {
 			{ unavailJsRes },
 		);
 
-		const unavailTsRes = checkSyntax(validTs);
+		// Valid TS the tree-sitter grammar rejects, so tsc (which needs Node) must decide.
+		const gapTs = path.join(ws.tempDir, "gap.ts");
+		fs.writeFileSync(gapTs, "export interface Box<out T> { get(): T }", "utf8");
+		const unavailTsRes = checkSyntax(gapTs);
 		assertPass(
 			"When Node is unavailable, TS check fails open with status='unavailable'",
 			unavailTsRes.valid === true && unavailTsRes.status === "unavailable",

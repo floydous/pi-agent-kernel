@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveUserPath } from "../safety/epistemic_guard";
 import * as diff from "diff";
-import { checkSyntaxContent } from "./syntax-verify";
+import { checkSyntaxContent, type VerificationResult } from "./syntax-verify";
 import { writeFileSyncAtomic } from "../safety/atomic_write";
 import { getUnclosedDelimiters, healJsonContent } from "./auto_heal";
 /**
@@ -20,6 +20,8 @@ export interface PatchResult {
 	diffOutput?: string;
 	error?: string;
 	targetRanges?: PatchTargetRange[];
+	/** Syntax verdict on the content that was written. */
+	syntax?: VerificationResult;
 }
 
 export interface PatchBlock {
@@ -461,7 +463,7 @@ export function applySurgicalPatch(
 	}
 
 	let candidateContent = result.newContent;
-	let syntax = checkSyntaxContent(resolvedPath, candidateContent);
+	let syntax = checkSyntaxContent(resolvedPath, candidateContent, originalContent);
 	let autoHealed = false;
 
 	// Delimiter & Bracket Auto-Healing:
@@ -471,7 +473,7 @@ export function applySurgicalPatch(
 			const healedJson = healJsonContent(candidateContent);
 			if (healedJson) {
 				candidateContent = healedJson;
-				syntax = checkSyntaxContent(resolvedPath, candidateContent);
+				syntax = checkSyntaxContent(resolvedPath, candidateContent, originalContent);
 				autoHealed = syntax.valid;
 			}
 		} else if (options?.autoHeal !== false) {
@@ -482,7 +484,7 @@ export function applySurgicalPatch(
 				const retryReplace = replace + appendDelims;
 				const reResult = applySingleBlock(originalContent, search, retryReplace, options);
 				if (reResult.success) {
-					const reSyntax = checkSyntaxContent(resolvedPath, reResult.newContent);
+					const reSyntax = checkSyntaxContent(resolvedPath, reResult.newContent, originalContent);
 					if (reSyntax.valid) {
 						candidateContent = reResult.newContent;
 						syntax = reSyntax;
@@ -527,6 +529,7 @@ export function applySurgicalPatch(
 		filePath: resolvedPath,
 		strategy: finalStrategy,
 		targetRanges: result.targetRange ? [result.targetRange] : [],
+		syntax,
 		diffOutput: diff.createPatch(
 			path.basename(resolvedPath),
 			originalContent,
@@ -644,7 +647,7 @@ export function applyMultiBlockPatch(
 	}
 
 	let candidateContent = currentContent;
-	let syntax = checkSyntaxContent(resolvedPath, candidateContent);
+	let syntax = checkSyntaxContent(resolvedPath, candidateContent, originalContent);
 	let autoHealed = false;
 
 	if (!syntax.valid) {
@@ -653,7 +656,7 @@ export function applyMultiBlockPatch(
 			const healedJson = healJsonContent(candidateContent);
 			if (healedJson) {
 				candidateContent = healedJson;
-				syntax = checkSyntaxContent(resolvedPath, candidateContent);
+				syntax = checkSyntaxContent(resolvedPath, candidateContent, originalContent);
 				autoHealed = syntax.valid;
 			}
 		}
@@ -693,6 +696,7 @@ export function applyMultiBlockPatch(
 		filePath: resolvedPath,
 		strategy: finalStrategy,
 		targetRanges: plannedRanges,
+		syntax,
 		diffOutput: diff.createPatch(
 			path.basename(resolvedPath),
 			originalContent,
