@@ -25,7 +25,7 @@ import {
 	resolveUserPath,
 } from "../safety/epistemic_guard";
 import { loadKernelConfig } from "../config";
-import type { SessionDeps } from "./context";
+import { markReturnedErrors, type SessionDeps } from "./context";
 import { TreeSitterEngine } from "../retrieval/tree_sitter_engine";
 
 function mutationLockKey(filePath: string): string {
@@ -695,5 +695,5 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		},
 	};
 
-	pi.registerTool(editToolDefinition);
+	pi.registerTool(markReturnedErrors(editToolDefinition));
 }

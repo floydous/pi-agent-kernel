@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { Text, makeOutputText } from "../ui/tui_utils";
 import { globalEpistemicGuard } from "../safety/epistemic_guard";
 import { formatCodeSearchResults, CODE_SEARCH_MODES, type CodeSearchMode } from "./code_search_output";
-import type { SearchDeps } from "./context";
+import { markReturnedErrors, type SearchDeps } from "./context";
 
 /** Extracted from index.ts — registers the `code_search` tool. */
 export function registerCodeSearchTool(
@@ -11,7 +11,7 @@ export function registerCodeSearchTool(
 	deps: SearchDeps,
 ): void {
 	// 5.5 Tool: `code_search` (Local Hybrid BM25 + Semantic AST Code Search)
-	pi.registerTool({
+	pi.registerTool(markReturnedErrors({
 		name: "code_search",
 		label: "Codebase Search",
 		description:
@@ -199,5 +199,5 @@ export function registerCodeSearchTool(
 				result.content?.find((c: any) => c.type === "text")?.text || "";
 			return makeOutputText(`\n${theme.fg("toolOutput", output)}`);
 		},
-	});
+	}));
 }

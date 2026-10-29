@@ -695,6 +695,10 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 
 	// 9. Tool Result Interceptor: Syntax Validation & Output Clamping (ACI)
 	pi.on("tool_result", async (event: any, ctx: any) => {
+		// Kernel tools return their failures, and pi drops a returned isError; markReturnedErrors kept it in details.
+		if (!event.isError && kernelRegisteredTools.has(event.toolName) && event.details?.isError === true) {
+			return { isError: true };
+		}
 		const isShell = event.toolName === "bash" || event.toolName === "powershell";
 		if (event.isError && !isShell) return;
 

@@ -8,7 +8,7 @@ import {
 	globalEpistemicGuard,
 	resolveUserPath,
 } from "../safety/epistemic_guard";
-import type { SessionDeps } from "./context";
+import { markReturnedErrors, type SessionDeps } from "./context";
 
 const MAX_READ_LINES = 2_000;
 const MAX_READ_BYTES = 50 * 1024;
@@ -531,5 +531,5 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		},
 	};
 
-	pi.registerTool(readToolDefinition);
+	pi.registerTool(markReturnedErrors(readToolDefinition));
 }

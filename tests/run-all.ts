@@ -369,6 +369,11 @@ const suites: TestEntry[] = [
 		key: "normalize-dots",
 		loader: () => runSuiteModule(() => import("./editing/normalize_dots_test")),
 	},
+	{
+		name: "Tool Failures Reach pi as Errors",
+		key: "tool-error-flag",
+		loader: () => runSuiteModule(() => import("./editing/tool_error_flag.test")),
+	},
 ];
 
 async function main(): Promise<void> {

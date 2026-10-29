@@ -12,6 +12,21 @@ export interface SessionDeps {
 	invalidateSearchFile?: (cwd: string, filePath: string) => void | Promise<void>;
 }
 
+/**
+ * pi flags a tool result as an error only when `execute` throws; a returned `isError` is dropped. Kernel tools return
+ * their failures, so copy the flag into `details.isError`, where the kernel's tool_result hook restores it.
+ */
+export function markReturnedErrors<T extends { execute: (...args: any[]) => Promise<any> }>(tool: T): T {
+	const execute = tool.execute;
+	return {
+		...tool,
+		async execute(...args: any[]) {
+			const result = await execute.apply(tool, args);
+			return result?.isError === true ? { ...result, details: { ...(result.details ?? {}), isError: true } } : result;
+		},
+	};
+}
+
 export interface SearchDeps extends SessionDeps {
  /** Lazily create/access the workspace hybrid search index singleton. */
  getSearchIndex: (
