@@ -24,7 +24,7 @@ function unquote(val: string): string {
 }
 
 export function parseOSRelease(text: string): Record<string, string> {
-	const result: Record<string, string> = {};
+	const result = Object.create(null) as Record<string, string>;
 	for (const line of text.split(/\r?\n/)) {
 		const trimmed = line.trim();
 		if (!trimmed || trimmed.startsWith("#")) continue;
@@ -115,7 +115,7 @@ export function renderHostEnvironment(options?: HostEnvironmentOptions): string 
 			`Platform: ${osName} (${platform} ${arch})`,
 			"Shell: bash (Git Bash / MSYS2)",
 			"Line Endings: Preserved per-file (auto-detects CRLF / LF)",
-			"Execution Rules:",
+			"Platform Guidance:",
 			"- Terminal commands run through Git Bash: use POSIX syntax (ls, grep, cat, find, &&, 2>/dev/null).",
 			"- Paths: Use forward slashes (C:/Users/...) for native Windows tools (node, cargo, python).",
 			"- Python binary: invoke as 'python' ('python3' is Windows Store stub).",
@@ -133,10 +133,9 @@ export function renderHostEnvironment(options?: HostEnvironmentOptions): string 
 			`Platform: macOS (${platform} ${arch})`,
 			"Shell: bash (macOS /bin/bash v3.2)",
 			"Line Endings: Preserved per-file (auto-detects CRLF / LF)",
-			"Execution Rules:",
+			"Platform Guidance:",
 			"- Stock /bin/bash is Bash 3.2: avoid Bash 4+ features (declare -A, mapfile/readarray, ${var^^}).",
 			"- BSD userland: use portable POSIX flags (e.g. sed -i '' for in-place edit, not GNU sed -i).",
-			"- Python binary: invoke as 'python3' ('python' is not aliased).",
 			"</host_environment>",
 		];
 		const result = lines.join("\n");
@@ -161,20 +160,20 @@ export function renderHostEnvironment(options?: HostEnvironmentOptions): string 
 		rules.push("- Fedora/RHEL Linux (glibc): package manager is 'dnf' / 'yum'.");
 	} else if (id === "debian" || id === "ubuntu" || idLike.includes("debian")) {
 		rules.push("- Debian/Ubuntu Linux (glibc): package manager is 'apt'.");
-	} else {
-		rules.push("- Standard Linux environment (glibc): use standard POSIX syntax and paths.");
 	}
-	rules.push("- Python binary: invoke as 'python3' ('python' is not aliased).");
 
 	const lines = [
 		"<host_environment>",
 		`Platform: ${hostDisplay} (${platform} ${arch})`,
 		"Shell: bash",
 		"Line Endings: Preserved per-file (auto-detects CRLF / LF)",
-		"Execution Rules:",
-		...rules,
-		"</host_environment>",
 	];
+
+	if (rules.length > 0) {
+		lines.push("Platform Guidance:", ...rules);
+	}
+
+	lines.push("</host_environment>");
 	const result = lines.join("\n");
 	if (!options) memoizedHostEnv = result;
 	return result;

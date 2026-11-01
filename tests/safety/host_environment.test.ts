@@ -14,7 +14,7 @@ export function run(): void {
 	assert.ok(liveEnv.includes("Platform:"), "Must include Platform");
 	assert.ok(liveEnv.includes("Shell:"), "Must include Shell");
 	assert.ok(liveEnv.includes("Line Endings: Preserved per-file"), "Must state line ending policy");
-	assert.ok(liveEnv.includes("Execution Rules:"), "Must include Execution Rules");
+	assert.ok(liveEnv.includes("Platform Guidance:"), "Must include Platform Guidance");
 	assert.ok(!liveEnv.includes("git status"), "Must not leak git status into prompt");
 	assert.ok(!liveEnv.includes("diff --git"), "Must not leak diffs into prompt");
 	console.log("✓ Live host environment output:\n" + liveEnv.split("\n").map((l) => "    " + l).join("\n"));
@@ -49,7 +49,6 @@ EMPTY_KEY=
 	});
 	assert.ok(ubuntuEnv.includes("Platform: Ubuntu 24.04 LTS (linux x64)"));
 	assert.ok(ubuntuEnv.includes("Debian/Ubuntu Linux (glibc): package manager is 'apt'"));
-	assert.ok(ubuntuEnv.includes("Python binary: invoke as 'python3'"));
 	assert.ok(!ubuntuEnv.includes("PowerShell"));
 	console.log("✓ Ubuntu Linux contract verified cleanly!");
 
@@ -92,7 +91,6 @@ PRETTY_NAME="Alpine Linux v3.19"
 	assert.ok(macEnv.includes("Shell: bash (macOS /bin/bash v3.2)"));
 	assert.ok(macEnv.includes("Stock /bin/bash is Bash 3.2: avoid Bash 4+ features"));
 	assert.ok(macEnv.includes("BSD userland: use portable POSIX flags"));
-	assert.ok(macEnv.includes("Python binary: invoke as 'python3'"));
 	console.log("✓ macOS contract verified cleanly!");
 
 	// 7. Simulated Windows contract verification
