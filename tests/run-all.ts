@@ -394,6 +394,11 @@ const suites: TestEntry[] = [
 		key: "line-span-confirmation",
 		loader: () => runSuiteModule(() => import("./editing/line_span_confirmation.test")),
 	},
+	{
+		name: "Cross-Platform Host Environment Probe Suite",
+		key: "host-environment",
+		loader: () => runSuiteModule(() => import("./safety/host_environment.test")),
+	},
 ];
 
 async function main(): Promise<void> {

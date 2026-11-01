@@ -41,6 +41,7 @@ export interface UiConfig {
 export interface InstructionsConfig {
 	enabled: boolean;
 	pi_docs: boolean;
+	host_environment: boolean;
 }
 
 export interface KernelConfig {
@@ -76,6 +77,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 	instructions: {
 		enabled: true,
 		pi_docs: true,
+		host_environment: true,
 	},
 };
 
@@ -95,7 +97,7 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 	]),
 	editing: new Set(["mode", "default_anchors", "read_mode", "syntax_gate", "normalize_fullwidth_dots"]),
 	ui: new Set(["enable_pastel_footer"]),
-	instructions: new Set(["enabled", "pi_docs"]),
+	instructions: new Set(["enabled", "pi_docs", "host_environment"]),
 };
 
 const DEPRECATED_RETRIEVAL_KEYS = new Set([
@@ -162,6 +164,9 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 	requireBoolean(config.ui.enable_pastel_footer, "ui.enable_pastel_footer");
 	requireBoolean(config.instructions.enabled, "instructions.enabled");
 	requireBoolean(config.instructions.pi_docs, "instructions.pi_docs");
+	if (config.instructions.host_environment !== undefined) {
+		requireBoolean(config.instructions.host_environment, "instructions.host_environment");
+	}
 	return config;
 }
 

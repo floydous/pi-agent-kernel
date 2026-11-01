@@ -62,6 +62,7 @@ export function formatConfigDashboard(cwd: string, config: KernelConfig): string
 		``,
 		`[System & UI]`,
 		`  • Kernel Guidance Prompt: ${config.instructions.enabled ? "ENABLED" : "DISABLED"}`,
+		`  • Host Environment Info : ${config.instructions.host_environment !== false ? "ENABLED" : "DISABLED"}`,
 		`  • Pi Docs System Guidance : ${config.instructions.pi_docs ? "ENABLED" : "DISABLED"}`,
 		`  • Pastel Status Footer  : ${config.ui.enable_pastel_footer ? "ENABLED" : "DISABLED"}`,
 		``,
@@ -89,6 +90,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				{ value: "set editing", label: "set editing <smart_anchor|standard> - Editing engine mode" },
 				{ value: "set read_mode", label: "set read_mode <plain|anchored|auto> - Reading anchor mode" },
 				{ value: "set guidance", label: "set guidance <on|off> - Toggle kernel system prompt guidance" },
+				{ value: "set host_environment", label: "set host_environment <on|off> - Toggle host environment info in system prompt" },
 				{ value: "set pi_docs", label: "set pi_docs <on|off> - Toggle Pi documentation guide in system prompt" },
 				{ value: "set footer", label: "set footer <on|off> - Toggle pastel status footer" },
 				{ value: "set max_lines", label: "set max_lines <40|100|200> - Output clamping line ceiling" },
@@ -197,6 +199,15 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						desc = `Kernel guidance prompt set to ${enable ? "ENABLED" : "DISABLED"}`;
 						break;
 					}
+					case "host_environment":
+					case "host-environment":
+					case "host_env":
+					case "host-env": {
+						const enable = val === "on" || val === "true" || val === "1" || val === "enabled";
+						updates.instructions = { host_environment: enable };
+						desc = `Host environment prompt set to ${enable ? "ENABLED" : "DISABLED"}`;
+						break;
+					}
 					case "pi_docs":
 					case "pi-docs":
 					case "docs": {
@@ -273,6 +284,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 					if (id === "read_mode") return globalRaw.editing?.read_mode !== undefined;
 					if (id === "normalize_dots") return globalRaw.editing?.normalize_fullwidth_dots !== undefined;
 					if (id === "guidance") return globalRaw.instructions?.enabled !== undefined;
+					if (id === "host_environment") return globalRaw.instructions?.host_environment !== undefined;
 					if (id === "pi_docs") return globalRaw.instructions?.pi_docs !== undefined;
 					if (id === "footer") return globalRaw.ui?.enable_pastel_footer !== undefined;
 					return false;
@@ -302,6 +314,10 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						const enable = value === "enabled";
 						patch.instructions = { enabled: enable };
 						desc = `Kernel guidance prompt = ${enable ? "enabled" : "disabled"}`;
+					} else if (id === "host_environment") {
+						const enable = value === "enabled";
+						patch.instructions = { host_environment: enable };
+						desc = `Host environment prompt = ${enable ? "enabled" : "disabled"}`;
 					} else if (id === "pi_docs") {
 						const enable = value === "enabled";
 						patch.instructions = { pi_docs: enable };
@@ -336,6 +352,8 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 							return { section: "editing", key: "normalize_fullwidth_dots" };
 						case "guidance":
 							return { section: "instructions", key: "enabled" };
+						case "host_environment":
+							return { section: "instructions", key: "host_environment" };
 						case "pi_docs":
 							return { section: "instructions", key: "pi_docs" };
 						case "footer":
@@ -453,6 +471,20 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 								"Kernel guidance active: Injects empirical tool discipline, grounding rules, and search strategies into the model system prompt.",
 							disabled:
 								"Kernel guidance inactive: Omits kernel prompt injection, running the agent with default model system prompt instructions.",
+						},
+					},
+					{
+						category: "System Guidance & UI",
+						id: "host_environment",
+						label: "Host Environment Info",
+						currentValue: currentConfig.instructions.host_environment !== false ? "enabled" : "disabled",
+						values: ["enabled", "disabled"],
+						isGlobal: checkIsGlobal("host_environment"),
+						descriptions: {
+							enabled:
+								"Host environment active: Injects factual host OS, shell, line ending policy, and verified toolchain versions into the system prompt.",
+							disabled:
+								"Host environment inactive: Omits host platform and toolchain probing from the system prompt.",
 						},
 					},
 					{

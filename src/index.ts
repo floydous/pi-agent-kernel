@@ -118,6 +118,7 @@ function appendKernelGuidance(systemPrompt: string, guidance: string): string {
 import { clampCommandOutput, getSpilloverRoot } from "./safety/output_clamper";
 import { sanitizeSessionFiles } from "./context/session_repair";
 import { formatSearchEngineTag, renderFooter } from "./ui/footer";
+import { renderHostEnvironment } from "./safety/host_environment";
 
 export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// Initialize TreeSitter WASM engine eagerly in background
@@ -836,7 +837,18 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		const guidance = kernelConfig.instructions.enabled
 			? loadKernelGuidance(toolCollisions, promptToolNames)
 			: "";
-		const guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
+		const hostEnv = kernelConfig.instructions.enabled && kernelConfig.instructions.host_environment !== false
+			? await renderHostEnvironment()
+			: "";
+
+		let guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
+		if (hostEnv && !guidedPrompt.includes("<host_environment>")) {
+			if (guidedPrompt.includes(KERNEL_GUIDANCE_MARKER)) {
+				guidedPrompt = guidedPrompt.replace(KERNEL_GUIDANCE_MARKER, `${hostEnv}\n\n${KERNEL_GUIDANCE_MARKER}`);
+			} else {
+				guidedPrompt = `${guidedPrompt.trimEnd()}\n\n${hostEnv}`;
+			}
+		}
 		return { systemPrompt: guidedPrompt };
 	});
 }

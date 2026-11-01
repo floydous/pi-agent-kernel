@@ -80,6 +80,11 @@ export async function testAgentKernelCommand(): Promise<void> {
 		const piDocsOff = loadKernelConfig(ws.tempDir, { projectTrusted: true });
 		assertPass("Pi docs updated to false", piDocsOff.instructions.pi_docs === false, { piDocsOff });
 
+		// 6b. Test CLI `set host_environment off`
+		await registeredCommand.handler("set host_environment off", mockCtx);
+		const hostEnvOff = loadKernelConfig(ws.tempDir, { projectTrusted: true });
+		assertPass("Host environment updated to false", hostEnvOff.instructions.host_environment === false, { hostEnvOff });
+
 		// 7. Test CLI `reset`
 		await registeredCommand.handler("reset", mockCtx);
 		assertPass("Global config file removed after reset", !fs.existsSync(globalPath), { globalPath });
@@ -87,6 +92,7 @@ export async function testAgentKernelCommand(): Promise<void> {
 		assertPass("Reset restored default profile 'lean'", resetConfig.retrieval.default_profile === "lean", { resetConfig });
 		assertPass("Reset restored default epistemic guard true", resetConfig.safety.enable_epistemic_guard === true, { resetConfig });
 		assertPass("Reset restored default pi_docs true", resetConfig.instructions.pi_docs === true, { resetConfig });
+		assertPass("Reset restored default host_environment true", resetConfig.instructions.host_environment === true, { resetConfig });
 
 		// 8. Test TUI interactive mode with hotkey 'G' applying single setting globally
 		let capturedFactory: any = null;
