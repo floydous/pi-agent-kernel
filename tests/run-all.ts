@@ -374,6 +374,11 @@ const suites: TestEntry[] = [
 		key: "tool-error-flag",
 		loader: () => runSuiteModule(() => import("./editing/tool_error_flag.test")),
 	},
+	{
+		name: "HTML Semantic Chunking & Retrieval Suite",
+		key: "html-chunking",
+		loader: () => runSuiteModule(() => import("./retrieval/html_chunking.test")),
+	},
 ];
 
 async function main(): Promise<void> {

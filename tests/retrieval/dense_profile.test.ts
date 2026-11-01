@@ -72,7 +72,7 @@ export async function run(): Promise<void> {
 			const cache: any = { vectorDim: 768, vectorChunkIds: ids, vectorChunkHashes: chunks.map((c) => c.hash), vectorHash, fileName: "vectors-768d.bin" };
 			if (model !== undefined) cache.model = model;
 			fs.writeFileSync(path.join(cacheDir, "index.json"), JSON.stringify({
-				version: 4, extractorGeneration: "tree-sitter-wasm-v6", fileHashes: { "retry.ts": computeHash(source) },
+				version: 4, extractorGeneration: "tree-sitter-wasm-v7", fileHashes: { "retry.ts": computeHash(source) },
 				ignoreConfigHashes: {}, chunks, vectorCaches: [cache],
 			}));
 			const index = new HybridSearchIndex(workspace, "full", { projectTrusted: true });

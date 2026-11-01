@@ -39,7 +39,8 @@ const MAX_PERSISTED_VECTOR_BYTES = MAX_INDEX_CHUNKS * 768 * 4;
 // v4: .cc/.cxx/.hh/.hxx are indexed and C++ headers named .h are parsed with the C++ grammar.
 // v5: Rust items under test attributes are chunked as kind "test".
 // v6: C/C++ struct/class references and forward declarations (no body) are no longer chunked as definitions.
-const EXTRACTOR_GENERATION = "tree-sitter-wasm-v6";
+// v7: HTML files (.html, .htm) are indexed using structural semantic DOM group chunking.
+const EXTRACTOR_GENERATION = "tree-sitter-wasm-v7";
 
 interface PersistedVectorCache {
 	/** "<model id>@<revision>" that produced the vectors; caches from any other model are not loaded. */
@@ -104,7 +105,7 @@ function freshnessSnapshot(stats: fs.Stats, hash: string, bytes: number): Freshn
 }
 
 function isValidChunkKind(kind: string): boolean {
-	return kind === "file" || ["function", "class", "interface", "type", "enum", "variable", "constant", "method", "alias", "test"].includes(kind);
+	return kind === "file" || ["function", "class", "interface", "type", "enum", "variable", "constant", "method", "alias", "test", "html"].includes(kind);
 }
 
 function assertSafeWorkspaceRelativePath(relativePath: string): void {

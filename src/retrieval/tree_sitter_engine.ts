@@ -46,6 +46,9 @@ const EXTENSION_TO_GRAMMAR: Record<string, LanguageGrammarSpec> = {
 	".rb": { wasmFile: "tree-sitter-ruby.wasm", langKey: "ruby" },
 	// PHP
 	".php": { wasmFile: "tree-sitter-php.wasm", langKey: "php" },
+	// HTML
+	".html": { wasmFile: "tree-sitter-html.wasm", langKey: "html" },
+	".htm": { wasmFile: "tree-sitter-html.wasm", langKey: "html" },
 };
 
 // `.h` is shared by C and C++. A header is parsed as C++ only when it has a C++ marker and the C parse has errors

@@ -44,7 +44,8 @@ export function tokenizeCode(text: string): string[] {
 }
 
 const COMMON_QUERY_STOPWORDS = new Set([
-	"a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "with", "by", "of", "is", "as", "it", "from", "be"
+	"a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "with", "by", "of", "is", "as", "it", "from", "be",
+	"are", "was", "were", "which", "whose", "whether", "shown", "showing", "over"
 ]);
 
 /**

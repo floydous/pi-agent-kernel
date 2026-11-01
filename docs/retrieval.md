@@ -32,7 +32,7 @@ caches are tagged with the model and revision that produced them, and caches fro
 another model are re-embedded rather than reused. Output limits remain enforced so
 retrieval cannot flood agent context.
 
-The `code_search` index is intentionally code-only: Markdown and other text files remain readable but are not chunked or embedded for retrieval.
+The `code_search` index covers source code and HTML files (`.html`, `.htm`): HTML files are chunked into structural DOM groups with leaf-control rollup, parent suppression, and inline `<style>`/`<script>` boundaries. Markdown and configuration files (JSON, YAML, TOML, CSS) remain readable but are not chunked or embedded for retrieval.
 
 Code-search path filters match normalized relative path substrings
 (including directory fragments, filenames, and extensions). `code_search` reports

@@ -4,6 +4,7 @@ import * as crypto from "node:crypto";
 import { walkWorkspaceFiles, DEFAULT_IGNORED_DIRS, type WorkspaceWalkCache } from "./workspace_walker";
 import { extractFileTags, isTestPath, SymbolDef } from "./tag_extractor";
 import { TreeSitterEngine } from "./tree_sitter_engine";
+import { chunkHtmlFile } from "./html_chunker";
 
 export interface CodeChunk {
 	id: string;              // e.g. "src/auth.ts:45-90#verifyToken"
@@ -20,9 +21,23 @@ export interface CodeChunk {
 	hash: string;            // SHA-256 hash of content
 }
 
-export const SUPPORTED_EXTENSIONS = new Set([
+export const CODE_EXTENSIONS = new Set([
 	".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hh", ".hxx", ".java", ".cs", ".rb", ".php", ".swift", ".sh", ".bash", ".sql"
 ]);
+
+export const HTML_EXTENSIONS = new Set([
+	".html", ".htm"
+]);
+
+export const SUPPORTED_EXTENSIONS = new Set([
+	...CODE_EXTENSIONS,
+	...HTML_EXTENSIONS
+]);
+
+export function isHtmlPath(relPath: string): boolean {
+	const ext = path.extname(relPath).toLowerCase();
+	return HTML_EXTENSIONS.has(ext);
+}
 
 export const IGNORED_DIRS = DEFAULT_IGNORED_DIRS;
 export const MAX_INDEX_FILE_BYTES = 2 * 1024 * 1024;
@@ -68,6 +83,10 @@ export function chunkFile(rootDir: string, filePath: string, content?: string): 
 		}
 	}
 	if (Buffer.byteLength(fileContent, "utf8") > MAX_INDEX_FILE_BYTES) return [];
+
+	if (HTML_EXTENSIONS.has(ext)) {
+		return chunkHtmlFile(rootDir, absPath, fileContent);
+	}
 
 	const lines = fileContent.split("\n");
 	if (lines.length === 0) return [];
@@ -330,7 +349,7 @@ export function rankChunkableFiles(rootDir: string, cache?: WorkspaceWalkCache, 
 			const rel = file.slice(prefix).replace(/\\/g, "/");
 			return { file, rel, tier: fileTier(rel) };
 		})
-		.sort((a, b) => a.tier - b.tier || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+		.sort((a, b) => a.tier - b.tier || (isHtmlPath(a.rel) !== isHtmlPath(b.rel) ? (isHtmlPath(a.rel) ? 1 : -1) : 0) || (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
 	if (cache) rankingMemo.set(cache, { rootDir, walked, ranked });
 	return ranked;
 }
