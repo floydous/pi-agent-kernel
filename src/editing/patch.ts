@@ -87,14 +87,11 @@ function replaceLineWindow(
 	replacement: string,
 	hadCrlf: boolean,
 ): string {
-	return restoreLineEndings(
-		[
-			...contentLines.slice(0, start),
-			replacement,
-			...contentLines.slice(start + length),
-		].join("\n"),
-		hadCrlf,
-	);
+	const updatedLines =
+		replacement === ""
+			? [...contentLines.slice(0, start), ...contentLines.slice(start + length)]
+			: [...contentLines.slice(0, start), replacement, ...contentLines.slice(start + length)];
+	return restoreLineEndings(updatedLines.join("\n"), hadCrlf);
 }
 
 function applySingleBlock(
@@ -143,10 +140,23 @@ function applySingleBlock(
 	}
 	if (exactMatches.length === 1) {
 		const start = exactMatches[0];
+		let cutStart = start;
+		let cutEnd = start + searchNorm.length;
+		if (replaceNorm === "") {
+			const isLineStart = cutStart === 0 || contentNorm.charAt(cutStart - 1) === "\n";
+			const isLineEnd = cutEnd === contentNorm.length || contentNorm.charAt(cutEnd) === "\n";
+			if (isLineStart && isLineEnd) {
+				if (cutEnd < contentNorm.length && contentNorm.charAt(cutEnd) === "\n") {
+					cutEnd++;
+				} else if (cutStart > 0 && contentNorm.charAt(cutStart - 1) === "\n") {
+					cutStart--;
+				}
+			}
+		}
 		const newContent =
-			contentNorm.slice(0, start) +
+			contentNorm.slice(0, cutStart) +
 			replaceNorm +
-			contentNorm.slice(start + searchNorm.length);
+			contentNorm.slice(cutEnd);
 		return {
 			success: true,
 			newContent: restoreLineEndings(newContent, hadCrlf),
@@ -168,10 +178,23 @@ function applySingleBlock(
 				}
 			}
 			const start = bestOffset;
+			let cutStart = start;
+			let cutEnd = start + searchNorm.length;
+			if (replaceNorm === "") {
+				const isLineStart = cutStart === 0 || contentNorm.charAt(cutStart - 1) === "\n";
+				const isLineEnd = cutEnd === contentNorm.length || contentNorm.charAt(cutEnd) === "\n";
+				if (isLineStart && isLineEnd) {
+					if (cutEnd < contentNorm.length && contentNorm.charAt(cutEnd) === "\n") {
+						cutEnd++;
+					} else if (cutStart > 0 && contentNorm.charAt(cutStart - 1) === "\n") {
+						cutStart--;
+					}
+				}
+			}
 			const newContent =
-				contentNorm.slice(0, start) +
+				contentNorm.slice(0, cutStart) +
 				replaceNorm +
-				contentNorm.slice(start + searchNorm.length);
+				contentNorm.slice(cutEnd);
 			return {
 				success: true,
 				newContent: restoreLineEndings(newContent, hadCrlf),
@@ -639,10 +662,10 @@ export function applyMultiBlockPatch(
 				error: `Block ${i + 1}/${blocks.length} failed: ${result.error} in ${resolvedPath}`,
 			};
 		}
-		const searchCount = block.search.split("\n").length;
-		const replaceCount = block.replace.split("\n").length;
-		lineDelta += (replaceCount - searchCount);
+		const beforeLines = currentContent.split("\n").length;
 		currentContent = result.newContent;
+		const afterLines = currentContent.split("\n").length;
+		lineDelta += (afterLines - beforeLines);
 		appliedStrategies.push(`Block ${i + 1}: ${result.strategy}`);
 	}
 

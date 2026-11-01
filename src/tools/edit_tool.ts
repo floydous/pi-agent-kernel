@@ -84,7 +84,11 @@ function preflightFileEdit(
 		edits = edits.map((e: any) => {
 			if (!e || typeof e !== "object") return e;
 			let search = e.search ?? e.oldText ?? e.old_text ?? e.old;
-			let replace = e.replace ?? e.newText ?? e.new_text ?? e.new;
+			let rawReplace = e.replace === null ? "" : (e.replace ?? e.replacement ?? e.newText ?? e.new_text ?? e.new);
+			if (rawReplace === null) {
+				rawReplace = "";
+			}
+			let replace = rawReplace;
 			let lines = e.lines;
 			if (shouldNormalizeDots) {
 				if (typeof search === "string" && search.includes("\uff0e")) search = search.replace(/\uff0e/g, ".");
@@ -95,7 +99,11 @@ function preflightFileEdit(
 		});
 	}
 	let singleSearch = item.search ?? item.oldText ?? item.old_text ?? item.old;
-	let singleReplace = item.replace ?? item.newText ?? item.new_text ?? item.new;
+	let rawSingleReplace = item.replace === null ? "" : (item.replace ?? item.replacement ?? item.newText ?? item.new_text ?? item.new);
+	if (rawSingleReplace === null) {
+		rawSingleReplace = "";
+	}
+	let singleReplace = rawSingleReplace;
 	let singleLines = Array.isArray(item.lines) ? [...item.lines] : item.lines;
 	if (shouldNormalizeDots) {
 		if (typeof singleSearch === "string" && singleSearch.includes("\uff0e")) singleSearch = singleSearch.replace(/\uff0e/g, ".");
@@ -126,7 +134,7 @@ function preflightFileEdit(
 
 	if (!isAnchorMode && !hasSingleBlock && !hasMultiBlock) {
 		if (typeof singleSearch === "string") {
-			return { error: `[EDIT ERROR] Missing 'replace' for the 'search' block in '${relPath}'. An empty top-level 'replace' can be dropped before it reaches the tool. To delete the matched block, use edits: [{ search: "<block>", replace: "" }].` };
+			return { error: `[EDIT ERROR] Missing 'replace' for the 'search' block in '${relPath}'. To delete the matched block, pass replace: "" (or edits: [{ search: "<block>", replace: "" }]).` };
 		}
 		if (item.offset !== undefined || item.limit !== undefined) {
 			return { error: `[EDIT ERROR] 'offset'/'limit' are 'read' arguments. To inspect lines, call read({ path: "${relPath}", offset, limit }). To edit, pass 'search' and 'replace'.` };
@@ -245,14 +253,20 @@ async function applyPreparedEdit(
 	ctx: any,
 	deps: SessionDeps,
 	options: { syntaxGate?: "warn" | "block" } = {},
-): Promise<{ success: boolean; mutated: boolean; error?: string; verification?: any; strategy?: string; statusText?: string }> {
-	const { resolvedPath, relPath, item, isAnchorMode, hasSingleBlock, hasMultiBlock, anchorBlocks, anchorPreflight, targetRanges } = prepared;
+): Promise<{ success: boolean; mutated: boolean; error?: string; verification?: any; strategy?: string; statusText?: string; lineSpanSummary?: string }> {
+	const { resolvedPath, relPath, item, isAnchorMode, hasSingleBlock, hasMultiBlock, anchorBlocks, targetRanges } = prepared;
 	const config = deps.getConfig?.(ctx.cwd);
 	const editingMode = config?.editing?.mode ?? "smart_anchor";
 	const autoHeal = editingMode !== "standard";
 	const syntaxGate = options.syntaxGate ?? config?.editing?.syntax_gate ?? (editingMode === "standard" ? "block" : "warn");
 	// The syntax check uses tree-sitter when the grammar is loaded (see checkSyntaxContent).
 	await TreeSitterEngine.getInstance().loadLanguages([path.extname(resolvedPath).toLowerCase()]);
+
+	let originalLines = 0;
+	try {
+		originalLines = fs.readFileSync(resolvedPath, "utf8").split("\n").length;
+	} catch {}
+
 	let patchRes: ReturnType<typeof applySurgicalPatch>;
 	if (isAnchorMode) {
 		patchRes = applySmartAnchorEdits(resolvedPath, anchorBlocks, { syntaxGate });
@@ -284,25 +298,7 @@ async function applyPreparedEdit(
 		diskContent = "";
 	}
 
-	let deltaLines = 0;
-	if (isAnchorMode && anchorPreflight?.resolvedSpans) {
-		for (const span of anchorPreflight.resolvedSpans) {
-			const deletedCount = span.endLine - span.startLine + 1;
-			deltaLines += span.replacementLines.length - deletedCount;
-		}
-	} else if (hasSingleBlock) {
-		const searchLines = item.search.replace(/\r\n/g, "\n").split("\n").length;
-		const replaceLines = item.replace.replace(/\r\n/g, "\n").split("\n").length;
-		deltaLines = replaceLines - searchLines;
-	} else if (hasMultiBlock) {
-		for (const block of item.edits) {
-			if (block && typeof block.search === "string" && typeof block.replace === "string") {
-				const sLines = block.search.replace(/\r\n/g, "\n").split("\n").length;
-				const rLines = block.replace.replace(/\r\n/g, "\n").split("\n").length;
-				deltaLines += (rLines - sLines);
-			}
-		}
-	}
+	const deltaLines = originalLines > 0 ? diskContent.split("\n").length - originalLines : 0;
 
 	globalEpistemicGuard.recordFileMutation(
 		resolvedPath,
@@ -319,14 +315,84 @@ async function applyPreparedEdit(
 
 	const verification = await verifyEditedFile(resolvedPath, undefined, patchRes.syntax);
 
-	const statusText = renderPostEditVerification(verification, undefined, relPath);
+	const lineSpanSummary = computeLineSpanSummary(prepared, patchRes);
+	const statusText = renderPostEditVerification(verification, undefined, relPath, lineSpanSummary);
 	return {
 		success: true,
 		mutated: true,
 		verification,
 		strategy: patchRes.strategy,
 		statusText,
+		lineSpanSummary,
 	};
+}
+
+function computeLineSpanSummary(
+	prepared: PreparedFileEdit,
+	patchRes: ReturnType<typeof applySurgicalPatch>,
+): string | undefined {
+	const { item, isAnchorMode, hasSingleBlock, hasMultiBlock, anchorPreflight } = prepared;
+	const ranges = patchRes.targetRanges || prepared.targetRanges;
+	if (!ranges || ranges.length === 0) return undefined;
+
+	if (isAnchorMode && anchorPreflight?.resolvedSpans) {
+		const spanParts = anchorPreflight.resolvedSpans.slice(0, 3).map((span) => {
+			const oldSpan = span.startLine === span.endLine ? `line ${span.startLine}` : `lines ${span.startLine}–${span.endLine}`;
+			if (span.replacementLines.length === 0) {
+				return `${oldSpan} deleted`;
+			}
+			const newEnd = span.startLine + span.replacementLines.length - 1;
+			const newSpan = span.startLine === newEnd ? `line ${span.startLine}` : `${span.startLine}–${newEnd}`;
+			return `${oldSpan} -> ${newSpan}`;
+		});
+		if (anchorPreflight.resolvedSpans.length > 3) {
+			spanParts.push(`+${anchorPreflight.resolvedSpans.length - 3} more`);
+		}
+		return spanParts.join(", ");
+	}
+
+	if (hasSingleBlock && ranges[0]) {
+		const range = ranges[0];
+		const oldSpan = range.startLine === range.endLine ? `line ${range.startLine}` : `lines ${range.startLine}–${range.endLine}`;
+		const replaceStr = typeof item.replace === "string" ? item.replace : "";
+		if (replaceStr === "") {
+			return `${oldSpan} deleted`;
+		}
+		const rLines = replaceStr.replace(/\r\n/g, "\n").split("\n").length;
+		const newEnd = range.startLine + rLines - 1;
+		const newSpan = range.startLine === newEnd ? `line ${range.startLine}` : `${range.startLine}–${newEnd}`;
+		return `${oldSpan} -> ${newSpan}`;
+	}
+
+	if (hasMultiBlock && Array.isArray(item.edits)) {
+		let currentLineDelta = 0;
+		const summaries: string[] = [];
+		for (let i = 0; i < item.edits.length; i++) {
+			const block = item.edits[i];
+			const range = ranges[i];
+			if (!range) continue;
+			const oldSpan = range.startLine === range.endLine ? `line ${range.startLine}` : `lines ${range.startLine}–${range.endLine}`;
+			const replaceStr = typeof block.replace === "string" ? block.replace : "";
+			if (replaceStr === "") {
+				summaries.push(`${oldSpan} deleted`);
+				currentLineDelta += 0 - (range.endLine - range.startLine + 1);
+			} else {
+				const rLines = replaceStr.replace(/\r\n/g, "\n").split("\n").length;
+				const newStart = range.startLine + currentLineDelta;
+				const newEnd = newStart + rLines - 1;
+				const newSpan = newStart === newEnd ? `line ${newStart}` : `${newStart}–${newEnd}`;
+				summaries.push(`${oldSpan} -> ${newSpan}`);
+				currentLineDelta += rLines - (range.endLine - range.startLine + 1);
+			}
+			if (summaries.length >= 3 && i < item.edits.length - 1) {
+				summaries.push(`+${item.edits.length - 1 - i} more`);
+				break;
+			}
+		}
+		return summaries.join(", ");
+	}
+
+	return undefined;
 }
 
 /** Extracted from index.ts — registers the `edit` tool. */
@@ -360,7 +426,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			editToolParameters = Type.Object({
 				path: Type.String({ description: "File path to edit" }),
 				search: Type.String({ description: "Unique exact source block to replace" }),
-				replace: Type.String({ description: "Replacement source block" }),
+				replace: Type.String({ description: "Replacement source block (empty string to delete)" }),
 			});
 			editToolDescription = "Edit code with a unique exact search block and replacement block only.";
 			break;
@@ -368,7 +434,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			editToolParameters = Type.Object({
 				path: Type.String({ description: "File path to edit" }),
 				search: Type.Optional(Type.String({ description: "Unique exact source block to replace" })),
-				replace: Type.Optional(Type.String({ description: "Replacement source block" })),
+				replace: Type.Optional(Type.String({ description: "Replacement source block (empty string to delete)" })),
 				start_line: Type.Optional(Type.Number({ description: "First 1-based line to replace" })),
 				end_line: Type.Optional(Type.Number({ description: "Last 1-based line to replace, inclusive" })),
 				pos: Type.Optional(Type.String({ description: "LINE#HASH anchor copied from read output" })),
@@ -382,14 +448,14 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				{
 					path: Type.Optional(Type.String({ description: "Path to file to edit" })),
 					search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-					replace: Type.Optional(Type.String({ description: "Replacement text" })),
+					replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
 					line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguation" })),
 					edits: Type.Optional(
 						Type.Array(
 							Type.Object(
 								{
 									search: Type.Optional(Type.String()),
-									replace: Type.Optional(Type.String()),
+									replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
 									line_hint: Type.Optional(Type.Number()),
 								},
 								{ additionalProperties: true },
@@ -403,7 +469,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 								{
 									path: Type.String(),
 									search: Type.Optional(Type.String()),
-									replace: Type.Optional(Type.String()),
+									replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
 									line_hint: Type.Optional(Type.Number()),
 									edits: Type.Optional(Type.Array(Type.Any())),
 								},
@@ -606,11 +672,15 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 				};
 			}
 
-				const affectedPaths = preparedList.map((p) => p.relPath);
-					return {
-						content: [{ type: "text", text: `Successfully applied edits to ${affectedPaths.length} files: ${affectedPaths.join(", ")}.` }],
-						details: { multiFile: true, count: affectedPaths.length, files: affectedPaths },
-					};
+				const summaries = preparedList.map((p, idx) => {
+					const outcome = outcomes[idx];
+					const span = outcome?.lineSpanSummary ? ` (${outcome.lineSpanSummary})` : "";
+					return `${p.relPath}${span}`;
+				});
+				return {
+					content: [{ type: "text", text: `Successfully applied edits to ${preparedList.length} files: ${summaries.join(", ")}.` }],
+					details: { multiFile: true, count: preparedList.length, files: preparedList.map((p) => p.relPath) },
+				};
 				});
 			}
 

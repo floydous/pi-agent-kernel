@@ -379,6 +379,21 @@ const suites: TestEntry[] = [
 		key: "html-chunking",
 		loader: () => runSuiteModule(() => import("./retrieval/html_chunking.test")),
 	},
+	{
+		name: "Streamed Spillover & Large File Read Suite",
+		key: "stream-spillover-read",
+		loader: () => runSuiteModule(() => import("./read-tool/stream_spillover_read.test")),
+	},
+	{
+		name: "Block Deletion Suite",
+		key: "block-deletion",
+		loader: () => runSuiteModule(() => import("./editing/block_deletion.test")),
+	},
+	{
+		name: "Line Span Confirmation Suite",
+		key: "line-span-confirmation",
+		loader: () => runSuiteModule(() => import("./editing/line_span_confirmation.test")),
+	},
 ];
 
 async function main(): Promise<void> {

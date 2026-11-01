@@ -27,7 +27,61 @@ export interface ClampingResult {
 
 const SPILL_PREFIX = "pi_bash_spillover_";
 const DEFAULT_SPILL_FILES = 20;
-const DEFAULT_SPILL_BYTES = 50 * 1024 * 1024;
+export const DEFAULT_SPILL_BYTES = 50 * 1024 * 1024;
+
+function isWithinDir(candidatePath: string, parentDir: string): boolean {
+	const isWindows = process.platform === "win32";
+	const parent = isWindows ? parentDir.toLowerCase() : parentDir;
+	const candidate = isWindows ? candidatePath.toLowerCase() : candidatePath;
+	const rel = path.relative(parent, candidate);
+	return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/**
+ * Validate whether a resolved file path is an authenticated spillover log.
+ * Supports both Agent Kernel spillover logs and host harness temporary logs.
+ * Canonicalizes directories via realpathSync to resolve symlinks and Windows short paths.
+ */
+export function isSpilloverFilePath(candidatePath: string, cwd = process.cwd()): boolean {
+	try {
+		const trimmed = candidatePath.trim().replace(/^["']|["']$/g, "");
+		if (trimmed.startsWith("\\\\") || trimmed.startsWith("//")) return false;
+
+		const resolved = path.resolve(trimmed);
+		if (!fs.existsSync(resolved)) return false;
+
+		const lstat = fs.lstatSync(resolved);
+		if (lstat.isSymbolicLink() || !lstat.isFile()) return false;
+
+		const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
+		if (uid !== undefined && lstat.uid !== uid) return false;
+		if (lstat.size > DEFAULT_SPILL_BYTES) return false;
+
+		const base = path.basename(resolved);
+		const isKernel = /^pi_bash_spillover_[a-f0-9]+\.log$/i.test(base);
+		const isHost = /^pi-(?:bash|powershell|output)-[a-f0-9]+\.log$/i.test(base);
+		if (!isKernel && !isHost) return false;
+
+		const realResolved = fs.realpathSync(resolved);
+		const realParent = path.dirname(realResolved);
+
+		const realTemp = fs.realpathSync(os.tmpdir());
+		if (isWithinDir(realParent, realTemp)) return true;
+
+		const kernelRoot = path.resolve(getSpilloverRoot(cwd));
+		if (fs.existsSync(kernelRoot)) {
+			const realKernelRoot = fs.realpathSync(kernelRoot);
+			if (isWithinDir(realParent, realKernelRoot)) return true;
+		}
+
+		const realCwd = fs.realpathSync(path.resolve(cwd));
+		if (isWithinDir(realParent, realCwd)) return true;
+
+		return false;
+	} catch {
+		return false;
+	}
+}
 
 export function getSpilloverRoot(cwd = process.cwd()): string {
 	const base = getPiHomeDir();
@@ -145,11 +199,14 @@ export function isExecutionOrTestCommand(command: string): boolean {
 	return /\b(test|vitest|jest|pytest|ava|mocha|cargo|tsc|build|check)\b/.test(trimmed);
 }
 
+const HOST_STATUS_REGEX =
+	/(?:\r?\n){1,2}((?:Command (?:exited with code -?\d+|timed out after \d+(?:\.\d+)? seconds?)|(?:Process|Command) terminated[^\r\n]*))[ \t\r\n]*$/;
+
 const HOST_TRUNCATION_REGEX =
-	/(?:\r?\n){1,2}\[(?:Showing (?:lines \d+-\d+ of \d+(?: \([^)]+\))?|last [^)]+\))\.[ \t]*Full output:|Truncated by host harness\.[ \t]*Full:)[ \t]*([^\]\r\n]+?)(?:[ \t]+\(use offset\/limit with read if needed\))?\][ \t\r\n]*$/;
+	/(?:\r?\n){1,2}\[(?:Showing (?:lines \d+-\d+ of \d+(?: \([^)]+\))?|last [^\]\r\n]+?)\.[ \t]*Full output:|Truncated by host harness\.[ \t]*Full:|Full output:[ \t]*|(?:Output truncated\.[ \t]*)?Full output:[ \t]*)([^\]\r\n]+?)(?:\.[ \t]*Truncated:[^\]\r\n]*|[ \t]+\(use offset\/limit[^)]*\)|[ \t]+\(read (?:it )?with offset\/limit\))?\][ \t\r\n]*$/;
 
 const KERNEL_TRUNCATION_REGEX =
-	/(?:\r?\n){2}\[Truncated[^\r\n\]]*?(?:\.[ \t]*(?:Full|Spillover):[ \t]*([^\]\r\n]+?)(?:[ \t]+\(use offset\/limit[^)]*\)|[ \t]+\(received fragment only\))?)?\][ \t\r\n]*$/;
+	/(?:\r?\n){2}\[Truncated[^\r\n\]]*?(?:\.[ \t]*(?:Full|Spillover):[ \t]*([^\]\r\n]+?)(?:[ \t]+\(use offset\/limit[^)]*\)|[ \t]+\(received fragment only\))?)?\](?:\r?\nTo inspect omitted lines[^\r\n]*)?(?:\r?\n\r?\n(?:Command (?:exited with code -?\d+|timed out after \d+(?:\.\d+)? seconds?)|(?:Process|Command) terminated[^\r\n]*))?[ \t\r\n]*$/;
 
 function validateHostSpilloverPath(candidatePath: string): string | undefined {
 	try {
@@ -175,11 +232,7 @@ function validateHostSpilloverPath(candidatePath: string): string | undefined {
 		const realTempDir = fs.realpathSync(os.tmpdir());
 		const parentDir = path.dirname(realResolved);
 
-		const isSameDir = process.platform === "win32"
-			? parentDir.toLowerCase() === realTempDir.toLowerCase()
-			: parentDir === realTempDir;
-
-		if (!isSameDir) {
+		if (!isWithinDir(parentDir, realTempDir)) {
 			return undefined;
 		}
 
@@ -218,18 +271,28 @@ export function clampCommandOutput(
 	let priorKernelTruncated = false;
 	let hostSpilloverPath: string | undefined;
 	let priorSpilloverPath: string | undefined;
+	let hostStatusTrailer: string | undefined;
 
-	const hostMatch = rawText.match(HOST_TRUNCATION_REGEX);
+	// Strip and remember host command status trailer if present (e.g. "Command exited with code 1")
+	const statusMatch = textToProcess.match(HOST_STATUS_REGEX);
+	if (statusMatch && statusMatch.index !== undefined) {
+		hostStatusTrailer = statusMatch[1].trim();
+		textToProcess = textToProcess.slice(0, statusMatch.index);
+	}
+
+	const hostMatch = textToProcess.match(HOST_TRUNCATION_REGEX);
 	if (hostMatch && hostMatch.index !== undefined) {
 		hostTruncated = true;
-		textToProcess = rawText.slice(0, hostMatch.index);
+		textToProcess = textToProcess.slice(0, hostMatch.index);
 		const candidate = hostMatch[1].trim();
 		hostSpilloverPath = validateHostSpilloverPath(candidate);
-	} else {
-		const kernelMatch = rawText.match(KERNEL_TRUNCATION_REGEX);
+	}
+
+	if (!hostTruncated) {
+		const kernelMatch = textToProcess.match(KERNEL_TRUNCATION_REGEX);
 		if (kernelMatch && kernelMatch.index !== undefined) {
 			priorKernelTruncated = true;
-			textToProcess = rawText.slice(0, kernelMatch.index);
+			textToProcess = textToProcess.slice(0, kernelMatch.index);
 			const candidate = kernelMatch[1]?.trim();
 			if (candidate) {
 				const cleanCandidate = candidate.replace(/\s*\(use offset\/limit.*\)$/i, "").trim();
@@ -315,7 +378,7 @@ export function clampCommandOutput(
 			const directory = options?.spilloverDir || getSpilloverRoot();
 			const maxFiles = options?.maxSpilloverFiles ?? DEFAULT_SPILL_FILES;
 			const maxBytes = options?.maxSpilloverBytes ?? DEFAULT_SPILL_BYTES;
-			spilloverPath = writeSpillover(textToProcess, directory, maxFiles, maxBytes);
+			spilloverPath = writeSpillover(rawText, directory, maxFiles, maxBytes);
 		} catch (e) {
 			kernelDebug(e);
 		}
@@ -456,17 +519,18 @@ export function clampCommandOutput(
 	let resultText = clampedLines.join("\n");
 
 	const makeFooter = (linesShown: number): string => {
+		const statusSuffix = hostStatusTrailer ? `\n\n${hostStatusTrailer}` : "";
 		if (hostTruncated || (priorKernelTruncated && hostSpilloverPath)) {
 			if (hostSpilloverPath) {
 				if (linesShown < totalLines) {
-					return `\n\n[Truncated: ${linesShown} lines shown (host truncated). Full: ${hostSpilloverPath} (use offset/limit with read if needed)]`;
+					return `\n\n[Truncated: ${linesShown} lines shown (host truncated). Full: ${hostSpilloverPath} (use offset/limit with read if needed)]${statusSuffix}`;
 				}
-				return `\n\n[Truncated by host harness. Full: ${hostSpilloverPath} (use offset/limit with read if needed)]`;
+				return `\n\n[Truncated by host harness. Full: ${hostSpilloverPath} (use offset/limit with read if needed)]${statusSuffix}`;
 			}
 			if (spilloverPath) {
-				return `\n\n[Truncated by host harness. Spillover: ${spilloverPath} (received fragment only)]`;
+				return `\n\n[Truncated by host harness. Spillover: ${spilloverPath} (received fragment only)]${statusSuffix}`;
 			}
-			return `\n\n[Truncated by host harness]`;
+			return `\n\n[Truncated by host harness]${statusSuffix}`;
 		}
 		let f = `\n\n[Truncated: ${linesShown}/${totalLines} lines.`;
 		if (spilloverPath) {
@@ -478,7 +542,7 @@ export function clampCommandOutput(
 		} else {
 			f += `]`;
 		}
-		return f;
+		return `${f}${statusSuffix}`;
 	};
 
 	// Append concise footer with spillover pointer

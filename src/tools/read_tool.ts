@@ -9,18 +9,22 @@ import {
 	resolveUserPath,
 } from "../safety/epistemic_guard";
 import { markReturnedErrors, type SessionDeps } from "./context";
+import { isSpilloverFilePath, DEFAULT_SPILL_BYTES } from "../safety/output_clamper";
+import { readStreamLineRangeFromFd } from "./stream_reader";
 
 const MAX_READ_LINES = 2_000;
 const MAX_READ_BYTES = 50 * 1024;
 const MAX_READ_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_STREAM_FILE_BYTES = DEFAULT_SPILL_BYTES;
 const DEFAULT_UNCONSTRAINED_LINES = 250;
 
-function validateReadableFile(filePath: string): string | null {
+function validateReadableFile(filePath: string, isStreamable = false): string | null {
 	try {
 		const stat = fs.statSync(filePath);
 		if (!stat.isFile()) return "Path is not a regular file";
-		if (stat.size > MAX_READ_FILE_BYTES) {
-			return `File is ${stat.size} bytes; maximum in-memory source size is ${MAX_READ_FILE_BYTES} bytes`;
+		const maxAllowed = isStreamable ? MAX_STREAM_FILE_BYTES : MAX_READ_FILE_BYTES;
+		if (stat.size > maxAllowed) {
+			return `File is ${stat.size} bytes; maximum ${isStreamable ? "streamable" : "in-memory source"} size is ${maxAllowed} bytes`;
 		}
 		return null;
 	} catch (error: any) {
@@ -229,48 +233,101 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 						continue;
 					}
 					try {
-						const readLimitError = validateReadableFile(resolvedPath);
+						const isSpill = isSpilloverFilePath(resolvedPath, ctx.cwd);
+						const isWindowed = params?.offset !== undefined || params?.limit !== undefined;
+						const isStreamable = isSpill || isWindowed;
+						const readLimitError = validateReadableFile(resolvedPath, isStreamable);
 						if (readLimitError) {
 							results.push(`=== file: ${relPath} ===\nRead rejected: ${readLimitError}`);
 							continue;
 						}
-						const content = fs.readFileSync(resolvedPath, "utf-8");
-						const lines = content.split("\n");
-						const totalLines = lines.length;
+
+						const stat = fs.statSync(resolvedPath);
+						const needsStreaming = isSpill || stat.size > MAX_READ_FILE_BYTES;
 						const fileOffset = params.offset && params.offset > 0 ? params.offset : 1;
 						const fileLimit = params.limit ? Math.min(params.limit, MAX_BATCH_FILE_LINES) : MAX_BATCH_FILE_LINES;
-						const startIdx = Math.max(0, fileOffset - 1);
-						const endIdx = Math.min(totalLines, startIdx + fileLimit);
 
-						const numberWidth = String(totalLines).length;
-						// Batch reads are always plain text to protect token budgets
-						const formatLine = (index: number) => formatReadLine(lines, index, false, numberWidth, benchmarkMethod);
-						const visibleIndexes = selectReadLineIndexes(lines, startIdx, endIdx, formatLine);
-						const outputLines = visibleIndexes.map(formatLine);
-						const isTruncated = (startIdx + visibleIndexes.length) < totalLines || startIdx > 0;
-						if (isTruncated) {
-							outputLines.push(`[truncated: ${relPath}, returned lines ${startIdx + 1}-${startIdx + visibleIndexes.length} of ${totalLines}. Continue with read(path, offset=${startIdx + visibleIndexes.length + 1})]`);
-						}
+						let outputLines: string[];
+						let totalLines: number;
+						let shownCount: number;
+						let isTruncated: boolean;
 
-						globalEpistemicGuard.recordFileRead(
-							resolvedPath,
-							deps.getSessionId(ctx),
-							ctx.cwd,
-							content,
-							{
-								coverage: {
-									complete: !isTruncated,
-									ranges: lineRanges(visibleIndexes),
-									totalLines,
+						if (needsStreaming) {
+							const fd = fs.openSync(resolvedPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+							let streamRes: ReturnType<typeof readStreamLineRangeFromFd>;
+							try {
+								streamRes = readStreamLineRangeFromFd(fd, {
+									offset: fileOffset,
+									limit: fileLimit,
+									maxBytes: Math.min(MAX_READ_BYTES, Math.max(1024, MAX_BATCH_BYTES - cumulativeBytes)),
+								});
+							} finally {
+								fs.closeSync(fd);
+							}
+							if (streamRes.isBinary) {
+								results.push(`=== file: ${relPath} ===\nRead rejected: Binary file cannot be displayed as text`);
+								continue;
+							}
+							outputLines = streamRes.lines;
+							totalLines = streamRes.endLine;
+							shownCount = streamRes.totalLinesRead;
+							isTruncated = streamRes.hasMore || streamRes.startLine > 1;
+							if (isTruncated) {
+								outputLines.push(`[truncated: ${relPath}, returned lines ${streamRes.startLine}-${streamRes.endLine}. Continue with read(path, offset=${streamRes.endLine + 1})]`);
+							}
+
+							globalEpistemicGuard.recordFileRead(
+								resolvedPath,
+								deps.getSessionId(ctx),
+								ctx.cwd,
+								streamRes.lines.join("\n"),
+								{
+									coverage: {
+										complete: !streamRes.hasMore && streamRes.startLine === 1,
+										ranges: [{ startLine: streamRes.startLine, endLine: streamRes.endLine }],
+										totalLines,
+									},
+									provenance: "read",
 								},
-								provenance: "read",
-							},
-						);
+							);
+						} else {
+							const content = fs.readFileSync(resolvedPath, "utf-8");
+							const lines = content.split("\n");
+							totalLines = lines.length;
+							const startIdx = Math.max(0, fileOffset - 1);
+							const endIdx = Math.min(totalLines, startIdx + fileLimit);
+
+							const numberWidth = String(totalLines).length;
+							// Batch reads are always plain text to protect token budgets
+							const formatLine = (index: number) => formatReadLine(lines, index, false, numberWidth, benchmarkMethod);
+							const visibleIndexes = selectReadLineIndexes(lines, startIdx, endIdx, formatLine);
+							outputLines = visibleIndexes.map(formatLine);
+							shownCount = visibleIndexes.length;
+							isTruncated = (startIdx + visibleIndexes.length) < totalLines || startIdx > 0;
+							if (isTruncated) {
+								outputLines.push(`[truncated: ${relPath}, returned lines ${startIdx + 1}-${startIdx + visibleIndexes.length} of ${totalLines}. Continue with read(path, offset=${startIdx + visibleIndexes.length + 1})]`);
+							}
+
+							globalEpistemicGuard.recordFileRead(
+								resolvedPath,
+								deps.getSessionId(ctx),
+								ctx.cwd,
+								content,
+								{
+									coverage: {
+										complete: !isTruncated && startIdx === 0 && endIdx === totalLines,
+										ranges: lineRanges(visibleIndexes),
+										totalLines,
+									},
+									provenance: "read",
+								},
+							);
+						}
 
 						const formattedOutput = `=== file: ${relPath} (${totalLines} lines) ===\n${outputLines.join("\n")}`;
 						cumulativeBytes += Buffer.byteLength(formattedOutput, "utf8");
 						results.push(formattedOutput);
-						detailsList.push({ path: filePath, totalLines, shownLines: visibleIndexes.length, truncated: isTruncated });
+						detailsList.push({ path: filePath, totalLines, shownLines: shownCount, truncated: isTruncated });
 						hasAnySuccess = true;
 
 						if (cumulativeBytes >= MAX_BATCH_BYTES && i < pathsToRead.length - 1) {
@@ -305,11 +362,14 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			// Single file read
 			try {
-				const readLimitError = validateReadableFile(resolvedPath);
+				const isSpill = isSpilloverFilePath(resolvedPath, ctx.cwd);
+				const isWindowed = params?.offset !== undefined || params?.limit !== undefined;
+				const isStreamable = isSpill || isWindowed;
+				const readLimitError = validateReadableFile(resolvedPath, isStreamable);
 				if (readLimitError) {
 					return {
 						content: [{ type: "text", text: `[READ ERROR] ${readLimitError}: ${params.path}` }],
-						details: { error: "read_limit", maxBytes: MAX_READ_FILE_BYTES },
+						details: { error: "read_limit", maxBytes: isStreamable ? MAX_STREAM_FILE_BYTES : MAX_READ_FILE_BYTES },
 						isError: true,
 					};
 				}
@@ -363,6 +423,127 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 							{ type: "image", data: base64, mimeType },
 						],
 						details: { isImage: true, sizeBytes: buffer.length },
+					};
+				}
+
+				// Validate pagination parameters explicitly before I/O
+				if (
+					params.offset !== undefined &&
+					(!Number.isFinite(params.offset) || params.offset < 1)
+				) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[READ ERROR] Invalid offset=${params.offset}. 'offset' must be a number >= 1 (1-based line number).`,
+							},
+						],
+						details: { offset: params.offset },
+						isError: true,
+					};
+				}
+				if (
+					params.limit !== undefined &&
+					(!Number.isFinite(params.limit) || params.limit < 1)
+				) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `[READ ERROR] Invalid limit=${params.limit}. 'limit' must be a number >= 1.`,
+							},
+						],
+						details: { limit: params.limit },
+						isError: true,
+					};
+				}
+
+				const stat = fs.statSync(resolvedPath);
+				const needsStreaming = isSpill || stat.size > MAX_READ_FILE_BYTES;
+
+				if (needsStreaming) {
+					let fd: number;
+					try {
+						fd = fs.openSync(resolvedPath, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
+					} catch (openErr: any) {
+						return {
+							content: [{ type: "text", text: `[READ ERROR] Failed opening ${params.path}: ${openErr?.message || String(openErr)}` }],
+							isError: true,
+						};
+					}
+
+					let streamRes: ReturnType<typeof readStreamLineRangeFromFd>;
+					try {
+						const fstat = fs.fstatSync(fd);
+						if (!fstat.isFile()) {
+							return { content: [{ type: "text", text: `[READ ERROR] Path is not a regular file: ${params.path}` }], isError: true };
+						}
+						if (fstat.size > MAX_STREAM_FILE_BYTES) {
+							return { content: [{ type: "text", text: `[READ ERROR] File is ${fstat.size} bytes; maximum streamable size is ${MAX_STREAM_FILE_BYTES} bytes: ${params.path}` }], isError: true };
+						}
+
+						const offset = params.offset && params.offset > 0 ? params.offset : 1;
+						const limit = params.limit ? Math.min(params.limit, MAX_READ_LINES) : DEFAULT_UNCONSTRAINED_LINES;
+
+						streamRes = readStreamLineRangeFromFd(fd, { offset, limit, maxBytes: MAX_READ_BYTES });
+					} finally {
+						fs.closeSync(fd);
+					}
+
+					if (streamRes.isBinary) {
+						return {
+							content: [{ type: "text", text: `[READ ERROR] Binary file cannot be displayed as text: ${params.path}` }],
+							isError: true,
+						};
+					}
+
+					const relPath = (path.relative(ctx.cwd, resolvedPath) || params.path).replace(/\\/g, "/");
+					const numberWidth = String(streamRes.endLine || 1).length;
+					const config = deps.getConfig?.(ctx.cwd);
+					const defaultAnchors = config?.editing?.default_anchors ?? true;
+					const configuredReadMode = readMode ?? config?.editing?.read_mode ?? "auto";
+					const useAnchors = shouldUseAnchors(params, benchmarkMethod, configuredReadMode, defaultAnchors, false);
+
+					const formattedLines = streamRes.lines.map((line, idx) => {
+						const lineNum = streamRes.startLine + idx;
+						if (useAnchors) {
+							return `${String(lineNum).padStart(numberWidth, " ")}#${computeLineHash(streamRes.lines, idx)}│${line}`;
+						}
+						if (benchmarkMethod === "line-range" || benchmarkMethod === "adaptive") {
+							return `${String(lineNum).padStart(numberWidth, " ")}│${line}`;
+						}
+						return line;
+					});
+
+					if (streamRes.singleLineTruncated) {
+						formattedLines.push("[Line 1 truncated at 50 KB: no newline found in the initial 50 KB of text. File is a single continuous line.]");
+					} else if (streamRes.hasMore) {
+						formattedLines.push(`[truncated: ${relPath}, returned lines ${streamRes.startLine}-${streamRes.endLine}. Continue with read(path, offset=${streamRes.endLine + 1})]`);
+					}
+
+					globalEpistemicGuard.recordFileRead(
+						resolvedPath,
+						deps.getSessionId(ctx),
+						ctx.cwd,
+						streamRes.lines.join("\n"),
+						{
+							coverage: {
+								complete: !streamRes.hasMore && streamRes.startLine === 1,
+								ranges: [{ startLine: streamRes.startLine, endLine: streamRes.endLine }],
+							},
+							provenance: "read",
+						},
+					);
+
+					return {
+						content: [{ type: "text", text: formattedLines.join("\n") }],
+						details: {
+							offset: streamRes.startLine,
+							limit: streamRes.totalLinesRead,
+							hasMore: streamRes.hasMore,
+							streamed: true,
+							singleLineTruncated: streamRes.singleLineTruncated,
+						},
 					};
 				}
 

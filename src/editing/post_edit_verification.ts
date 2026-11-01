@@ -79,6 +79,7 @@ export function renderPostEditVerification(
 	result: PostEditVerification,
 	reason?: string,
 	targetFile?: string,
+	lineSpanSummary?: string,
 ): string {
 	const hasSyntaxFailure = result.syntax.state === "failed";
 	const hasSyntaxUncertainty = [
@@ -101,7 +102,8 @@ export function renderPostEditVerification(
 		!hasDiagnosticWarning &&
 		(!hasSyntaxUncertainty || result.syntax.state === "clean")
 	) {
-		return targetFile ? `Successfully applied edit to ${targetFile}.` : "Successfully applied edit.";
+		const spanInfo = lineSpanSummary ? ` (${lineSpanSummary})` : "";
+		return targetFile ? `Successfully applied edit to ${targetFile}${spanInfo}.` : `Successfully applied edit${spanInfo}.`;
 	}
 
 	const lines: string[] = [];
@@ -119,7 +121,7 @@ export function renderPostEditVerification(
 	}
 
 	// Edit was applied
-	lines.push("Edit: Applied");
+	lines.push(lineSpanSummary ? `Edit: Applied (${lineSpanSummary})` : "Edit: Applied");
 
 	if (hasSyntaxFailure || (hasSyntaxUncertainty && result.syntax.state !== "clean")) {
 		lines.push("Syntax Error:");

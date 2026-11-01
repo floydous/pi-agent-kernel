@@ -7,6 +7,7 @@ import { testByteBudgetEnforcement, testFailedWriteDoesNotAdvertisePointer } fro
 import { runHostTruncationDedupTests } from "./host_truncation_dedup_test";
 import { testEfficiencyDefaults } from "./efficiency_calibration_test";
 import { testDiagnosticWindowRetention } from "./diagnostic_window_test";
+import { run as runSpilloverCollisionTests } from "./spillover_collision.test";
 export async function run(): Promise<void> {
 	await runSuite("Tool Output Interception & Width Clamping Suite", () => {
 		testDiscoveryCommandDetection();
@@ -17,6 +18,7 @@ export async function run(): Promise<void> {
 		testEfficiencyDefaults();
 		testDiagnosticWindowRetention();
 		runHostTruncationDedupTests();
+		runSpilloverCollisionTests();
 	});
 }
 
