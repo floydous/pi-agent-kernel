@@ -401,7 +401,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const benchmarkMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
 	let editToolParameters: any;
 	let editToolDescription =
-		"Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Valid after read or exact rg search.";
+		"Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Auto-preserves existing line endings (CRLF/LF). Valid after read or exact rg search.";
 
 	switch (benchmarkMethod) {
 		case "line-range":
@@ -487,7 +487,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		name: "edit",
 		label: "Code Editor",
 		description: editToolDescription,
-		promptSnippet: "Edit code using search/replace (optional line_hint), multi-block 'edits', or multi-file 'files'",
+		promptSnippet: "Edit code using search/replace (optional line_hint), multi-block 'edits', or multi-file 'files' (preserves CRLF/LF)",
 		renderShell: "default",
 		parameters: editToolParameters,
 		async execute(
