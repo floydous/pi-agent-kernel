@@ -102,7 +102,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const benchmarkMethod = ["line-range", "search-replace", "hash-anchor", "adaptive"].includes(editMethod || "") ? editMethod : undefined;
 	const readMode = process.env.PI_READ_MODE?.toLowerCase();
 	let readToolDescription =
-		"Read file contents with 50KB / 2,000-line caps. Supports bounded line-range inspection via 'offset' and 'limit', or batch inspection across multiple files via 'paths'.";
+		"Read file contents with 50KB / 2,000-line caps. Use when inspecting code around known line coordinates, reviewing exact file contents, or reading multiple files via 'paths'. Defaults to 250 lines when limit is omitted. Do NOT use read for finding files or symbols; use code_search or bash (find, rg) instead.";
 	switch (benchmarkMethod) {
 		case "line-range":
 			readToolDescription = "Read source with line numbers for numeric line-range edits.";

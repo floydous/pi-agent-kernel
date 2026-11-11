@@ -2,35 +2,20 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-	Container,
-	fuzzyFilter,
-	getKeybindings,
-	Input,
-	Spacer,
-	Text,
-	truncateToWidth,
-	visibleWidth,
-	wrapTextWithAnsi,
-} from "@earendil-works/pi-tui";
-import {
-	loadKernelConfig,
 	saveGlobalKernelConfig,
-	removeGlobalKernelConfigKey,
-	removeProjectKernelConfigKey,
-	saveProjectKernelConfig,
-	mergeDeep,
 	getGlobalConfigPath,
-	getGlobalRawConfig,
 	getProjectConfigPath,
 	type KernelConfig,
 	type KernelConfigOverrides,
 } from "./kernel_config";
-import { kernelDebug } from "../safety/kernel_debug";
+import { UnifiedControlModal } from "../retrieval/search_modal";
 
 export interface AgentKernelCommandDeps {
 	getConfig: (cwd: string) => KernelConfig;
 	invalidateConfig: (cwd: string, ctx?: any) => void;
 	clearCaches?: () => void;
+	getSearchIndex?: (cwd: string) => any;
+	triggerBackgroundIndexing?: (index: any, ctx: any, isFullSync?: boolean) => void;
 }
 
 export function formatConfigDashboard(cwd: string, config: KernelConfig): string {
@@ -82,6 +67,9 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				{ value: "status", label: "status - Display full configuration status" },
 				{ value: "set", label: "set <key> <val> - Update a setting globally" },
 				{ value: "reset", label: "reset - Reset global configuration to defaults" },
+				{ value: "engine", label: "engine - Open retrieval engine control tab" },
+				{ value: "scope", label: "scope - Open file index scope selector tab" },
+				{ value: "reindex", label: "reindex - Force full workspace re-indexing" },
 			];
 
 			const keys = [
@@ -115,6 +103,14 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				return;
 			}
 
+			if (raw === "reindex") {
+				const index = deps.getSearchIndex ? deps.getSearchIndex(currentCwd) : undefined;
+				if (index) {
+					ctx.ui?.notify?.("Re-indexing workspace...", "info");
+					deps.triggerBackgroundIndexing?.(index, ctx, true);
+					return;
+				}
+			}
 			if (raw.startsWith("reset")) {
 				const globalPath = getGlobalConfigPath();
 				try {
@@ -247,632 +243,41 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 				return;
 			}
 
-			// 2. Interactive TUI Settings Screen
+			// 2. Interactive TUI Settings Screen (3-Tab Unified Controller)
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				const statusText = formatConfigDashboard(currentCwd, config);
 				console.log("\n" + statusText + "\n");
 				return;
 			}
 
-			// TUI Interactive Modal with categorized layout and built-in search
+			let initialTab: 0 | 1 | 2 = 0;
+			if (raw === "engine" || raw.startsWith("engine")) {
+				initialTab = 1;
+			} else if (raw === "scope" || raw.startsWith("scope")) {
+				initialTab = 2;
+			}
+
+			const index = deps.getSearchIndex ? deps.getSearchIndex(currentCwd) : undefined;
 			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (res?: any) => void) => {
-				const currentConfig = deps.getConfig(currentCwd);
-
-				interface CategorizedSettingItem {
-					category: string;
-					id: string;
-					label: string;
-					currentValue: string;
-					values: string[];
-					descriptions: Record<string, string>;
-					isGlobal: boolean;
-				}
-
-				const CATEGORY_ORDER = [
-					"Retrieval & Exploration",
-					"Safety & Verification",
-					"Editing Engine",
-					"System Guidance & UI",
-				];
-
-				const globalRaw = getGlobalRawConfig();
-				function checkIsGlobal(id: string): boolean {
-					if (id === "profile") return globalRaw.retrieval?.default_profile !== undefined;
-					if (id === "epistemic") return globalRaw.safety?.enable_epistemic_guard !== undefined;
-					if (id === "max_lines") return globalRaw.safety?.max_lines !== undefined;
-					if (id === "editing") return globalRaw.editing?.mode !== undefined;
-					if (id === "read_mode") return globalRaw.editing?.read_mode !== undefined;
-					if (id === "normalize_dots") return globalRaw.editing?.normalize_fullwidth_dots !== undefined;
-					if (id === "guidance") return globalRaw.instructions?.enabled !== undefined;
-					if (id === "host_environment") return globalRaw.instructions?.host_environment !== undefined;
-					if (id === "pi_docs") return globalRaw.instructions?.pi_docs !== undefined;
-					if (id === "footer") return globalRaw.ui?.enable_pastel_footer !== undefined;
-					return false;
-				}
-
-				function createPatchForSetting(id: string, value: string): { patch: KernelConfigOverrides; desc: string } {
-					const patch: KernelConfigOverrides = {};
-					let desc = "";
-					if (id === "profile") {
-						patch.retrieval = { default_profile: value as "auto" | "lean" | "hybrid" | "full" | "off" };
-						desc = `Retrieval profile = ${value}`;
-					} else if (id === "epistemic") {
-						const enable = value === "enabled";
-						patch.safety = { enable_epistemic_guard: enable };
-						desc = `Epistemic Guard = ${enable ? "enabled" : "disabled"}`;
-					} else if (id === "editing") {
-						patch.editing = { mode: value as "smart_anchor" | "standard" };
-						desc = `Editing mode = ${value}`;
-					} else if (id === "read_mode") {
-						patch.editing = { read_mode: value as "auto" | "plain" | "anchored" };
-						desc = `Reading anchor protocol = ${value}`;
-					} else if (id === "normalize_dots") {
-						const enable = value === "enabled";
-						patch.editing = { normalize_fullwidth_dots: enable };
-						desc = `Fullwidth dot normalization = ${enable ? "enabled" : "disabled"}`;
-					} else if (id === "guidance") {
-						const enable = value === "enabled";
-						patch.instructions = { enabled: enable };
-						desc = `Kernel guidance prompt = ${enable ? "enabled" : "disabled"}`;
-					} else if (id === "host_environment") {
-						const enable = value === "enabled";
-						patch.instructions = { host_environment: enable };
-						desc = `Host environment prompt = ${enable ? "enabled" : "disabled"}`;
-					} else if (id === "pi_docs") {
-						const enable = value === "enabled";
-						patch.instructions = { pi_docs: enable };
-						desc = `Pi documentation guidance = ${enable ? "enabled" : "disabled"}`;
-					} else if (id === "footer") {
-						const enable = value === "enabled";
-						patch.ui = { enable_pastel_footer: enable };
-						desc = `Pastel status footer = ${enable ? "enabled" : "disabled"}`;
-					} else if (id === "max_lines") {
-						const num = parseInt(value, 10);
-						if (Number.isSafeInteger(num)) {
-							patch.safety = { max_lines: num };
-							desc = `Output clamping = ${num} lines`;
-						}
-					}
-					return { patch, desc };
-				}
-
-				function getSettingSectionAndKey(id: string): { section: string; key: string } | null {
-					switch (id) {
-						case "profile":
-							return { section: "retrieval", key: "default_profile" };
-						case "epistemic":
-							return { section: "safety", key: "enable_epistemic_guard" };
-						case "max_lines":
-							return { section: "safety", key: "max_lines" };
-						case "editing":
-							return { section: "editing", key: "mode" };
-						case "read_mode":
-							return { section: "editing", key: "read_mode" };
-						case "normalize_dots":
-							return { section: "editing", key: "normalize_fullwidth_dots" };
-						case "guidance":
-							return { section: "instructions", key: "enabled" };
-						case "host_environment":
-							return { section: "instructions", key: "host_environment" };
-						case "pi_docs":
-							return { section: "instructions", key: "pi_docs" };
-						case "footer":
-							return { section: "ui", key: "enable_pastel_footer" };
-						default:
-							return null;
-					}
-				}
-
-				const items: CategorizedSettingItem[] = [
-					// 1. Retrieval & Exploration
-					{
-						category: "Retrieval & Exploration",
-						id: "profile",
-						label: "Retrieval Engine Profile",
-						currentValue: currentConfig.retrieval.default_profile,
-						values: ["auto", "lean", "full", "off"],
-						isGlobal: checkIsGlobal("profile"),
-						descriptions: {
-							auto: "Auto profile: Selects lean below 4 CPU cores and full otherwise.",
-							lean: "Lean profile: BM25 keyword index + AST code chunking. Zero RAM overhead, sub-millisecond retrieval, ideal for VPS and standard tasks.",
-							full: "Full profile: BM25 keyword index fused with 768d gte-modernbert-base code embeddings (~147 MB model). \"hybrid\" is an alias.",
-							hybrid: "Hybrid: alias of the full profile.",
-							off: "Off profile: Retrieval subsystem disabled. Searches return empty results.",
-						},
-					},
-
-					// 2. Safety & Verification
-					{
-						category: "Safety & Verification",
-						id: "epistemic",
-						label: "Epistemic Guard (Read-before-write)",
-						currentValue: currentConfig.safety.enable_epistemic_guard ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-						isGlobal: checkIsGlobal("epistemic"),
-						descriptions: {
-							enabled:
-								"Epistemic Guard active: Enforces strict read-before-write validation, preventing hallucinated edits, missing imports, and blind patch failures.",
-							disabled:
-								"Epistemic Guard inactive: Allows unconstrained edits without prior read operations. May lead to blind mutations or syntax breakages.",
-						},
-					},
-					{
-						category: "Safety & Verification",
-						id: "max_lines",
-						label: "Output Clamping Line Limit",
-						currentValue: `${currentConfig.safety.max_lines} lines`,
-						values: ["40 lines", "100 lines", "200 lines"],
-						isGlobal: checkIsGlobal("max_lines"),
-						descriptions: {
-							"40 lines":
-								"40 lines: Conservative head/tail output clamping with 0o600 /tmp spillover logging. Maximizes token conservation on long test/build runs.",
-							"100 lines":
-								"100 lines: Balanced output ceiling. Displays up to 50 head and 50 tail lines before generating secure disk spillover logs.",
-							"200 lines":
-								"200 lines: Extended output ceiling for large compilation logs and verbose test runner summaries.",
-						},
-					},
-
-					// 3. Editing Engine
-					{
-						category: "Editing Engine",
-						id: "editing",
-						label: "Editing Mode (Smart Anchors)",
-						currentValue: currentConfig.editing.mode === "smart_anchor" ? "smart_anchor" : "standard",
-						values: ["smart_anchor", "standard"],
-						isGlobal: checkIsGlobal("editing"),
-						descriptions: {
-							smart_anchor:
-								"Smart Anchors: syntax validation, lexical delimiter balancing, and line-hint disambiguation.",
-							standard:
-								"Standard editing: exact string replacement with delimiter auto-healing disabled; the common syntax safety gate remains enabled.",
-						},
-					},
-					{
-						category: "Editing Engine",
-						id: "read_mode",
-						label: "Reading Anchor Protocol",
-						currentValue: currentConfig.editing.read_mode,
-						values: ["plain", "anchored", "auto"],
-						isGlobal: checkIsGlobal("read_mode"),
-						descriptions: {
-							plain:
-								"Plain text reads: Clean, unanchored reading protocol. Reduces token consumption by ~84% compared to rigid line-hash anchor systems.",
-							anchored:
-								"Anchored reads: Injects LINE#HASH prefixes on every line for strict positional pinning. Increases context token consumption.",
-							auto: "Adaptive reading: Defaults to clean plain text, automatically falling back to anchored reads when resolving ambiguous edit targets.",
-						},
-					},
-					{
-						category: "Editing Engine",
-						id: "normalize_dots",
-						label: "Fullwidth Dot Normalization",
-						currentValue: currentConfig.editing.normalize_fullwidth_dots !== false ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-						isGlobal: checkIsGlobal("normalize_dots"),
-						descriptions: {
-							enabled:
-								"Fullwidth dot normalization enabled: Automatically converts Unicode fullwidth full stop (U+FF0E '．') to ASCII '.' in all edit operations.",
-							disabled:
-								"Fullwidth dot normalization disabled: Preserves Unicode fullwidth full stop (U+FF0E '．') verbatim in edit operations.",
-						},
-					},
-
-					// 4. System Guidance & UI
-					{
-						category: "System Guidance & UI",
-						id: "guidance",
-						label: "Agent Guidance Prompt",
-						currentValue: currentConfig.instructions.enabled ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-						isGlobal: checkIsGlobal("guidance"),
-						descriptions: {
-							enabled:
-								"Kernel guidance active: Injects empirical tool discipline, grounding rules, and search strategies into the model system prompt.",
-							disabled:
-								"Kernel guidance inactive: Omits kernel prompt injection, running the agent with default model system prompt instructions.",
-						},
-					},
-					{
-						category: "System Guidance & UI",
-						id: "host_environment",
-						label: "Host Environment Info",
-						currentValue: currentConfig.instructions.host_environment !== false ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-						isGlobal: checkIsGlobal("host_environment"),
-						descriptions: {
-							enabled:
-								"Host environment active: Injects factual host OS, shell, line ending policy, and verified toolchain versions into the system prompt.",
-							disabled:
-								"Host environment inactive: Omits host platform and toolchain probing from the system prompt.",
-						},
-					},
-					{
-						category: "System Guidance & UI",
-						id: "pi_docs",
-						label: "Pi Docs System Guidance (pi-docs)",
-						currentValue: currentConfig.instructions.pi_docs ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-						isGlobal: checkIsGlobal("pi_docs"),
-						descriptions: {
-							enabled:
-								"Pi docs included: Injects the complete Pi documentation guidance block into system prompt for Pi extensions, tools, and theme authoring.",
-							disabled:
-								"Pi docs omitted: Strips the ~1,200 token Pi documentation block to optimize prompt cache hit rate and token consumption.",
-						},
-					},
-					{
-						category: "System Guidance & UI",
-						id: "footer",
-						label: "Pastel Status Footer",
-						currentValue: currentConfig.ui.enable_pastel_footer ? "enabled" : "disabled",
-						values: ["enabled", "disabled"],
-						isGlobal: checkIsGlobal("footer"),
-						descriptions: {
-							enabled:
-								"Pastel footer active: Displays terminal statusline at bottom showing active model, search index state, and memory metrics.",
-							disabled:
-								"Pastel footer inactive: Disables the bottom statusline widget for an uncluttered minimal terminal workspace.",
-						},
-					},
-				];
-
-				class DynamicBorder {
-					color: (s: string) => string;
-					constructor(color?: (s: string) => string) {
-						this.color = color || ((s) => s);
-					}
-					invalidate() {}
-					render(width: number): string[] {
-						return [this.color("─".repeat(Math.max(1, width)))];
-					}
-				}
-
-				class CategorizedSettingsList {
-					items: CategorizedSettingItem[];
-					filteredItems: CategorizedSettingItem[];
-					theme: any;
-					selectedIndex = 0;
-					onCancel: () => void;
-					searchInput: Input;
-					categoryOrder: string[];
-					private initialStates = new Map<string, { value: string; isGlobal: boolean }>();
-
-					constructor(
-						items: CategorizedSettingItem[],
-						theme: any,
-						onCancel: () => void,
-						categoryOrder: string[],
-					) {
-						this.items = items;
-						this.filteredItems = items;
-						this.theme = theme;
-						this.onCancel = onCancel;
-						this.categoryOrder = categoryOrder;
-						this.searchInput = new Input();
-
-						for (const item of items) {
-							this.initialStates.set(item.id, {
-								value: item.currentValue,
-								isGlobal: Boolean(item.isGlobal),
-							});
-						}
-					}
-
-					applyFilter(query: string) {
-						if (query) {
-							const matches = fuzzyFilter(
-								this.items,
-								query,
-								(item: CategorizedSettingItem) => {
-									const descAll = item.descriptions ? Object.values(item.descriptions).join(" ") : "";
-									return `${item.category} ${item.label} ${descAll} ${item.id}`;
-								},
-							);
-							const catGroups = new Map<string, CategorizedSettingItem[]>();
-							for (const item of matches) {
-								const list = catGroups.get(item.category) || [];
-								list.push(item);
-								catGroups.set(item.category, list);
-							}
-							const result: CategorizedSettingItem[] = [];
-							for (const cat of this.categoryOrder) {
-								const list = catGroups.get(cat);
-								if (list) result.push(...list);
-							}
-							this.filteredItems = result;
-						} else {
-							this.filteredItems = this.items;
-						}
-						this.selectedIndex = 0;
-					}
-
-					activateItem() {
-						const item = this.filteredItems[this.selectedIndex];
-						if (!item || !item.values || item.values.length === 0) return;
-						const curIdx = item.values.indexOf(item.currentValue);
-						const nextIdx = (curIdx + 1) % item.values.length;
-						item.currentValue = item.values[nextIdx];
-					}
-
-					toggleGlobalSetting() {
-						const item = this.filteredItems[this.selectedIndex];
-						if (!item) return;
-						item.isGlobal = !item.isGlobal;
-					}
-
-					closeAndApply() {
-						let hasChanges = false;
-						const globalUpdates: KernelConfigOverrides = {};
-						const projectUpdates: KernelConfigOverrides = {};
-						const revertedGlobals: Array<{ section: string; key: string }> = [];
-						const revertedProjects: Array<{ section: string; key: string }> = [];
-
-						for (const item of this.items) {
-							const initial = this.initialStates.get(item.id);
-							if (!initial) continue;
-
-							const valueChanged = item.currentValue !== initial.value;
-							const scopeChanged = Boolean(item.isGlobal) !== Boolean(initial.isGlobal);
-
-							if (valueChanged || scopeChanged) {
-								hasChanges = true;
-								const { patch } = createPatchForSetting(item.id, item.currentValue);
-
-								if (item.isGlobal) {
-									mergeDeep(globalUpdates, patch);
-									if (!initial.isGlobal) {
-										const meta = getSettingSectionAndKey(item.id);
-										if (meta) revertedProjects.push(meta);
-									}
-								} else {
-									if (initial.isGlobal) {
-										const meta = getSettingSectionAndKey(item.id);
-										if (meta) revertedGlobals.push(meta);
-									}
-									mergeDeep(projectUpdates, patch);
-								}
+				return new UnifiedControlModal(
+					tui,
+					index,
+					theme,
+					(res) => {
+						if (res) {
+							if (res.reindexed || res.excludedPathsChanged) {
+								deps.triggerBackgroundIndexing?.(index, ctx, res.action === "reindex");
 							}
 						}
-
-						if (hasChanges) {
-							try {
-								if (Object.keys(globalUpdates).length > 0) {
-									saveGlobalKernelConfig(globalUpdates);
-								}
-								if (Object.keys(projectUpdates).length > 0) {
-									saveProjectKernelConfig(currentCwd, projectUpdates);
-								}
-								for (const { section, key } of revertedGlobals) {
-									removeGlobalKernelConfigKey(section, key);
-								}
-								for (const { section, key } of revertedProjects) {
-									removeProjectKernelConfigKey(currentCwd, section, key);
-								}
-
-								deps.invalidateConfig(currentCwd, ctx);
-								deps.clearCaches?.();
-								ctx.ui?.notify?.("Applied Agent Kernel configuration changes.", "info");
-							} catch (error) {
-								const message = error instanceof Error ? error.message : String(error);
-								ctx.ui?.notify?.(`Failed to apply Agent Kernel configuration: ${message}`, "error");
-								console.error(`[agent-kernel] Configuration apply failed: ${message}`);
-							}
-						}
-
-						this.onCancel();
-					}
-
-					jumpCategory(forward = true) {
-						if (this.filteredItems.length === 0) return;
-						const curCat = this.filteredItems[this.selectedIndex]?.category;
-						if (forward) {
-							const nextIdx = this.filteredItems.findIndex(
-								(item, idx) => idx > this.selectedIndex && item.category !== curCat,
-							);
-							if (nextIdx !== -1) {
-								this.selectedIndex = nextIdx;
-							} else {
-								this.selectedIndex = 0;
-							}
-						} else {
-							let prevIdx = -1;
-							for (let i = this.selectedIndex - 1; i >= 0; i--) {
-								if (this.filteredItems[i].category !== curCat) {
-									prevIdx = i;
-									break;
-								}
-							}
-							if (prevIdx !== -1) {
-								const prevCat = this.filteredItems[prevIdx].category;
-								const firstOfPrev = this.filteredItems.findIndex((item) => item.category === prevCat);
-								this.selectedIndex = firstOfPrev !== -1 ? firstOfPrev : prevIdx;
-							} else {
-								this.selectedIndex = Math.max(0, this.filteredItems.length - 1);
-							}
-						}
-					}
-
-					handleInput(data: string) {
-						const kb = getKeybindings();
-						if (kb.matches(data, "tui.select.up")) {
-							if (this.filteredItems.length === 0) return;
-							this.selectedIndex =
-								this.selectedIndex === 0 ? this.filteredItems.length - 1 : this.selectedIndex - 1;
-						} else if (kb.matches(data, "tui.select.down")) {
-							if (this.filteredItems.length === 0) return;
-							this.selectedIndex =
-								this.selectedIndex === this.filteredItems.length - 1 ? 0 : this.selectedIndex + 1;
-						} else if (data === "\t") {
-							this.jumpCategory(true);
-						} else if (data === "\x1b[Z") {
-							this.jumpCategory(false);
-						} else if (data === "G" || data === "\x07") {
-							// Hotkey G toggles global application for currently selected single setting
-							this.toggleGlobalSetting();
-						} else if (
-							kb.matches(data, "tui.select.confirm") ||
-							(data === " " && this.searchInput.getValue().length === 0)
-						) {
-							this.activateItem();
-						} else if (kb.matches(data, "tui.select.cancel") || data === "q") {
-							this.closeAndApply();
-						} else {
-							this.searchInput.handleInput(data);
-							this.applyFilter(this.searchInput.getValue());
-						}
-					}
-
-					invalidate() {}
-
-					render(width: number): string[] {
-						const lines: string[] = [];
-						lines.push(...this.searchInput.render(width));
-						lines.push("");
-
-						if (this.filteredItems.length === 0) {
-							lines.push(this.theme.hint("  No matching settings"));
-							lines.push("");
-							lines.push(
-								this.theme.hint("  Type to search · Enter/Space to change · Esc to cancel"),
-							);
-							return lines;
-						}
-
-						const maxLabelWidth = Math.min(
-							38,
-							Math.max(...this.filteredItems.map((i) => visibleWidth(i.label))),
-						);
-						let currentCat: string | null = null;
-
-						for (let i = 0; i < this.filteredItems.length; i++) {
-							const item = this.filteredItems[i];
-							if (item.category !== currentCat) {
-								currentCat = item.category;
-								if (lines.length > 2) lines.push("");
-								lines.push(`  ${this.theme.category(`[${currentCat}]`)}`);
-							}
-							const isSelected = i === this.selectedIndex;
-							const prefix = isSelected ? this.theme.cursor : "    ";
-							const prefixWidth = visibleWidth(prefix);
-							const labelPadded =
-								item.label + " ".repeat(Math.max(0, maxLabelWidth - visibleWidth(item.label)));
-							const labelText = this.theme.label(labelPadded, isSelected);
-							const separator = "  ";
-							const usedWidth = prefixWidth + maxLabelWidth + visibleWidth(separator);
-							const valueMaxWidth = Math.max(10, width - usedWidth - 2);
-							const truncatedVal = truncateToWidth(item.currentValue, valueMaxWidth, "");
-
-							// The right side of the text is YELLOW as the indicator that it is applied globally
-							let valueText: string;
-							if (item.isGlobal) {
-								const yellowStr = theme?.fg
-									? theme.fg("warning", truncatedVal)
-									: `\x1b[33m${truncatedVal}\x1b[0m`;
-								valueText = isSelected
-									? theme?.fg
-										? theme.bold(yellowStr)
-										: `\x1b[1;33m${truncatedVal}\x1b[0m`
-									: yellowStr;
-							} else {
-								valueText = this.theme.value(truncatedVal, isSelected);
-							}
-
-							lines.push(truncateToWidth(prefix + labelText + separator + valueText, width));
-						}
-
-						const selectedItem = this.filteredItems[this.selectedIndex];
-						const currentDesc = selectedItem?.descriptions?.[selectedItem.currentValue] || "";
-						if (currentDesc) {
-							lines.push("");
-							const wrapped = wrapTextWithAnsi(currentDesc, width - 6);
-							for (const line of wrapped) {
-								lines.push(this.theme.description(`    ${line}`));
-							}
-						}
-
-						lines.push("");
-						lines.push(
-							this.theme.hint(
-								"  Type to search · Enter/Space cycle · G toggle global · Tab category · Esc close & apply",
-							),
-						);
-						return lines;
-					}
-				}
-
-				const container = new Container();
-				const borderColor = (s: string) => (theme?.fg ? theme.fg("border", s) : `\x1b[38;5;240m${s}\x1b[0m`);
-
-				// Top border (identical to thinking/settings selector)
-				container.addChild(new DynamicBorder(borderColor));
-				container.addChild(new Spacer(1));
-				container.addChild(
-					new Text(
-						theme?.fg ? theme.fg("accent", theme.bold("Agent Kernel Settings")) : "Agent Kernel Settings",
-						0,
-						0,
-					),
+						done(res);
+					},
+					{
+						initialTab,
+						cwd: currentCwd,
+						deps,
+						ctx,
+					},
 				);
-				container.addChild(new Spacer(1));
-				container.addChild(
-					new Text(
-						theme?.fg
-							? theme.fg(
-									"muted",
-									"Yellow text indicates global settings (~/.pi/agent/config.toml) · Press G to toggle",
-								)
-							: "Yellow text indicates global settings (~/.pi/agent/config.toml) · Press G to toggle",
-						0,
-						0,
-					),
-				);
-				container.addChild(new Spacer(1));
-
-				const listTheme = {
-					category: (text: string) =>
-						theme?.fg ? theme.fg("accent", theme.bold(text)) : `\x1b[1;34m${text}\x1b[0m`,
-					label: (text: string, selected: boolean) =>
-						selected ? (theme?.fg ? theme.fg("accent", text) : `\x1b[36m${text}\x1b[0m`) : text,
-					value: (text: string, selected: boolean) =>
-						selected
-							? theme?.fg
-								? theme.fg("accent", text)
-								: `\x1b[36m${text}\x1b[0m`
-							: theme?.fg
-								? theme.fg("muted", text)
-								: `\x1b[90m${text}\x1b[0m`,
-					scope: (text: string) => (theme?.fg ? theme.fg("muted", text) : `\x1b[90m${text}\x1b[0m`),
-					description: (text: string) => (theme?.fg ? theme.fg("dim", text) : `\x1b[2m${text}\x1b[0m`),
-					cursor: theme?.fg ? `  ${theme.fg("accent", "→ ")}` : "  \x1b[36m→ \x1b[0m",
-					hint: (text: string) => (theme?.fg ? theme.fg("dim", text) : `\x1b[2m${text}\x1b[0m`),
-				};
-
-				const settingsList = new CategorizedSettingsList(
-					items,
-					listTheme,
-					() => {
-						done(undefined);
-					},
-					CATEGORY_ORDER,
-				);
-
-				container.addChild(settingsList);
-				// Bottom border (identical to thinking/settings selector)
-				container.addChild(new DynamicBorder(borderColor));
-
-				return {
-					render(width: number) {
-						return container.render(width);
-					},
-					invalidate() {
-						settingsList.invalidate();
-					},
-					handleInput(data: string) {
-						settingsList.handleInput(data);
-						tui.requestRender();
-					},
-				};
 			});
 		},
 	});

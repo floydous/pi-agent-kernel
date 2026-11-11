@@ -8,6 +8,7 @@ import { writeFileSyncAtomic } from "../safety/atomic_write";
 export interface RetrievalConfig {
 	default_profile: "auto" | "lean" | "hybrid" | "full" | "off";
 	max_search_results: number;
+	excluded_paths?: string[];
 }
 
 export interface SafetyConfig {
@@ -56,6 +57,7 @@ const DEFAULT_CONFIG: KernelConfig = {
 	retrieval: {
 		default_profile: "lean",
 		max_search_results: 5,
+		excluded_paths: [],
 	},
 	safety: {
 		enable_epistemic_guard: true,
@@ -87,6 +89,7 @@ const ALLOWED_CONFIG_KEYS: Record<keyof KernelConfig, ReadonlySet<string>> = {
 	retrieval: new Set([
 		"default_profile",
 		"max_search_results",
+		"excluded_paths",
 	]),
 	safety: new Set([
 		"enable_epistemic_guard",
@@ -109,6 +112,12 @@ const DEPRECATED_RETRIEVAL_KEYS = new Set([
 
 function configPath(parts: string[]): string {
 	return parts.join(".");
+}
+
+function requireStringArray(value: unknown, path: string): void {
+	if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+		throw new KernelConfigError(`${path} must be an array of strings`);
+	}
 }
 
 function requireBoolean(value: unknown, path: string): void {
@@ -143,6 +152,9 @@ export function validateKernelConfig(config: KernelConfig): KernelConfig {
 	const retrieval = config.retrieval;
 	requireEnum(retrieval.default_profile, "retrieval.default_profile", ["auto", "lean", "hybrid", "full", "off"]);
 	requireSafeInt(retrieval.max_search_results, "retrieval.max_search_results", 1, 15);
+	if (retrieval.excluded_paths !== undefined) {
+		requireStringArray(retrieval.excluded_paths, "retrieval.excluded_paths");
+	}
 
 	const safety = config.safety;
 	requireBoolean(safety.enable_epistemic_guard, "safety.enable_epistemic_guard");

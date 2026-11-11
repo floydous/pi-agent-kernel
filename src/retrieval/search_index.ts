@@ -28,6 +28,7 @@ import { TreeSitterEngine } from "./tree_sitter_engine";
 import { getSearchCacheDir } from "./search_cache";
 import { WorkspaceWalkCache } from "./workspace_walker";
 import { isTestPath } from "./tag_extractor";
+import { loadKernelConfig } from "../config/kernel_config";
 export { getSearchCacheDir } from "./search_cache";
 
 const INDEX_VERSION = 4;
@@ -434,6 +435,7 @@ export class HybridSearchIndex {
 	/** Every indexable file of the last walk, in priority order (up to MAX_WALK_FILES), for coverage reporting. */
 	private walkedFiles: readonly RankedFile[] = [];
 	private projectTrusted: boolean;
+	private excludedPaths = new Set<string>();
 
 	constructor(
 		cwd: string,
@@ -443,8 +445,62 @@ export class HybridSearchIndex {
 		this.cwd = cwd;
 		this.projectTrusted = options.projectTrusted === true;
 		this.config = getSearchConfig(profile, cwd, this.projectTrusted);
+		try {
+			const kernelCfg = loadKernelConfig(cwd, { projectTrusted: this.projectTrusted });
+			if (Array.isArray(kernelCfg.retrieval?.excluded_paths)) {
+				this.excludedPaths = new Set(
+					kernelCfg.retrieval.excluded_paths.map((p) => p.replace(/\\/g, "/").replace(/\/$/, "")).filter(Boolean),
+				);
+			}
+		} catch {
+			// Best-effort config load
+		}
 		this.embedder = new LocalEmbedder(this.config);
 		this.loadFromDisk();
+	}
+
+	public getCwd(): string {
+		return this.cwd;
+	}
+
+	public isPathExcluded(relPath: string): boolean {
+		const norm = relPath.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+|\/+$/g, "");
+		for (const p of this.excludedPaths) {
+			const cleanP = p.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+|\/+$/g, "");
+			if (!cleanP) continue;
+			if (norm === cleanP || norm.startsWith(cleanP + "/")) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public getExcludedPaths(): Set<string> {
+		return new Set(this.excludedPaths);
+	}
+
+	public setExcludedPaths(paths: Iterable<string>): void {
+		this.excludedPaths = new Set(
+			Array.from(paths)
+				.map((p) => p.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/^\/+|\/+$/g, ""))
+				.filter(Boolean),
+		);
+	}
+
+	public getIndexableFiles(): string[] {
+		this.walkedFiles = rankChunkableFiles(this.cwd, this.walkCache);
+		return this.walkedFiles.map((r) => r.rel);
+	}
+
+	public getChunkCountForFile(relPath: string): number {
+		const norm = relPath.replace(/\\/g, "/");
+		const ids = this.chunks.idsForFile(norm);
+		if (ids && ids.length > 0) return ids.length;
+		try {
+			return chunkFile(this.cwd, norm).length;
+		} catch {
+			return 0;
+		}
 	}
 
 	public getProfile(): SearchProfile {
@@ -670,11 +726,13 @@ export class HybridSearchIndex {
 			this.persistedVectorCaches = [];
 
 			for (const chunk of validated.chunks) {
+				if (this.isPathExcluded(chunk.filePath)) continue;
 				this.chunks.set(chunk.id, chunk);
 				this.bm25.addChunk(chunk);
 			}
 			this.bm25.recalculateStats();
 			for (const [file, hash] of validated.fileHashes) {
+				if (this.isPathExcluded(file)) continue;
 				this.fileHashes.set(file, hash);
 			}
 			for (const [file, hash] of validated.ignoreConfigHashes) {
@@ -953,6 +1011,9 @@ export class HybridSearchIndex {
 		const files = this.walkedFiles.slice(0, MAX_INDEX_FILES).map((entry) => entry.file);
 		for (const filePath of files) {
 			const relPath = path.relative(this.cwd, filePath).replace(/\\/g, "/");
+			if (this.isPathExcluded(relPath)) {
+				continue;
+			}
 			try {
 				// Fast path: a regular file whose stat matches the snapshot taken when it was last read keeps
 				// that read's hash. Recently modified ("racy") snapshots are always re-read.
@@ -1106,6 +1167,9 @@ export class HybridSearchIndex {
 			let workspaceChunks = 0;
 			for (const absPath of chunkableFiles) {
 				const relPath = path.relative(this.cwd, absPath).replace(/\\/g, "/");
+				if (this.isPathExcluded(relPath)) {
+					continue;
+				}
 				try {
 					const stat = fs.statSync(absPath);
 					if (!stat.isFile() || stat.size > MAX_INDEX_FILE_BYTES) {
@@ -1341,6 +1405,14 @@ export class HybridSearchIndex {
 			path.isAbsolute(relPath)
 		) return;
 
+		if (this.isPathExcluded(relPath)) {
+			this.removeIndexedFile(relPath);
+			this.dirtyFiles.delete(relPath);
+			this.bm25.recalculateStats();
+			this.scheduleDebouncedSave();
+			return;
+		}
+
 		// If a full workspace sync is active, mark dirty and let full sync capture the latest file content
 		if (this.isIndexing || this.activeSync) {
 			this.dirtyFiles.add(relPath);
@@ -1360,6 +1432,13 @@ export class HybridSearchIndex {
 
 		const task = (async () => {
 			if (this.fileGenerations.get(relPath) !== currentGen) return;
+			if (this.isPathExcluded(relPath)) {
+				this.removeIndexedFile(relPath);
+				this.dirtyFiles.delete(relPath);
+				this.bm25.recalculateStats();
+				this.scheduleDebouncedSave();
+				return;
+			}
 
 			// Check if file was deleted
 			if (!fs.existsSync(resolvedPath)) {

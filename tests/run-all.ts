@@ -399,6 +399,11 @@ const suites: TestEntry[] = [
 		key: "host-environment",
 		loader: () => runSuiteModule(() => import("./safety/host_environment.test")),
 	},
+	{
+		name: "Search Control Modal UI Suite",
+		key: "search-modal-ui",
+		loader: () => runSuiteModule(() => import("./retrieval/search_modal_ui.test")),
+	},
 ];
 
 async function main(): Promise<void> {

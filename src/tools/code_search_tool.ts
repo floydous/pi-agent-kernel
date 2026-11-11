@@ -15,7 +15,7 @@ export function registerCodeSearchTool(
 		name: "code_search",
 		label: "Codebase Search",
 		description:
-			"Fast BM25 & AST semantic search across code chunks. Best for conceptual questions, finding unfamiliar features, and searching when exact symbol names or file paths are unknown (prefer rg for exact text literals).",
+			"Fast BM25 & AST semantic search across code chunks. Use when locating features, workflows, UI behaviors, or architecture without known symbol names or file paths (prefer rg for exact text literals and non-code files). Do NOT use for finding exact string literals or call-sites; use rg -n instead.",
 		promptSnippet: "Search codebase conceptually or by keywords via hybrid AST index",
 		renderShell: "default",
 		parameters: Type.Object({
@@ -24,7 +24,7 @@ export function registerCodeSearchTool(
 			}),
 			file_pattern: Type.Optional(
 				Type.String({
-					description: "Optional relative path substring filter",
+					description: "Optional relative path substring filter (e.g., 'src/auth', 'tests'). Omit for whole-workspace search. Do NOT guess paths.",
 				}),
 			),
 			limit: Type.Optional(

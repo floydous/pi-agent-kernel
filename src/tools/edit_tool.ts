@@ -401,7 +401,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const benchmarkMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
 	let editToolParameters: any;
 	let editToolDescription =
-		"Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Auto-preserves existing line endings (CRLF/LF). Valid after read or exact rg search.";
+		"Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Auto-preserves existing line endings (CRLF/LF). Use when modifying existing code with unique search blocks, targeted multi-block edits, or atomic multi-file changes. Do NOT use edit for shell commands (use bash) or creating new files (use write).";
 
 	switch (benchmarkMethod) {
 		case "line-range":
@@ -444,6 +444,15 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			editToolDescription = "Edit code with search/replace or line range; use search first.";
 			break;
 		default:
+			const blockEditSchema = Type.Object(
+				{
+					search: Type.Optional(Type.String({ description: "Exact block to replace" })),
+					replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
+					line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguating matching blocks" })),
+				},
+				{ additionalProperties: true },
+			);
+
 			editToolParameters = Type.Object(
 				{
 					path: Type.Optional(Type.String({ description: "Path to file to edit" })),
@@ -451,27 +460,19 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
 					line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguation" })),
 					edits: Type.Optional(
-						Type.Array(
-							Type.Object(
-								{
-									search: Type.Optional(Type.String()),
-									replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-									line_hint: Type.Optional(Type.Number()),
-								},
-								{ additionalProperties: true },
-							),
-							{ description: "Targeted replacements" },
-						),
+						Type.Array(blockEditSchema, { description: "Targeted replacements" }),
 					),
 					files: Type.Optional(
 						Type.Array(
 							Type.Object(
 								{
-									path: Type.String(),
-									search: Type.Optional(Type.String()),
+									path: Type.String({ description: "Workspace-relative or absolute file path to edit" }),
+									search: Type.Optional(Type.String({ description: "Exact block to replace" })),
 									replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-									line_hint: Type.Optional(Type.Number()),
-									edits: Type.Optional(Type.Array(Type.Any())),
+									line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguating matching blocks" })),
+									edits: Type.Optional(
+										Type.Array(blockEditSchema, { description: "Array of targeted replacements for this file" }),
+									),
 								},
 								{ additionalProperties: true },
 							),

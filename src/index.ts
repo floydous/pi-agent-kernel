@@ -9,7 +9,7 @@ import {
 	globalEpistemicGuard,
 	resolveUserPath,
 } from "./safety/epistemic_guard";
-import { loadKernelConfig, registerAgentKernelCommand } from "./config";
+import { loadKernelConfig, registerAgentKernelCommand, saveProjectKernelConfig } from "./config";
 import { kernelDebug } from "./safety/kernel_debug";
 import { registerCodeSearchTool } from "./tools/code_search_tool";
 import { registerReadTool } from "./tools/read_tool";
@@ -317,6 +317,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		invalidateConfig: (cwd, ctx) => {
 			applyConfigChanges(cwd, ctx);
 		},
+		getSearchIndex: (cwd) => getSearchIndex(cwd),
+		triggerBackgroundIndexing: (idx, ctx, isFull) => triggerBackgroundIndexing(idx, ctx, isFull),
 	});
 
 	pi.registerCommand("repair-sessions", {
@@ -376,193 +378,6 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			const message = `Pi documentation guidance: ${enabled ? "on" : "off"}`;
 			ctx.ui?.notify?.(message, "info");
 			if (!ctx.hasUI) console.log(message);
-		},
-	});
-
-	// Slash Command: /engine [auto|lean|full|off|status|reindex] ("hybrid" is still accepted as an alias of full)
-	pi.registerCommand("engine", {
-		description:
-			"Configure codebase retrieval engine (auto | lean | full | off | status | reindex)",
-		getArgumentCompletions: (prefix: string) => {
-			const options = [
-				{
-					value: "status",
-					label: "status - Display current engine profile, memory & diagnostics",
-				},
-				{
-					value: "auto",
-					label:
-						"auto - Auto-detect: Lean (fewer than 4 CPUs), Full (4 or more)",
-				},
-				{
-					value: "lean",
-					label:
-						"lean - Fast AST-aware BM25 (0% CPU, 0 MB extra RAM) [Persisted Default]",
-				},
-				{
-					value: "full",
-					label: "full - BM25 + 768-dim code embeddings (\"hybrid\" is an alias)",
-				},
-				{
-					value: "off",
-					label: "off - Disable search & unload memory",
-				},
-				{ value: "reindex", label: "reindex - Force full workspace re-indexing" },
-			];
-			const filtered = options.filter((o) =>
-				o.value.startsWith(prefix.toLowerCase()),
-			);
-			return filtered.length > 0 ? filtered : null;
-		},
-		handler: async (args: string, ctx: any) => {
-			let sub = (args || "").trim().toLowerCase();
-			if (sub.startsWith("default ")) {
-				sub = sub.replace("default ", "").trim();
-			}
-			const index = getSearchIndex(ctx.cwd);
-
-			if (
-				sub === "auto" ||
-				sub === "lean" ||
-				sub === "hybrid" ||
-				sub === "full" ||
-				sub === "off"
-			) {
-				const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
-				savePersistedProfile(sub as SearchProfile, currentCwd);
-				applyConfigChanges(currentCwd, ctx);
-				const status = index.getStatus();
-				const msg = `Default search profile saved: ${sub.toUpperCase()} (Effective: ${status.effectiveProfile.toUpperCase()})`;
-				ctx.ui?.notify?.(msg, "info");
-				if (!ctx.hasUI) console.log(`[Codebase Engine] ${msg}`);
-				return;
-			}
-
-			if (sub === "reindex") {
-				ctx.ui?.notify?.("Re-indexing workspace...", "info");
-				const res = await index.syncWorkspace(true, (msg) => {
-					if (ctx.hasUI) ctx.ui?.notify?.(msg, "info");
-				});
-				ctx.ui?.notify?.(
-					`Indexed ${res.fileCount} files (${res.chunkCount} chunks)`,
-					"info",
-				);
-				if (!ctx.hasUI)
-					console.log(
-						`[Codebase Engine] Re-indexed ${res.fileCount} files, ${res.chunkCount} chunks.`,
-					);
-				return;
-			}
-
-			if (sub === "status") {
-				const status = index.getStatus();
-				ctx.ui?.notify?.(
-					`Engine: ${status.engineState} | Profile: ${status.profile.toUpperCase()} (${status.effectiveProfile.toUpperCase()}) | Chunks: ${status.chunkCount} | Model: ${status.modelStatus} | RSS: ${status.rssMemoryMB}MB`,
-					"info",
-				);
-				if (!ctx.hasUI) {
-					console.log(
-						`Codebase Retrieval Engine Status:\n- Engine State: ${status.engineState}\n- Pipeline: ${status.pipelineDesc}\n- Default Profile: ${status.profile.toUpperCase()} (persisted in ~/.pi/agent/search_settings.json)\n- Active Mode: ${status.effectiveProfile.toUpperCase()} (${status.hardwareInfo})\n- Indexed Files: ${status.fileCount}\n- Code Chunks: ${status.chunkCount}\n- Vector Embeddings: ${status.vectorCount}\n- Model Status: ${status.modelStatus}\n- Process RSS: ${status.rssMemoryMB} MB`,
-					);
-				}
-				return;
-			}
-
-			// Interactive centered modal dialog with full-viewport backdrop scrim
-			if (ctx.hasUI && ctx.ui?.custom) {
-				const res: any = await ctx.ui.custom(
-					(tui: any, theme: any, _keybindings: any, done: any) =>
-						new SearchControlModal(tui, index, theme, done),
-					{
-						overlay: true,
-						overlayOptions: {
-							anchor: "center",
-							width: "100%",
-						},
-					},
-				);
-
-				if (res) {
-					activeTui?.requestRender?.();
-					const eff = index.getEffectiveProfile();
-					const profileName = (res.profile || index.getProfile()).toUpperCase();
-					const effName = eff.toUpperCase();
-
-					if (res.action === "select") {
-						const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
-						if (res.profile) {
-							savePersistedProfile(res.profile, currentCwd);
-							applyConfigChanges(currentCwd, ctx);
-						}
-						ctx.ui?.notify?.(
-							`Engine set to ${profileName} (Effective: ${effName})`,
-							"info",
-						);
-					}
-
-					if (res.reindexed || eff !== "off") {
-						triggerBackgroundIndexing(index, ctx, res.action === "reindex");
-					} else {
-						ctx.ui?.setWidget?.("engine-progress", undefined);
-					}
-				}
-				return;
-			}
-
-			// Fallback select menu if custom overlays are unavailable
-			if (ctx.hasUI && ctx.ui?.select) {
-				const status = index.getStatus();
-				const currentProfile = index.getProfile();
-				const options = [
-					`View Status (${status.engineState} - ${status.chunkCount} chunks, RSS ${status.rssMemoryMB}MB)`,
-					`── Profiles ───────────────────────`,
-					`Set Default: Auto Detect (Lean -> Full based on specs)${currentProfile === "auto" ? " [Current]" : ""}`,
-					`Set Default: Lean Mode (Fast BM25, 0% CPU, 0 MB extra RAM)${currentProfile === "lean" ? " [Current]" : ""}`,
-					`Set Default: Full Mode (BM25 + 768-dim code embeddings)${currentProfile === "full" || currentProfile === "hybrid" ? " [Current]" : ""}`,
-					`Set Default: Disable Engine (Turn off search)${currentProfile === "off" ? " [Current]" : ""}`,
-					`── Actions ────────────────────────`,
-					`Re-index Workspace`,
-				];
-
-				const choice = await ctx.ui.select(
-					"Codebase Retrieval Engine Settings",
-					options,
-				);
-				if (!choice || choice.startsWith("──")) return;
-
-				const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
-				let newProfile: SearchProfile | null = null;
-				if (choice.includes("Auto Detect")) newProfile = "auto";
-				else if (choice.includes("Lean Mode")) newProfile = "lean";
-				else if (choice.includes("Full Mode")) newProfile = "full";
-				else if (choice.includes("Disable Engine")) newProfile = "off";
-
-				if (newProfile) {
-					savePersistedProfile(newProfile, currentCwd);
-					applyConfigChanges(currentCwd, ctx);
-					ctx.ui?.notify?.(`Default search profile saved: ${newProfile.toUpperCase()}`, "info");
-					return;
-				}
-
-				if (choice.includes("Re-index")) {
-					triggerBackgroundIndexing(index, ctx, true);
-					return;
-				}
-
-				if (choice.includes("View Status")) {
-					const s = index.getStatus();
-					ctx.ui.notify(
-						`Engine: ${s.engineState} | Profile: ${s.profile.toUpperCase()} (Effective: ${s.effectiveProfile.toUpperCase()}) | Files: ${s.fileCount} | Chunks: ${s.chunkCount} | Model: ${s.modelStatus} | RSS: ${s.rssMemoryMB}MB`,
-						"info",
-					);
-					return;
-				}
-			}
-
-			// CLI fallback if not in UI mode
-			const status = index.getStatus();
-			const msg = `Search Status:\n- Engine: ${status.engineState}\n- Profile: ${status.profile} (effective: ${status.effectiveProfile})\n- Indexed Files: ${status.fileCount}\n- Code Chunks: ${status.chunkCount}\n- Vector Embeddings: ${status.vectorCount}\n- Model: ${status.modelStatus}\n- Process RSS: ${status.rssMemoryMB} MB`;
-			console.log("\n" + msg + "\n");
 		},
 	});
 
@@ -838,7 +653,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			? loadKernelGuidance(toolCollisions, promptToolNames)
 			: "";
 		const hostEnv = kernelConfig.instructions.enabled && kernelConfig.instructions.host_environment !== false
-			? await renderHostEnvironment()
+			? renderHostEnvironment()
 			: "";
 
 		let guidedPrompt = appendKernelGuidance(systemPrompt, guidance);
