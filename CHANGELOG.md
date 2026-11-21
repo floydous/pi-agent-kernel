@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Mid-Session Retrieval Engine Switch Notifications**: Emits a single net-state `<system_notification>` on the next turn when switching retrieval profiles (`lean`, `full`, `off`) mid-session, collapsing rapid back-and-forth switches within the same turn to zero notifications and explicitly noting when `code_search` is disabled (`off`).
+
+### Changed
+
+- **Canonical `edit` Schema & `prepareArguments` Normalization**: Streamlined the default `edit` schema to advertise `path`, `edits: [{ search, replace, line_hint? }]` (with `search` and `replace` required), and `files: [{ path, edits }]`. Upgraded `prepareArguments()` to normalize `oldText`/`old_text`/`old` and `newText`/`new_text`/`new`/`replacement` aliases, unwrap stringified or single-object `edits`, convert `replace: null` to `""` before Pi v1.6.0's `pi-schema` strips optional nulls, move per-file `edits[{ path }]` entries into `files[]`, and fold top-level `{ path, search, replace }` into `edits[]` while keeping omitted `replace` fail-closed.
+- **Tool Schema Bounds, Prompt Guidance, and README**: Exposed `code_search.mode` as a plain JSON Schema `enum` (`auto`, `full`, `preview`, `summary`), added numeric range bounds (`limit` `1..15`, `rrf_k` `1..200`, `minimum: 1` on `offset`/`limit`/`line_hint`), neutralized imperative phrasing in `code_search` descriptions, conditionalized `read`'s `code_search` redirect when disabled, updated `AGENT_KERNEL_SYS_PROMPT.md` to steer quoted logs and broad concept queries to `code_search` and reinforce untrusted-data boundaries, and updated `README.md` for the unified `/agent-kernel` 3-tab controller.
+
+### Fixed
+
+- **Pi v1.6.0 `/agent-kernel` TUI Keybindings & Engine Switching**: Fixed a breaking change in Pi v1.6.0 where pressing `Space` or `Enter` in the `/agent-kernel` Retrieval Engine tab exited the modal without applying the selected profile. Added Kitty CSI u and `modifyOtherKeys` support in `matchesKey()`, wired Pi's injected `KeybindingsManager` into `UnifiedControlModal`, synchronized profile state across Tab 1 and Tab 2, honored project `.pi/config.toml` overrides via `getProjectRawConfig()`, and deferred `index.setProfile()` until modal dismissal to avoid duplicate background indexing.
+- **Pi v1.6.0 `/pi-docs` Stripping**: Updated `withoutPiDocumentation()` and `before_agent_start` to strip Pi v1.6.0's `<docs>...</docs>` block, match `"about the harness itself"` wording, and delete `event.systemPromptOptions.sections.docs` when `/pi-docs` is off.
+- **Host Environment Metadata Escaping**: Escaped XML metacharacters (`&`, `<`, `>`) and stripped control/newline characters from Linux `/etc/os-release` values in `<host_environment>`, and clarified macOS POSIX/Bash 3.2 guidance.
+- **Test Isolation for Modal Scope Persistence**: Isolated `tests/retrieval/search_modal_ui.test.ts` to a temporary directory so running the test suite no longer mutates `.pi/config.toml` in the repository root.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added
