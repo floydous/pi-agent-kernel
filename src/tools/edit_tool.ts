@@ -401,7 +401,7 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const benchmarkMethod = process.env.PI_EDIT_METHOD?.toLowerCase();
 	let editToolParameters: any;
 	let editToolDescription =
-		"Edit code with search/replace, multi-block 'edits', or multi-file 'files'. Auto-preserves existing line endings (CRLF/LF). Use when modifying existing code with unique search blocks, targeted multi-block edits, or atomic multi-file changes. Do NOT use edit for shell commands (use bash) or creating new files (use write).";
+		"Edit code using targeted 'edits' blocks (search/replace with optional line_hint) or atomic multi-file 'files'. Auto-preserves existing line endings (CRLF/LF). Use when modifying existing code with unique search blocks or atomic multi-file changes. Do NOT use edit for shell commands (use bash) or creating new files (use write).";
 
 	switch (benchmarkMethod) {
 		case "line-range":
@@ -445,8 +445,8 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			break;
 		default:
 			const blockEditSchema = Type.Object({
-				search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-				replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
+				search: Type.String({ description: "Exact block to replace" }),
+				replace: Type.String({ description: "Replacement text (empty string to delete)" }),
 				line_hint: Type.Optional(
 					Type.Number({
 						minimum: 1,
@@ -457,14 +457,6 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 
 			editToolParameters = Type.Object({
 				path: Type.Optional(Type.String({ description: "Workspace-relative or absolute file path to edit" })),
-				search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-				replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-				line_hint: Type.Optional(
-					Type.Number({
-						minimum: 1,
-						description: "1-based line number hint for disambiguating matching blocks",
-					}),
-				),
 				edits: Type.Optional(
 					Type.Array(blockEditSchema, {
 						description: "Ordered array of targeted search/replace blocks applied atomically to this file",
@@ -474,17 +466,9 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 					Type.Array(
 						Type.Object({
 							path: Type.String({ description: "Workspace-relative or absolute file path to edit" }),
-							search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-							replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-							line_hint: Type.Optional(
-								Type.Number({
-									minimum: 1,
-									description: "1-based line number hint for disambiguating matching blocks",
-								}),
-							),
-							edits: Type.Optional(
-								Type.Array(blockEditSchema, { description: "Array of targeted replacements for this file" }),
-							),
+							edits: Type.Array(blockEditSchema, {
+								description: "Ordered array of targeted replacements for this file",
+							}),
 						}),
 						{ description: "Atomic multi-file edits; each entry targets a distinct file path" },
 					),
@@ -496,30 +480,118 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		name: "edit",
 		label: "Code Editor",
 		description: editToolDescription,
-		promptSnippet: "Edit code using search/replace (optional line_hint), multi-block 'edits', or multi-file 'files' (preserves CRLF/LF)",
+		promptSnippet: "Edit code using targeted 'edits' blocks (search/replace, optional line_hint) or atomic multi-file 'files' (preserves CRLF/LF)",
 		renderShell: "default",
 		parameters: editToolParameters,
 		prepareArguments(args: any) {
 			if (!args || typeof args !== "object" || Array.isArray(args)) return args;
-			const normalizeItem = (item: any) => {
-				if (!item || typeof item !== "object" || Array.isArray(item)) return item;
-				let out = item;
-				if (out.replace === null) out = { ...out, replace: "" };
-				if (Array.isArray(out.edits)) {
-					out = {
-						...out,
-						edits: out.edits.map((e: any) =>
-							e && typeof e === "object" && e.replace === null ? { ...e, replace: "" } : e,
-						),
+
+			if (benchmarkMethod) {
+				const normalizeBenchmarkItem = (item: any) => {
+					if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+					let out = item;
+					if (out.replace === null) out = { ...out, replace: "" };
+					if (Array.isArray(out.edits)) {
+						out = {
+							...out,
+							edits: out.edits.map((e: any) =>
+								e && typeof e === "object" && e.replace === null ? { ...e, replace: "" } : e,
+							),
+						};
+					}
+					return out;
+				};
+				let prepared = normalizeBenchmarkItem(args);
+				if (Array.isArray(prepared.files)) {
+					prepared = { ...prepared, files: prepared.files.map(normalizeBenchmarkItem) };
+				}
+				return prepared;
+			}
+
+			const isPlainObject = (v: unknown): v is Record<string, any> =>
+				Boolean(v && typeof v === "object" && !Array.isArray(v));
+
+			const parseEditsField = (raw: unknown): unknown => {
+				if (typeof raw === "string") {
+					try {
+						const parsed = JSON.parse(raw);
+						if (Array.isArray(parsed)) return parsed;
+						if (isPlainObject(parsed)) return [parsed];
+					} catch {
+						return raw;
+					}
+				}
+				if (isPlainObject(raw)) return [raw];
+				return raw;
+			};
+
+			const normalizeBlock = (e: any): any => {
+				if (!isPlainObject(e)) return e;
+				const search = e.search ?? e.oldText ?? e.old_text ?? e.old;
+				const rawReplace =
+					e.replace === null ? "" : (e.replace ?? e.replacement ?? e.newText ?? e.new_text ?? e.new);
+				const replace = rawReplace === null ? "" : rawReplace;
+				const { oldText: _ot, old_text: _os, old: _o, newText: _nt, new_text: _ns, new: _n, replacement: _r, ...rest } = e;
+				const out: Record<string, any> = { ...rest };
+				if (search !== undefined) out.search = search;
+				if (replace !== undefined) out.replace = replace;
+				return out;
+			};
+
+			const normalizeFileEntry = (item: any): any => {
+				if (!isPlainObject(item)) return item;
+				const out: Record<string, any> = { ...item };
+				if (out.edits !== undefined) {
+					const unwrapped = parseEditsField(out.edits);
+					out.edits = Array.isArray(unwrapped) ? unwrapped.map(normalizeBlock) : unwrapped;
+				}
+				const singleSearch = out.search ?? out.oldText ?? out.old_text ?? out.old;
+				const rawSingleReplace =
+					out.replace === null ? "" : (out.replace ?? out.replacement ?? out.newText ?? out.new_text ?? out.new);
+				const singleReplace = rawSingleReplace === null ? "" : rawSingleReplace;
+
+				// Fold top-level search/replace only when both are strings; preserve missing-replace fail-closed errors.
+				if (typeof singleSearch === "string" && typeof singleReplace === "string") {
+					const foldedBlock: Record<string, any> = {
+						search: singleSearch,
+						replace: singleReplace,
+						...(out.line_hint !== undefined ? { line_hint: out.line_hint } : {}),
 					};
+					out.edits = Array.isArray(out.edits) ? [...out.edits, foldedBlock] : [foldedBlock];
+					delete out.search;
+					delete out.replace;
+					delete out.line_hint;
+					delete out.oldText;
+					delete out.old_text;
+					delete out.old;
+					delete out.newText;
+					delete out.new_text;
+					delete out.new;
+					delete out.replacement;
+				} else if (out.replace === null) {
+					out.replace = "";
 				}
 				return out;
 			};
-			let prepared = normalizeItem(args);
+
+			const unwrappedTopEdits = args.edits !== undefined ? parseEditsField(args.edits) : undefined;
+			if (
+				Array.isArray(unwrappedTopEdits) &&
+				unwrappedTopEdits.length > 0 &&
+				unwrappedTopEdits.some((e: any) => isPlainObject(e) && typeof e.path === "string")
+			) {
+				const { edits: _ignoredEdits, ...rest } = args;
+				return {
+					...rest,
+					files: unwrappedTopEdits.map(normalizeFileEntry),
+				};
+			}
+
+			let prepared = normalizeFileEntry(args);
 			if (Array.isArray(prepared.files)) {
 				prepared = {
 					...prepared,
-					files: prepared.files.map(normalizeItem),
+					files: prepared.files.map(normalizeFileEntry),
 				};
 			}
 			return prepared;

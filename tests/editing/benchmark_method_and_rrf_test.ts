@@ -6,8 +6,8 @@ export async function testBenchmarkMethodSchemas(): Promise<void> {
 	const methods = [
 		{
 			env: undefined,
-			expectedDesc: "Edit code with search/replace, multi-block 'edits', or multi-file 'files'",
-			requiredProps: ["path", "search", "replace", "edits", "files"],
+			expectedDesc: "Edit code using targeted 'edits' blocks",
+			requiredProps: ["path", "edits", "files"],
 		},
 		{
 			env: "line-range",
@@ -60,6 +60,15 @@ export async function testBenchmarkMethodSchemas(): Promise<void> {
 				assert.ok(
 					props.includes(req),
 					`Property '${req}' present in schema for PI_EDIT_METHOD=${m.env}`,
+				);
+			}
+			if (m.env === undefined) {
+				assert.ok(!props.includes("search"), "Default edit schema must not advertise top-level 'search'");
+				assert.ok(!props.includes("replace"), "Default edit schema must not advertise top-level 'replace'");
+				assert.deepEqual(
+					registeredTool.parameters.properties.edits.items.required,
+					["search", "replace"],
+					"Default blockEditSchema must require 'search' and 'replace'",
 				);
 			}
 		}

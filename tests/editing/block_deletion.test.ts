@@ -149,14 +149,39 @@ export async function run(): Promise<void> {
 			"Whitespace-normalized deletion must remove the block without leaving an empty line",
 		);
 
-		// 7. prepareArguments normalizes replace: null -> "" before pi-schema strips optional nulls
-		console.log("7. Testing prepareArguments preserves replace: null as empty string...");
+		// 7. prepareArguments normalizes top-level blocks, aliases, stringified edits, replace: null, and keeps missing replace fail-closed
+		console.log("7. Testing prepareArguments canonicalizes default shapes and keeps missing replace fail-closed...");
 		const prepSingle = editTool.prepareArguments({ path: "script.js", search: "x", replace: null });
-		assert.equal(prepSingle.replace, "");
+		assert.deepEqual(prepSingle.edits, [{ search: "x", replace: "" }]);
+		assert.equal(prepSingle.search, undefined);
+		assert.equal(prepSingle.replace, undefined);
+
 		const prepNested = editTool.prepareArguments({
-			files: [{ path: "script.js", edits: [{ search: "y", replace: null }] }],
+			files: [{ path: "script.js", search: "y", replace: null }],
 		});
-		assert.equal(prepNested.files[0].edits[0].replace, "");
+		assert.deepEqual(prepNested.files[0].edits, [{ search: "y", replace: "" }]);
+
+		const prepAlias = editTool.prepareArguments({
+			path: "script.js",
+			edits: [{ oldText: "x", newText: "" }],
+		});
+		assert.deepEqual(prepAlias.edits, [{ search: "x", replace: "" }]);
+
+		const prepStringified = editTool.prepareArguments({
+			path: "script.js",
+			edits: '[{"search":"x","replace":""}]',
+		});
+		assert.deepEqual(prepStringified.edits, [{ search: "x", replace: "" }]);
+
+		const prepMissingReplace = editTool.prepareArguments({ path: "script.js", search: "x" });
+		assert.equal(prepMissingReplace.replace, undefined);
+		assert.equal(prepMissingReplace.edits, undefined);
+
+		const prepEditsWithPath = editTool.prepareArguments({
+			edits: [{ path: "script.js", search: "x", replace: "y" }],
+		});
+		assert.deepEqual(prepEditsWithPath.files, [{ path: "script.js", edits: [{ search: "x", replace: "y" }] }]);
+		assert.equal(prepEditsWithPath.edits, undefined);
 
 		console.log("\n✓ All Block Deletion Tests Passed Successfully!");
 	} finally {
