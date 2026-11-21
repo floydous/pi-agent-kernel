@@ -54,10 +54,20 @@ interface LinuxDistroInfo {
 	idLike?: string;
 }
 
+function sanitizeHostMetadataText(value: string): string {
+	return value
+		.replace(/[\r\n\t]+/g, " ")
+		.replace(/[\x00-\x1f\x7f]/g, "")
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.trim() || "Linux";
+}
+
 function resolveLinuxDistro(options?: HostEnvironmentOptions): LinuxDistroInfo {
 	if (options?.osReleaseContent) {
 		const parsed = parseOSRelease(options.osReleaseContent);
-		const name = parsed.PRETTY_NAME || parsed.NAME || parsed.ID || "Linux";
+		const name = sanitizeHostMetadataText(parsed.PRETTY_NAME || parsed.NAME || parsed.ID || "Linux");
 		return { name, id: parsed.ID?.toLowerCase(), idLike: parsed.ID_LIKE?.toLowerCase() };
 	}
 
@@ -66,7 +76,7 @@ function resolveLinuxDistro(options?: HostEnvironmentOptions): LinuxDistroInfo {
 			if (fs.existsSync(p)) {
 				const content = fs.readFileSync(p, "utf8");
 				const parsed = parseOSRelease(content);
-				const name = parsed.PRETTY_NAME || parsed.NAME || parsed.ID || "Linux";
+				const name = sanitizeHostMetadataText(parsed.PRETTY_NAME || parsed.NAME || parsed.ID || "Linux");
 				return { name, id: parsed.ID?.toLowerCase(), idLike: parsed.ID_LIKE?.toLowerCase() };
 			}
 		} catch {}
@@ -134,7 +144,7 @@ export function renderHostEnvironment(options?: HostEnvironmentOptions): string 
 			"Shell: bash (macOS /bin/bash v3.2)",
 			"Line Endings: Preserved per-file (auto-detects CRLF / LF)",
 			"Platform Guidance:",
-			"- Stock /bin/bash is Bash 3.2: avoid Bash 4+ features (declare -A, mapfile/readarray, ${var^^}).",
+			"- Stock /bin/bash is Bash 3.2: use POSIX sh / Bash 3.2 constructs (indexed arrays, while read loops, tr/awk); avoid Bash 4+ features (declare -A, mapfile/readarray, ${var^^}).",
 			"- BSD userland: use portable POSIX flags (e.g. sed -i '' for in-place edit, not GNU sed -i).",
 			"</host_environment>",
 		];

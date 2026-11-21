@@ -33,6 +33,8 @@ export async function run(): Promise<void> {
 
 	assert.ok(readToolDef, "read tool must be registered");
 	assert.ok(editToolDef, "edit tool must be registered");
+	assert.equal(readToolDef.parameters.anyOf, undefined, "read schema must not set root anyOf");
+	assert.equal(editToolDef.parameters.anyOf, undefined, "edit schema must not set root anyOf");
 
 	const mockCtx = { cwd: tempDir };
 

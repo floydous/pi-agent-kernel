@@ -381,6 +381,28 @@ export function getGlobalRawConfig(): Record<string, Record<string, TomlValue>> 
 }
 
 /**
+ * Read raw project-local configuration TOML if it exists
+ */
+export function getProjectRawConfig(cwd = process.cwd()): Record<string, Record<string, TomlValue>> {
+	const projectPath = getProjectConfigPath(cwd);
+	if (projectPath && fs.existsSync(projectPath)) {
+		try {
+			const parsed = parseToml(fs.readFileSync(projectPath, "utf-8"));
+			const result: Record<string, Record<string, TomlValue>> = {};
+			for (const [key, value] of Object.entries(parsed)) {
+				if (value && typeof value === "object" && !Array.isArray(value)) {
+					result[key] = value as Record<string, TomlValue>;
+				}
+			}
+			return result;
+		} catch (e) {
+			kernelDebug(e);
+		}
+	}
+	return {};
+}
+
+/**
  * Determine the target path for saving project-local configuration
  */
 export function getTargetProjectConfigPath(cwd = process.cwd()): string {

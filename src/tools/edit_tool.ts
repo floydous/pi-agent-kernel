@@ -444,44 +444,52 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			editToolDescription = "Edit code with search/replace or line range; use search first.";
 			break;
 		default:
-			const blockEditSchema = Type.Object(
-				{
-					search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-					replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-					line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguating matching blocks" })),
-				},
-				{ additionalProperties: true },
-			);
+			const blockEditSchema = Type.Object({
+				search: Type.Optional(Type.String({ description: "Exact block to replace" })),
+				replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
+				line_hint: Type.Optional(
+					Type.Number({
+						minimum: 1,
+						description: "1-based line number hint for disambiguating matching blocks",
+					}),
+				),
+			});
 
-			editToolParameters = Type.Object(
-				{
-					path: Type.Optional(Type.String({ description: "Path to file to edit" })),
-					search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-					replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-					line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguation" })),
-					edits: Type.Optional(
-						Type.Array(blockEditSchema, { description: "Targeted replacements" }),
-					),
-					files: Type.Optional(
-						Type.Array(
-							Type.Object(
-								{
-									path: Type.String({ description: "Workspace-relative or absolute file path to edit" }),
-									search: Type.Optional(Type.String({ description: "Exact block to replace" })),
-									replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
-									line_hint: Type.Optional(Type.Number({ description: "Line hint for disambiguating matching blocks" })),
-									edits: Type.Optional(
-										Type.Array(blockEditSchema, { description: "Array of targeted replacements for this file" }),
-									),
-								},
-								{ additionalProperties: true },
+			editToolParameters = Type.Object({
+				path: Type.Optional(Type.String({ description: "Workspace-relative or absolute file path to edit" })),
+				search: Type.Optional(Type.String({ description: "Exact block to replace" })),
+				replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
+				line_hint: Type.Optional(
+					Type.Number({
+						minimum: 1,
+						description: "1-based line number hint for disambiguating matching blocks",
+					}),
+				),
+				edits: Type.Optional(
+					Type.Array(blockEditSchema, {
+						description: "Ordered array of targeted search/replace blocks applied atomically to this file",
+					}),
+				),
+				files: Type.Optional(
+					Type.Array(
+						Type.Object({
+							path: Type.String({ description: "Workspace-relative or absolute file path to edit" }),
+							search: Type.Optional(Type.String({ description: "Exact block to replace" })),
+							replace: Type.Optional(Type.String({ description: "Replacement text (empty string to delete)" })),
+							line_hint: Type.Optional(
+								Type.Number({
+									minimum: 1,
+									description: "1-based line number hint for disambiguating matching blocks",
+								}),
 							),
-							{ description: "Multi-file edits" },
-						),
+							edits: Type.Optional(
+								Type.Array(blockEditSchema, { description: "Array of targeted replacements for this file" }),
+							),
+						}),
+						{ description: "Atomic multi-file edits; each entry targets a distinct file path" },
 					),
-				},
-				{ additionalProperties: true },
-			);
+				),
+			});
 			break;
 	}
 	const editToolDefinition: any = {
@@ -491,6 +499,31 @@ export function registerEditTool(pi: ExtensionAPI, deps: SessionDeps): void {
 		promptSnippet: "Edit code using search/replace (optional line_hint), multi-block 'edits', or multi-file 'files' (preserves CRLF/LF)",
 		renderShell: "default",
 		parameters: editToolParameters,
+		prepareArguments(args: any) {
+			if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+			const normalizeItem = (item: any) => {
+				if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+				let out = item;
+				if (out.replace === null) out = { ...out, replace: "" };
+				if (Array.isArray(out.edits)) {
+					out = {
+						...out,
+						edits: out.edits.map((e: any) =>
+							e && typeof e === "object" && e.replace === null ? { ...e, replace: "" } : e,
+						),
+					};
+				}
+				return out;
+			};
+			let prepared = normalizeItem(args);
+			if (Array.isArray(prepared.files)) {
+				prepared = {
+					...prepared,
+					files: prepared.files.map(normalizeItem),
+				};
+			}
+			return prepared;
+		},
 		async execute(
 			_toolCallId: string,
 			params: any,

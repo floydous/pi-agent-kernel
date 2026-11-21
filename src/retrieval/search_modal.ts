@@ -9,6 +9,7 @@ import {
 	removeGlobalKernelConfigKey,
 	removeProjectKernelConfigKey,
 	getGlobalRawConfig,
+	getProjectRawConfig,
 	mergeDeep,
 	type KernelConfig,
 	type KernelConfigOverrides,
@@ -46,6 +47,7 @@ export interface UnifiedModalOptions {
 		triggerBackgroundIndexing?: (index: any, ctx: any, isFullSync?: boolean) => void;
 	};
 	ctx?: any;
+	keybindings?: { matches?: (data: string, keybinding: string) => boolean };
 }
 
 class SearchInput {
@@ -57,8 +59,10 @@ class SearchInput {
 		this.value = v;
 	}
 	handleInput(data: string): void {
-		if (data === "\x7f" || data === "\b") {
+		if (data === "\x7f" || data === "\b" || /^\x1b\[127(?:;1(?::[12])?)?u$/.test(data)) {
 			this.value = this.value.slice(0, -1);
+		} else if (matchesKey(data, "space")) {
+			this.value += " ";
 		} else if (data.length === 1 && data >= " " && data <= "~") {
 			this.value += data;
 		}
@@ -120,6 +124,7 @@ export class UnifiedControlModal implements Focusable {
 	// TAB 1: RETRIEVAL ENGINE STATE
 	// -------------------------------------------------------------------------
 	private initialProfile: SearchProfile;
+	private selectedProfile: SearchProfile;
 	private profileSelectedIndex = 0;
 	private profileItems: Array<{
 		id: string;
@@ -203,8 +208,8 @@ export class UnifiedControlModal implements Focusable {
 
 		// Initial profile setup
 		this.initialProfile = index?.getProfile ? index.getProfile() : "lean";
-		const activeProfileName = this.initialProfile === "hybrid" ? "full" : this.initialProfile;
-		const pIdx = this.profileItems.findIndex((item) => item.profile === activeProfileName);
+		this.selectedProfile = this.initialProfile === "hybrid" ? "full" : this.initialProfile;
+		const pIdx = this.profileItems.findIndex((item) => item.profile === this.selectedProfile);
 		if (pIdx >= 0) this.profileSelectedIndex = pIdx;
 
 		// Excluded paths setup
@@ -228,26 +233,40 @@ export class UnifiedControlModal implements Focusable {
 			: loadKernelConfig(this.currentCwd);
 
 		const globalRaw = getGlobalRawConfig();
+		const projectTrusted = this.options.ctx?.isProjectTrusted?.() !== false;
+		const projectRaw = projectTrusted ? getProjectRawConfig(this.currentCwd) : {};
+		const isOverriddenByProject = (section: string, key: string): boolean =>
+			projectRaw[section]?.[key] !== undefined;
 		const checkIsGlobal = (id: string): boolean => {
-			if (id === "profile") return globalRaw.retrieval?.default_profile !== undefined;
-			if (id === "epistemic") return globalRaw.safety?.enable_epistemic_guard !== undefined;
-			if (id === "max_lines") return globalRaw.safety?.max_lines !== undefined;
-			if (id === "editing") return globalRaw.editing?.mode !== undefined;
-			if (id === "read_mode") return globalRaw.editing?.read_mode !== undefined;
-			if (id === "normalize_dots") return globalRaw.editing?.normalize_fullwidth_dots !== undefined;
-			if (id === "guidance") return globalRaw.instructions?.enabled !== undefined;
-			if (id === "host_environment") return globalRaw.instructions?.host_environment !== undefined;
-			if (id === "pi_docs") return globalRaw.instructions?.pi_docs !== undefined;
-			if (id === "footer") return globalRaw.ui?.enable_pastel_footer !== undefined;
+			if (id === "profile") return !isOverriddenByProject("retrieval", "default_profile") && globalRaw.retrieval?.default_profile !== undefined;
+			if (id === "epistemic") return !isOverriddenByProject("safety", "enable_epistemic_guard") && globalRaw.safety?.enable_epistemic_guard !== undefined;
+			if (id === "max_lines") return !isOverriddenByProject("safety", "max_lines") && globalRaw.safety?.max_lines !== undefined;
+			if (id === "editing") return !isOverriddenByProject("editing", "mode") && globalRaw.editing?.mode !== undefined;
+			if (id === "read_mode") return !isOverriddenByProject("editing", "read_mode") && globalRaw.editing?.read_mode !== undefined;
+			if (id === "normalize_dots") return !isOverriddenByProject("editing", "normalize_fullwidth_dots") && globalRaw.editing?.normalize_fullwidth_dots !== undefined;
+			if (id === "guidance") return !isOverriddenByProject("instructions", "enabled") && globalRaw.instructions?.enabled !== undefined;
+			if (id === "host_environment") return !isOverriddenByProject("instructions", "host_environment") && globalRaw.instructions?.host_environment !== undefined;
+			if (id === "pi_docs") return !isOverriddenByProject("instructions", "pi_docs") && globalRaw.instructions?.pi_docs !== undefined;
+			if (id === "footer") return !isOverriddenByProject("ui", "enable_pastel_footer") && globalRaw.ui?.enable_pastel_footer !== undefined;
 			return false;
 		};
+
+		const normalizedProfile = currentConfig.retrieval.default_profile === "hybrid"
+			? "full"
+			: currentConfig.retrieval.default_profile;
+		if (!this.index?.getProfile) {
+			this.initialProfile = normalizedProfile;
+			this.selectedProfile = normalizedProfile;
+			const pIdx = this.profileItems.findIndex((item) => item.profile === this.selectedProfile);
+			if (pIdx >= 0) this.profileSelectedIndex = pIdx;
+		}
 
 		this.settingsItems = [
 			{
 				category: "Retrieval & Exploration",
 				id: "profile",
 				label: "Retrieval Engine Profile",
-				currentValue: currentConfig.retrieval.default_profile,
+				currentValue: normalizedProfile,
 				values: ["auto", "lean", "full", "off"],
 				isGlobal: checkIsGlobal("profile"),
 				descriptions: {
@@ -255,7 +274,7 @@ export class UnifiedControlModal implements Focusable {
 					lean: "Lean profile: BM25 keyword index + AST code chunking. Zero RAM overhead, sub-millisecond retrieval.",
 					full: "Full profile: BM25 keyword index fused with 768d gte-modernbert-base code embeddings (~147 MB model).",
 					hybrid: "Hybrid: alias of the full profile.",
-					off: "Off profile: Retrieval subsystem disabled. Searches return empty results.",
+					off: "Off profile: Retrieval subsystem disabled. code_search returns an error.",
 				},
 			},
 			{
@@ -407,6 +426,17 @@ export class UnifiedControlModal implements Focusable {
 		this.settingsSelectedIndex = 0;
 	}
 
+	private syncProfileSelection(profile: SearchProfile): void {
+		const normalized = profile === "hybrid" ? "full" : profile;
+		this.selectedProfile = normalized;
+		const pIdx = this.profileItems.findIndex((pi) => pi.profile === normalized);
+		if (pIdx >= 0) this.profileSelectedIndex = pIdx;
+		const profileSetting = this.settingsItems.find((s) => s.id === "profile");
+		if (profileSetting) {
+			profileSetting.currentValue = normalized;
+		}
+	}
+
 	private activateSettingItem(): void {
 		const item = this.filteredSettingsItems[this.settingsSelectedIndex];
 		if (!item || !item.values || item.values.length === 0) return;
@@ -416,9 +446,7 @@ export class UnifiedControlModal implements Focusable {
 
 		// If profile setting was cycled in Tab 0, keep Tab 1 in sync
 		if (item.id === "profile") {
-			const newProf = item.currentValue as SearchProfile;
-			const pIdx = this.profileItems.findIndex((pi) => pi.profile === (newProf === "hybrid" ? "full" : newProf));
-			if (pIdx >= 0) this.profileSelectedIndex = pIdx;
+			this.syncProfileSelection(item.currentValue as SearchProfile);
 		}
 	}
 
@@ -732,13 +760,17 @@ export class UnifiedControlModal implements Focusable {
 		return false;
 	}
 
+	private matchesBinding(data: string, keybinding: string, fallbackKey: string): boolean {
+		return Boolean(this.options.keybindings?.matches?.(data, keybinding)) || matchesKey(data, fallbackKey);
+	}
+
 	// =========================================================================
 	// KEYBOARD INPUT DISPATCHER
 	// =========================================================================
 	async handleInput(data: string): Promise<void> {
 		// Universal dismiss on Esc / q
 		if (
-			matchesKey(data, "escape") ||
+			this.matchesBinding(data, "tui.select.cancel", "escape") ||
 			matchesKey(data, "q") ||
 			matchesKey(data, "ctrl+c")
 		) {
@@ -775,12 +807,15 @@ export class UnifiedControlModal implements Focusable {
 				this.tui?.requestRender?.();
 				return;
 			}
-			if (matchesKey(data, "return") || (data === " " && this.searchInput.getValue().length === 0)) {
+			if (
+				this.matchesBinding(data, "tui.select.confirm", "return") ||
+				(matchesKey(data, "space") && this.searchInput.getValue().length === 0)
+			) {
 				this.activateSettingItem();
 				this.tui?.requestRender?.();
 				return;
 			}
-			if (matchesKey(data, "up") || matchesKey(data, "k")) {
+			if (this.matchesBinding(data, "tui.select.up", "up") || matchesKey(data, "k")) {
 				if (this.filteredSettingsItems.length > 0) {
 					this.settingsSelectedIndex =
 						this.settingsSelectedIndex === 0
@@ -790,7 +825,7 @@ export class UnifiedControlModal implements Focusable {
 				}
 				return;
 			}
-			if (matchesKey(data, "down") || matchesKey(data, "j")) {
+			if (this.matchesBinding(data, "tui.select.down", "down") || matchesKey(data, "j")) {
 				if (this.filteredSettingsItems.length > 0) {
 					this.settingsSelectedIndex =
 						this.settingsSelectedIndex === this.filteredSettingsItems.length - 1
@@ -821,26 +856,26 @@ export class UnifiedControlModal implements Focusable {
 				return;
 			}
 
-			if (matchesKey(data, "up") || matchesKey(data, "k")) {
+			if (this.matchesBinding(data, "tui.select.up", "up") || matchesKey(data, "k")) {
 				this.profileSelectedIndex =
 					(this.profileSelectedIndex - 1 + this.profileItems.length) % this.profileItems.length;
 				this.tui?.requestRender?.();
 				return;
 			}
 
-			if (matchesKey(data, "down") || matchesKey(data, "j")) {
+			if (this.matchesBinding(data, "tui.select.down", "down") || matchesKey(data, "j")) {
 				this.profileSelectedIndex = (this.profileSelectedIndex + 1) % this.profileItems.length;
 				this.tui?.requestRender?.();
 				return;
 			}
 
-			if (matchesKey(data, "return") || matchesKey(data, "space")) {
+			if (this.matchesBinding(data, "tui.select.confirm", "return") || matchesKey(data, "space")) {
 				const item = this.profileItems[this.profileSelectedIndex];
 				if (!item) return;
 
 				if (item.category === "profile" && item.profile) {
-					this.index?.setProfile?.(item.profile);
-					this.finishModal("select", item.profile);
+					this.syncProfileSelection(item.profile);
+					this.tui?.requestRender?.();
 					return;
 				}
 
@@ -872,13 +907,13 @@ export class UnifiedControlModal implements Focusable {
 		}
 		const currentNode = visibleNodes[this.treeCursorIndex];
 
-		if (matchesKey(data, "up") || matchesKey(data, "k")) {
+		if (this.matchesBinding(data, "tui.select.up", "up") || matchesKey(data, "k")) {
 			this.treeCursorIndex = Math.max(0, this.treeCursorIndex - 1);
 			this.tui?.requestRender?.();
 			return;
 		}
 
-		if (matchesKey(data, "down") || matchesKey(data, "j")) {
+		if (this.matchesBinding(data, "tui.select.down", "down") || matchesKey(data, "j")) {
 			this.treeCursorIndex = Math.min(visibleNodes.length - 1, this.treeCursorIndex + 1);
 			this.tui?.requestRender?.();
 			return;
@@ -918,7 +953,7 @@ export class UnifiedControlModal implements Focusable {
 			return;
 		}
 
-		if (matchesKey(data, "return")) {
+		if (this.matchesBinding(data, "tui.select.confirm", "return")) {
 			if (currentNode) {
 				if (currentNode.isDir) {
 					currentNode.expanded = !currentNode.expanded;
@@ -930,15 +965,18 @@ export class UnifiedControlModal implements Focusable {
 		}
 	}
 
-	private finishModal(action: "select" | "reindex" | "close", selectedProfile?: SearchProfile): void {
-		// 1. Commit any changes from Tab 0 Settings
+	private finishModal(action: "select" | "reindex" | "close"): void {
+		// 1. Commit any changes from Tab 0 & Tab 1 (profile selection is synchronized into Tab 0)
 		this.applySettingsChanges();
 
-		// 2. Commit any changes from Tab 1 Retrieval Mode
-		const currentProfile = this.index?.getProfile ? this.index.getProfile() : this.initialProfile;
-		const profileChanged = selectedProfile !== undefined && selectedProfile !== this.initialProfile;
+		const initialNormalized = this.initialProfile === "hybrid" ? "full" : this.initialProfile;
+		const profileChanged = this.selectedProfile !== initialNormalized;
+		if (profileChanged && !this.options.deps?.invalidateConfig) {
+			this.index?.setProfile?.(this.selectedProfile);
+		}
+		const currentProfile = this.index?.getProfile ? this.index.getProfile() : this.selectedProfile;
 
-		// 3. Commit any changes from Tab 2 Scope
+		// 2. Commit any changes from Tab 2 Scope
 		const hasScopeChanges = this.hasExcludedPathsChanged();
 		if (hasScopeChanges) {
 			if (this.index?.setExcludedPaths) {
@@ -956,7 +994,7 @@ export class UnifiedControlModal implements Focusable {
 
 		this.done({
 			action,
-			profile: selectedProfile || currentProfile,
+			profile: this.selectedProfile || currentProfile,
 			reindexed: action === "reindex" || profileChanged,
 			excludedPathsChanged: hasScopeChanges,
 		});
@@ -1098,7 +1136,7 @@ export class UnifiedControlModal implements Focusable {
 				isModelCached: false,
 				modelStatus: "ready",
 			};
-			const currentProfile = this.index?.getProfile ? this.index.getProfile() : this.initialProfile;
+			const currentProfile = this.selectedProfile;
 
 			const title = this.theme?.fg
 				? this.theme.fg("accent", this.theme.bold("Codebase Retrieval Engine"))

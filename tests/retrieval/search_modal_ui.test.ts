@@ -10,6 +10,11 @@ import { logPass } from "../_setup";
 export async function run(): Promise<void> {
 	console.log("=== Running Search Control Modal UI & Navigation Test Suite ===");
 
+	const isolatedCwd = fs.mkdtempSync(path.join(os.tmpdir(), "modal-ui-isolated-"));
+	const previousPiDir = process.env.PI_DIR;
+	process.env.PI_DIR = path.join(isolatedCwd, ".pi-home");
+
+	try {
 	const excludedSet = new Set<string>();
 
 	const mockIndex: any = {
@@ -89,7 +94,7 @@ export async function run(): Promise<void> {
 
 	// 1. Instantiation & Tab 1 Rendering (Retrieval Engine)
 	console.log("1. Testing initial cursor position and theme rendering on Tab 1 (Retrieval Engine)...");
-	const modal = new SearchControlModal(mockTui, mockIndex, mockTheme, done);
+	const modal = new SearchControlModal(mockTui, mockIndex, mockTheme, done, { cwd: isolatedCwd });
 	let lines = modal.render(80);
 
 	assert.ok(lines.length > 10, "Modal must render multiple lines");
@@ -159,7 +164,7 @@ export async function run(): Promise<void> {
 	// 8. Test No-Op Dismissal (Zero changes must NOT reindex)
 	console.log("8. Verifying zero-change dismissal does NOT reindex...");
 	modalResult = null;
-	const cleanModal = new SearchControlModal(mockTui, mockIndex, mockTheme, done);
+	const cleanModal = new SearchControlModal(mockTui, mockIndex, mockTheme, done, { cwd: isolatedCwd });
 	await cleanModal.handleInput("\x1b"); // Escape immediately without changes
 	assert.ok(modalResult, "Dismissing must call done()");
 	assert.equal(modalResult.action, "close");
@@ -170,7 +175,7 @@ export async function run(): Promise<void> {
 	console.log("9. Testing ancestor exclusion dismantling when subfolder is re-included...");
 	excludedSet.clear();
 	excludedSet.add("src"); // Entire src folder excluded
-	const nestedModal = new SearchControlModal(mockTui, mockIndex, mockTheme, done);
+	const nestedModal = new SearchControlModal(mockTui, mockIndex, mockTheme, done, { cwd: isolatedCwd });
 	await nestedModal.handleInput("\t"); // Switch to Tab 2
 
 	// Position 0 is 'src/'. Expand it
@@ -192,7 +197,7 @@ export async function run(): Promise<void> {
 		getIndexableFiles: () => [],
 		getExcludedPaths: () => new Set(),
 	};
-	const emptyModal = new SearchControlModal(mockTui, emptyIndex, mockTheme, done);
+	const emptyModal = new SearchControlModal(mockTui, emptyIndex, mockTheme, done, { cwd: isolatedCwd });
 	await emptyModal.handleInput("\t"); // Tab to Scope tab
 	const emptyLines = emptyModal.render(80);
 	assert.ok(emptyLines.some((l) => l.includes("No indexable source code files")), "Must display empty notice");
@@ -258,6 +263,11 @@ export async function run(): Promise<void> {
 		assert.equal(testChunks.length, 0, "updateFile() must not add chunks for excluded path");
 	} finally {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
+	}
+	} finally {
+		if (previousPiDir === undefined) delete process.env.PI_DIR;
+		else process.env.PI_DIR = previousPiDir;
+		fs.rmSync(isolatedCwd, { recursive: true, force: true });
 	}
 
 	logPass("All Search Control Modal UI & Navigation Tests Passed Successfully!");

@@ -59,6 +59,17 @@ export async function testToolIntegration(): Promise<void> {
 
 	registerCodeSearchTool(fakePi, fakeDeps);
 	assert(registeredTool, "code_search tool must be registered");
+	assert.ok(registeredTool.parameters.properties.mode, "code_search schema must expose mode");
+	assert.equal(registeredTool.parameters.properties.mode.type, "string", "mode must be a plain string enum");
+	assert.deepEqual(
+		registeredTool.parameters.properties.mode.enum,
+		["auto", "full", "preview", "summary"],
+		"mode must emit a closed JSON Schema enum",
+	);
+	assert.equal(registeredTool.parameters.properties.mode.anyOf, undefined, "mode must not emit anyOf");
+	assert.equal(registeredTool.parameters.properties.limit.minimum, 1, "limit must declare minimum 1");
+	assert.equal(registeredTool.parameters.properties.limit.maximum, 15, "limit must declare maximum 15");
+	assert.ok(registeredTool.parameters.properties.rrf_k, "code_search schema must expose rrf_k");
 	const result = await registeredTool.execute(
 		"tool-call-1",
 		{ query: "run", mode: "full" },

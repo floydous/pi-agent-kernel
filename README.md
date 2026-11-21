@@ -32,35 +32,39 @@ Restart Pi or start a new session.
 
 ---
 
-### 2. Configure the retrieval engine (`/engine`)
+### 2. Settings and configuration (`/agent-kernel`)
 
-`pi-agent-kernel` includes an in-memory retrieval engine for keyword and vector search:
-
-```text
-/engine status
-```
-
-- `auto`: Selects `lean` on machines with fewer than 4 CPU cores and `full` otherwise.
-- `lean` (default): AST-indexed BM25 keyword search with no extra memory footprint.
-- `full`: BM25 search fused with 768-dimension code embeddings from `gte-modernbert-base` (~147 MB, downloaded on first use). `hybrid` is accepted as an alias.
-- `off`: Disables local indexing completely.
-
----
-
-### 3. Settings and configuration (`/agent-kernel`)
-
-Run `/agent-kernel` to open the settings interface:
+Run `/agent-kernel` to open the unified 3-tab interactive controller:
 
 ```text
 /agent-kernel
 ```
 
-You can also manage settings from the command line:
+The modal lets you manage:
+- **`[1] Kernel Settings`**: Toggle the Epistemic Guard, reading anchor modes, output clamping ceilings (`40`, `100`, `200` lines), dot normalization, and prompt guidance.
+- **`[2] Retrieval Engine`**: Configure the code search profile (`auto`, `lean`, `full`, `off`) and trigger full workspace re-indexing.
+- **`[3] File Index Scope`**: Browse the repository tree, toggle folder and file exclusions, and inspect live code chunk counts.
+
+You can also manage settings and retrieval directly from the command line:
 ```text
 /agent-kernel status             # Print current configuration and file locations
-/agent-kernel set <key> <val>    # Update a setting globally
+/agent-kernel engine             # Open directly to Retrieval Engine controls
+/agent-kernel scope              # Open directly to File Index Scope tree
+/agent-kernel reindex            # Force full workspace re-indexing
+/agent-kernel set <key> <val>    # Update a setting (e.g. set profile full, set max_lines 200)
 /agent-kernel reset              # Reset global configuration to defaults
 ```
+
+---
+
+### 3. Retrieval engine profiles
+
+`pi-agent-kernel` includes an in-memory retrieval engine for code search:
+
+- `lean` (default): AST-indexed BM25 keyword search with sub-millisecond retrieval and zero extra memory footprint.
+- `full`: Lexical BM25 search fused with 768-dimension code embeddings from `Alibaba-NLP/gte-modernbert-base` (~147 MB, downloaded on first use) via Reciprocal Rank Fusion. `hybrid` is accepted as an alias.
+- `auto`: Automatically selects `lean` on machines with fewer than 4 CPU cores and `full` on machines with 4 or more cores.
+- `off`: Disables local indexing completely.
 
 ---
 

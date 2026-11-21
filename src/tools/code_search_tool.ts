@@ -10,13 +10,13 @@ export function registerCodeSearchTool(
 	pi: ExtensionAPI,
 	deps: SearchDeps,
 ): void {
-	// 5.5 Tool: `code_search` (Local Hybrid BM25 + Semantic AST Code Search)
+	// 5.5 Tool: `code_search` (Local AST-Chunk BM25 + Profile-Dependent Semantic Code Search)
 	pi.registerTool(markReturnedErrors({
 		name: "code_search",
 		label: "Codebase Search",
 		description:
-			"Fast BM25 & AST semantic search across code chunks. Use when locating features, workflows, UI behaviors, or architecture without known symbol names or file paths (prefer rg for exact text literals and non-code files). Do NOT use for finding exact string literals or call-sites; use rg -n instead.",
-		promptSnippet: "Search codebase conceptually or by keywords via hybrid AST index",
+			"AST-chunk BM25 keyword search across source code (with neural semantic fusion when the active profile enables embeddings). Use when locating features, workflows, UI behaviors, or architecture without known symbol names or file paths. Do NOT use for exact string literals, call-sites, or non-code files; use bash (rg -n) instead.",
+		promptSnippet: "Search code chunks by mechanism keywords or concepts (BM25, plus vectors in full/auto profile)",
 		renderShell: "default",
 		parameters: Type.Object({
 			query: Type.String({
@@ -29,7 +29,23 @@ export function registerCodeSearchTool(
 			),
 			limit: Type.Optional(
 				Type.Number({
-					description: "Max results (default: 5, max: 15)",
+					minimum: 1,
+					maximum: 15,
+					description: "Max results (default: 5, range: 1-15)",
+				}),
+			),
+			mode: Type.Optional(
+				Type.Unsafe<"auto" | "full" | "preview" | "summary">({
+					type: "string",
+					enum: ["auto", "full", "preview", "summary"],
+					description: "Output detail level: 'auto' (adaptive), 'full' (complete chunk bodies), 'preview' (compact snippets), or 'summary' (headers only)",
+				}),
+			),
+			rrf_k: Type.Optional(
+				Type.Number({
+					minimum: 1,
+					maximum: 200,
+					description: "Optional Reciprocal Rank Fusion smoothing constant (1-200, default: 60)",
 				}),
 			),
 		}),
@@ -108,9 +124,14 @@ export function registerCodeSearchTool(
 				// Blame the filter, not the query, when it excludes every indexed file (e.g. "README": docs are not indexed).
 				const filterExcludesIndex = params.file_pattern && indexStatus && indexStatus.chunkCount > 0 &&
 					typeof index.hasIndexedFile === "function" && !index.hasIndexedFile(params.file_pattern);
-				const message = filterExcludesIndex
-					? `No indexed file path contains "${params.file_pattern}". code_search indexes source code only (not Markdown, JSON, YAML, TOML or other text files); use rg to search other files.`
-					: `No code chunks found matching "${query}". (Tips: Try broader or different terms, or 'rg' for exact text literals.)`;
+				let message: string;
+				if (filterExcludesIndex) {
+					message = `No indexed file path contains "${params.file_pattern}". code_search indexes source code only (not Markdown, JSON, YAML, TOML or other text files); use rg to search other files.`;
+				} else if (indexStatus?.effectiveProfile === "full") {
+					message = `No code chunks found matching "${query}". (Engine: Full [Neural RRF]. Tips: Try broader conceptual intent phrases if exact keywords failed; use 'rg' for exact text literals.)`;
+				} else {
+					message = `No code chunks found matching "${query}". (Engine: Lean [BM25 lexical]. Tips: Query with mechanism keywords or identifier patterns likely in source code; use 'rg' for exact text literals.)`;
+				}
 				return {
 					content: [
 						{
@@ -118,7 +139,7 @@ export function registerCodeSearchTool(
 							text: `${coverageNotice}${grammarNotice}${vectorNotice}${message}`,
 						},
 					],
-					details: { count: 0 },
+					details: { count: 0, effectiveProfile: indexStatus?.effectiveProfile || "lean" },
 				};
 			}
 
@@ -168,6 +189,7 @@ export function registerCodeSearchTool(
 				],
 				details: {
 					count: hits.length,
+					effectiveProfile: indexStatus?.effectiveProfile || "lean",
 					mode: formatted.mode,
 					requestedMode,
 					truncated: formatted.truncated,

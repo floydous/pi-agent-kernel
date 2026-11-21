@@ -39,7 +39,7 @@ export async function run(): Promise<void> {
 
 		console.log("3. A filter that matches indexed files keeps the query tip when nothing matches...");
 		const unmatched = await answer({ query: "zebra quokka", file_pattern: "src/" });
-		assert.equal(unmatched, "No code chunks found matching \"zebra quokka\". (Tips: Try broader or different terms, or 'rg' for exact text literals.)");
+		assert.equal(unmatched, "No code chunks found matching \"zebra quokka\". (Engine: Lean [BM25 lexical]. Tips: Query with mechanism keywords or identifier patterns likely in source code; use 'rg' for exact text literals.)");
 		assert.match(await answer({ query: "anthropic messages", file_pattern: "src/" }), /^src\/Server\.ts:/, "the same filter finds code");
 		await index.flushPendingSave?.(true);
 	} finally {

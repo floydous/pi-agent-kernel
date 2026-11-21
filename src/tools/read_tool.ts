@@ -102,7 +102,7 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 	const benchmarkMethod = ["line-range", "search-replace", "hash-anchor", "adaptive"].includes(editMethod || "") ? editMethod : undefined;
 	const readMode = process.env.PI_READ_MODE?.toLowerCase();
 	let readToolDescription =
-		"Read file contents with 50KB / 2,000-line caps. Use when inspecting code around known line coordinates, reviewing exact file contents, or reading multiple files via 'paths'. Defaults to 250 lines when limit is omitted. Do NOT use read for finding files or symbols; use code_search or bash (find, rg) instead.";
+		"Read file contents with 50KB / 2,000-line caps. Use when inspecting code around known line coordinates, reviewing exact file contents, or reading multiple files via 'paths'. Defaults to 250 lines when limit is omitted. Do NOT use read for finding files or symbols; use code_search (when enabled) or bash (rg, find) instead.";
 	switch (benchmarkMethod) {
 		case "line-range":
 			readToolDescription = "Read source with line numbers for numeric line-range edits.";
@@ -135,17 +135,19 @@ export function registerReadTool(pi: ExtensionAPI, deps: SessionDeps): void {
 			),
 			offset: Type.Optional(
 				Type.Number({
+					minimum: 1,
 					description: "1-based starting line number for windowed reads (best when examining code around an exact line coordinate from grep or test failures)",
 				}),
 			),
 			limit: Type.Optional(
 				Type.Number({
+					minimum: 1,
 					description: "Maximum number of lines to read starting from 'offset' (default: 250 for unconstrained reads; keep <= 60 for narrow inspection)",
 				}),
 			),
 			anchors: Type.Optional(
 				Type.Boolean({
-					description: "Narrow ranges (<100 lines) with LINE#HASH│ anchors (default: false, plain text)",
+					description: "Emit LINE#HASH│ prefixes on narrow ranges (<100 lines) for positional line disambiguation (default: false, plain text)",
 				}),
 			),
 			raw: Type.Optional(

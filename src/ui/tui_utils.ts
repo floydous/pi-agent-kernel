@@ -245,33 +245,91 @@ export class Text {
 	}
 }
 
+function matchesKittyUnmodified(data: string, codepoints: number[]): boolean {
+	const match = /^\x1b\[(\d+)(?::\d+)?(?:;(\d+)(?::(\d+))?)?u$/.exec(data);
+	if (!match) return false;
+	const cp = Number(match[1]);
+	if (!codepoints.includes(cp)) return false;
+	const mod = match[2] ? Number(match[2]) : 1;
+	const eventType = match[3] ? Number(match[3]) : 1;
+	return mod === 1 && eventType !== 3;
+}
+
+function matchesKittyCtrl(data: string, codepoint: number): boolean {
+	const match = /^\x1b\[(\d+)(?::\d+)?;(\d+)(?::(\d+))?u$/.exec(data);
+	if (!match) return false;
+	const cp = Number(match[1]);
+	const mod = Number(match[2]);
+	const eventType = match[3] ? Number(match[3]) : 1;
+	return cp === codepoint && mod === 5 && eventType !== 3;
+}
+
+function matchesModifyOtherKeys(data: string, codepoint: number, modifier = 1): boolean {
+	const match = /^\x1b\[27;(\d+);(\d+)~$/.exec(data);
+	if (!match) return false;
+	return Number(match[1]) === modifier && Number(match[2]) === codepoint;
+}
+
+function matchesArrow(data: string, letter: "A" | "B" | "C" | "D"): boolean {
+	if (data === `\x1b[${letter}` || data === `\x1bO${letter}`) return true;
+	const match = new RegExp(`^\\x1b\\[1;1(?::([12]))?${letter}$`).exec(data);
+	return Boolean(match);
+}
+
 export function matchesKey(data: string, key: string): boolean {
 	switch (key.toLowerCase()) {
 		case "escape":
-			return data === "\x1b" || data === "\x1b\x1b";
+			return (
+				data === "\x1b" ||
+				data === "\x1b\x1b" ||
+				matchesKittyUnmodified(data, [27]) ||
+				matchesModifyOtherKeys(data, 27)
+			);
 		case "q":
-			return data === "q" || data === "Q";
+			return data === "q" || data === "Q" || matchesKittyUnmodified(data, [113, 81]);
 		case "ctrl+c":
-			return data === "\x03";
+			return (
+				data === "\x03" ||
+				matchesKittyCtrl(data, 99) ||
+				matchesModifyOtherKeys(data, 99, 5)
+			);
 		case "up":
-			return data === "\x1b[A" || data === "\x1bOA";
+			return matchesArrow(data, "A");
 		case "down":
-			return data === "\x1b[B" || data === "\x1bOB";
+			return matchesArrow(data, "B");
 		case "left":
-			return data === "\x1b[D" || data === "\x1bOD";
+			return matchesArrow(data, "D");
 		case "right":
-			return data === "\x1b[C" || data === "\x1bOC";
+			return matchesArrow(data, "C");
 		case "k":
-			return data === "k" || data === "K";
+			return data === "k" || data === "K" || matchesKittyUnmodified(data, [107, 75]);
 		case "j":
-			return data === "j" || data === "J";
+			return data === "j" || data === "J" || matchesKittyUnmodified(data, [106, 74]);
+		case "h":
+			return data === "h" || data === "H" || matchesKittyUnmodified(data, [104, 72]);
+		case "l":
+			return data === "l" || data === "L" || matchesKittyUnmodified(data, [108, 76]);
 		case "return":
 		case "enter":
-			return data === "\r" || data === "\n";
+			return (
+				data === "\r" ||
+				data === "\n" ||
+				data === "\x1bOM" ||
+				matchesKittyUnmodified(data, [13, 57414]) ||
+				matchesModifyOtherKeys(data, 13)
+			);
 		case "space":
-			return data === " ";
+			return (
+				data === " " ||
+				matchesKittyUnmodified(data, [32]) ||
+				matchesModifyOtherKeys(data, 32)
+			);
 		case "tab":
-			return data === "\t";
+			return (
+				data === "\t" ||
+				matchesKittyUnmodified(data, [9]) ||
+				matchesModifyOtherKeys(data, 9)
+			);
 		default:
 			return data === key;
 	}

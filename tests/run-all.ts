@@ -404,6 +404,11 @@ const suites: TestEntry[] = [
 		key: "search-modal-ui",
 		loader: () => runSuiteModule(() => import("./retrieval/search_modal_ui.test")),
 	},
+	{
+		name: "Engine Switch Suffix Notification Suite",
+		key: "engine-switch-notification",
+		loader: () => runSuiteModule(() => import("./extension-lifecycle/engine_switch_notification.test")),
+	},
 ];
 
 async function main(): Promise<void> {

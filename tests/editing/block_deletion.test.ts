@@ -149,6 +149,15 @@ export async function run(): Promise<void> {
 			"Whitespace-normalized deletion must remove the block without leaving an empty line",
 		);
 
+		// 7. prepareArguments normalizes replace: null -> "" before pi-schema strips optional nulls
+		console.log("7. Testing prepareArguments preserves replace: null as empty string...");
+		const prepSingle = editTool.prepareArguments({ path: "script.js", search: "x", replace: null });
+		assert.equal(prepSingle.replace, "");
+		const prepNested = editTool.prepareArguments({
+			files: [{ path: "script.js", edits: [{ search: "y", replace: null }] }],
+		});
+		assert.equal(prepNested.files[0].edits[0].replace, "");
+
 		console.log("\n✓ All Block Deletion Tests Passed Successfully!");
 	} finally {
 		fs.rmSync(tempDir, { recursive: true, force: true });

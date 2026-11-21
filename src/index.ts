@@ -40,17 +40,53 @@ function getSessionId(ctx: any): string {
 	return `__default__${process.pid}`;
 }
 
+const PI_DOCS_TAGGED = /\n?<docs>\s*\nPi documentation \(read only when the user asks about [^)]+\):[\s\S]*?<\/docs>\r?\n?/;
 const PI_DOCS_START =
-	"Pi documentation (read only when the user asks about pi itself, its SDK, extensions, themes, skills, or TUI):";
-const PI_DOCS_END = /\n- Always read pi \.md files completely[^\n]*/;
+	/Pi documentation \(read only when the user asks about (?:pi|the harness) itself, its SDK, extensions, themes, skills, or TUI\):/;
+const PI_DOCS_END =
+	/\n- (?:Always read pi \.md files completely|Before implementing harness changes, read the relevant docs)[^\n]*/;
 export const KERNEL_GUIDANCE_MARKER = "<agent_kernel_guidance>";
 const KERNEL_TOOL_BLOCKS = ["CODE_SEARCH"] as const;
 let kernelGuidance: string | null | undefined;
 const piDocsEnabledBySession = new Map<string, boolean>();
+const lastNotifiedProfileBySession = new Map<string, "lean" | "full" | "off">();
+const pendingEngineNotificationBySession = new Map<string, string | null>();
+
+export function formatEngineNotification(effectiveProfile: "lean" | "full" | "off"): string {
+	if (effectiveProfile === "lean") {
+		return `<system_notification>\nRetrieval engine updated: Lean Mode (lexical BM25 over code AST chunks).\nFormulate \`code_search\` queries using 3–5 mechanism keywords, domain nouns, or code identifier patterns likely to appear in source code or docstrings (e.g., "connection idle timeout", "token expiration").\n</system_notification>`;
+	}
+	if (effectiveProfile === "full") {
+		return `<system_notification>\nRetrieval engine updated: Full Mode (hybrid BM25 + 768-dim ModernBERT neural embeddings via RRF).\nFormulate \`code_search\` queries using both technical keywords and conceptual intent phrases (e.g., "dropping dead upstream sockets", "session lifecycle").\n</system_notification>`;
+	}
+	return `<system_notification>\nRetrieval engine updated: Off profile (retrieval disabled).\n\`code_search\` is disabled and returns an error. Direct discovery to \`rg -n\` and file reading tools.\n</system_notification>`;
+}
+
+export function getPendingEngineNotification(sessionId: string): string | null {
+	return pendingEngineNotificationBySession.get(sessionId) ?? null;
+}
+
+export function getLastNotifiedProfile(sessionId: string): ("lean" | "full" | "off") | undefined {
+	return lastNotifiedProfileBySession.get(sessionId);
+}
+
+export function clearEngineNotificationState(): void {
+	lastNotifiedProfileBySession.clear();
+	pendingEngineNotificationBySession.clear();
+}
 
 function withoutPiDocumentation(systemPrompt: string): string {
-	const start = systemPrompt.indexOf(PI_DOCS_START);
-	if (start < 0) return systemPrompt;
+	const taggedMatch = PI_DOCS_TAGGED.exec(systemPrompt);
+	if (taggedMatch && taggedMatch.index !== undefined) {
+		const start = taggedMatch.index;
+		const end = start + taggedMatch[0].length;
+		const before = systemPrompt.slice(0, start).replace(/\n{2,}$/, "\n");
+		const after = systemPrompt.slice(end).replace(/^\n{2,}/, "\n");
+		return before + after;
+	}
+	const startMatch = PI_DOCS_START.exec(systemPrompt);
+	if (!startMatch || startMatch.index === undefined) return systemPrompt;
+	const start = startMatch.index;
 	const endMatch = systemPrompt.slice(start).match(PI_DOCS_END);
 	if (!endMatch || endMatch.index === undefined) return systemPrompt;
 
@@ -126,7 +162,7 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 		kernelDebug(`TreeSitter background init error: ${err}`);
 	});
 
-	// 3. Slash Commands: /engine, /pi-docs
+	// 3. Slash Commands: /agent-kernel, /pi-docs
 	let activeTui: any = null;
 	let projectTrusted = false;
 	const configByWorkspace = new Map<
@@ -305,7 +341,20 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 			}
 		}
 
-		// 2. Refresh statusline and footer immediately
+		// 2. Track engine notification with intra-turn net-state collapsing (zero-stack)
+		if (ctx && index) {
+			const sessionId = getSessionId(ctx);
+			const eff = index.getEffectiveProfile();
+			const lastNotified = lastNotifiedProfileBySession.get(sessionId);
+			if (eff !== lastNotified) {
+				pendingEngineNotificationBySession.set(sessionId, formatEngineNotification(eff));
+			} else {
+				// User switched back and forth resulting in zero net change: cancel pending
+				pendingEngineNotificationBySession.delete(sessionId);
+			}
+		}
+
+		// 3. Refresh statusline and footer immediately
 		if (ctx) {
 			syncRetrievalStatus(ctx);
 			activeTui?.requestRender?.();
@@ -385,11 +434,14 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	pi.on("session_start", async (_event: any, ctx: any) => {
 		projectTrusted = ctx.isProjectTrusted?.() === true;
 		configByWorkspace.clear();
+		const sessionId = getSessionId(ctx);
 		const cwd = ctx.sessionManager?.getCwd?.() || ctx.cwd || process.cwd();
 		registerKernelTools();
 		setupUnifiedFooter(ctx);
 		try {
 			const index = getSearchIndex(cwd);
+			lastNotifiedProfileBySession.set(sessionId, index.getEffectiveProfile());
+			pendingEngineNotificationBySession.delete(sessionId);
 			if (index.getEffectiveProfile() !== "off") {
 				triggerBackgroundIndexing(index, ctx, false);
 			}
@@ -405,6 +457,8 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", async (_event: any, ctx: any) => {
 		const sessionId = getSessionId(ctx);
 		piDocsEnabledBySession.delete(sessionId);
+		lastNotifiedProfileBySession.delete(sessionId);
+		pendingEngineNotificationBySession.delete(sessionId);
 		globalEpistemicGuard.resetSession(sessionId);
 		// Flush any debounced search index writes to disk on shutdown and halt further admissions
 		for (const index of searchIndexes.values()) {
@@ -635,10 +689,15 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 	// system prompt by this extension.
 	pi.on("before_agent_start", async (event: any, ctx: any) => {
 		const currentCwd = ctx?.sessionManager?.getCwd?.() || ctx?.cwd || process.cwd();
+		const sessionId = getSessionId(ctx);
 		const kernelConfig = getConfig(currentCwd);
 
 		const basePrompt = event.systemPrompt || "";
-		const systemPrompt = piDocsEnabled(ctx)
+		const includePiDocs = piDocsEnabled(ctx);
+		if (!includePiDocs && event.systemPromptOptions?.sections?.docs !== undefined) {
+			delete event.systemPromptOptions.sections.docs;
+		}
+		const systemPrompt = includePiDocs
 			? basePrompt
 			: withoutPiDocumentation(basePrompt);
 		const activeToolNames = new Set(pi.getActiveTools?.() || []);
@@ -664,6 +723,24 @@ export default async function unifiedHybridExtension(pi: ExtensionAPI) {
 				guidedPrompt = `${guidedPrompt.trimEnd()}\n\n${hostEnv}`;
 			}
 		}
+
+		const pendingNotification = pendingEngineNotificationBySession.get(sessionId);
+		if (pendingNotification) {
+			pendingEngineNotificationBySession.delete(sessionId);
+			try {
+				const index = getSearchIndex(currentCwd);
+				lastNotifiedProfileBySession.set(sessionId, index.getEffectiveProfile());
+			} catch {}
+			return {
+				systemPrompt: guidedPrompt,
+				message: {
+					customType: "agent-kernel-engine-notification",
+					content: pendingNotification,
+					display: true,
+				},
+			};
+		}
+
 		return { systemPrompt: guidedPrompt };
 	});
 }

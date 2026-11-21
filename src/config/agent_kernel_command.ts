@@ -258,14 +258,14 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 			}
 
 			const index = deps.getSearchIndex ? deps.getSearchIndex(currentCwd) : undefined;
-			await ctx.ui.custom((tui: any, theme: any, _kb: any, done: (res?: any) => void) => {
+			await ctx.ui.custom((tui: any, theme: any, kb: any, done: (res?: any) => void) => {
 				return new UnifiedControlModal(
 					tui,
 					index,
 					theme,
 					(res) => {
 						if (res) {
-							if (res.reindexed || res.excludedPathsChanged) {
+							if (res.action === "reindex" || res.excludedPathsChanged) {
 								deps.triggerBackgroundIndexing?.(index, ctx, res.action === "reindex");
 							}
 						}
@@ -276,6 +276,7 @@ export function registerAgentKernelCommand(pi: ExtensionAPI, deps: AgentKernelCo
 						cwd: currentCwd,
 						deps,
 						ctx,
+						keybindings: kb,
 					},
 				);
 			});
