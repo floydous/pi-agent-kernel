@@ -39,3 +39,4 @@ __pycache__/
 graphify-out/
 html-files/
 opinion/
+.agents/
